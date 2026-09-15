@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "event.h"
+#include "market_rules.h"
 #include "order.h"
 #include "order_book.h"
 #include "types.h"
@@ -67,6 +68,13 @@ void match_engine_destroy(match_engine_t *eng);
  * 싱크는 엔진보다 오래 살아야 한다 — 엔진은 포인터만 복사한다.
  */
 void match_set_sink(match_engine_t *eng, const event_sink_t *sink);
+
+/*
+ * 시장 규칙 테이블을 건다. NULL이면 세션·유형 검사를 하지 않는다(기본값) —
+ * 규칙과 무관한 매칭 자체를 시험하는 테스트가 그 상태로 돈다.
+ * 테이블은 엔진보다 오래 살아야 한다. 엔진은 포인터만 들고 있는다.
+ */
+void match_set_rules(match_engine_t *eng, const market_rules_t *rules);
 
 /* 호가 조회용. 엔진이 소유하므로 호출부가 파괴하지 않는다. */
 const order_book_t *match_book(const match_engine_t *eng);

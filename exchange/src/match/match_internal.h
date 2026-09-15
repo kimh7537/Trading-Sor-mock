@@ -15,6 +15,7 @@ struct match_engine {
     order_index_t *index;
     int32_t capacity;
     event_sink_t sink;
+    const market_rules_t *rules; /* NULL이면 세션 검사를 하지 않는다 */
 };
 
 /* 이벤트 하나를 내보낸다. 싱크가 없으면 아무 일도 하지 않는다. */
@@ -50,6 +51,21 @@ qty_t match_sweep(match_engine_t *eng, const order_t *taker, price_t limit,
 /* 잔량을 호가창에 등록한다. 성공하면 ERR_OK. */
 int match_rest(match_engine_t *eng, const order_t *req, qty_t remaining,
                exec_result_t *out);
+
+/*
+ * 세션 관문. 규칙 테이블이 없으면 그냥 통과시킨다.
+ * 닫혀 있으면 ERR_MARKET_CLOSED, 이 구간이 안 받는 유형이면 ERR_NOT_SUPPORTED.
+ */
+int match_gate_submit(const match_engine_t *eng, ts_t ts, order_type_t type);
+
+/* 취소용 관문. 휴장 구간에서도 취소는 받는다. */
+int match_gate_cancel(const match_engine_t *eng, ts_t ts);
+
+/*
+ * 이 주문이 실제로 쓸 가격. 규칙 테이블이 없으면 주문에 실린 가격 그대로.
+ * 정할 수 없으면 BOOK_PRICE_NONE.
+ */
+price_t match_resolve_price(const match_engine_t *eng, const order_t *req);
 
 /* 접수 전 공통 검증. 호가창을 건드리기 전에 부른다. */
 int match_validate(const match_engine_t *eng, const order_t *req);

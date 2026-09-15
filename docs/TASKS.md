@@ -199,7 +199,7 @@
 ---
 
 ### T1-13 시장 규칙 추상화
-- [ ] 의존: T1-12
+- [x] 의존: T1-12
 
 `exchange/include/market_rules.h`
 

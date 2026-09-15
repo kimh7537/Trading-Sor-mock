@@ -7,6 +7,7 @@ add_library(exchange STATIC
     src/match/match_ioc_fok.c
     src/match/match_cancel_modify.c
     src/event.c
+    src/rules/market_rules.c
 )
 target_include_directories(exchange PUBLIC include PRIVATE src/match)
 target_link_libraries(exchange PUBLIC core)

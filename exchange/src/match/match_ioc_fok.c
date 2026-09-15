@@ -42,6 +42,11 @@ int match_ioc(match_engine_t *eng, const order_t *req, exec_result_t *out)
 
     match_result_init(out, req->qty);
 
+    int gate = match_gate_submit(eng, req->ts, req->type);
+    if (gate != ERR_OK) {
+        return REJECT(gate);
+    }
+
     int rc = check_price(eng, req, out);
     if (rc != ERR_OK) {
         return rc;
@@ -77,6 +82,11 @@ int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out)
     }
 
     match_result_init(out, req->qty);
+
+    int gate = match_gate_submit(eng, req->ts, req->type);
+    if (gate != ERR_OK) {
+        return REJECT(gate);
+    }
 
     int rc = check_price(eng, req, out);
     if (rc != ERR_OK) {

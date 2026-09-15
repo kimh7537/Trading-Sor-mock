@@ -29,6 +29,12 @@ int match_cancel(match_engine_t *eng, order_id_t id, ts_t ts,
 
     match_result_init(out, 0);
 
+    int gate = match_gate_cancel(eng, ts);
+    if (gate != ERR_OK) {
+        out->status = STATUS_REJECTED;
+        return gate;
+    }
+
     order_t *order = index_get(eng->index, id);
     if (order == NULL) {
         out->status = STATUS_REJECTED;
@@ -67,6 +73,13 @@ int match_modify(match_engine_t *eng, order_id_t id, price_t new_price,
     }
 
     match_result_init(out, new_qty);
+
+    /* 정정은 신규 주문과 같은 관문을 지난다. 휴장 구간에서는 취소만 된다. */
+    int gate = match_gate_submit(eng, ts, ORDER_LIMIT);
+    if (gate != ERR_OK) {
+        out->status = STATUS_REJECTED;
+        return gate;
+    }
 
     order_t *order = index_get(eng->index, id);
     if (order == NULL) {

@@ -247,3 +247,52 @@ int match_reject(const match_engine_t *eng, ts_t ts, order_id_t id,
                ORDER_ID_INVALID, rc);
     return rc;
 }
+
+void match_set_rules(match_engine_t *eng, const market_rules_t *rules)
+{
+    if (eng != NULL) {
+        eng->rules = rules;
+    }
+}
+
+int match_gate_submit(const match_engine_t *eng, ts_t ts, order_type_t type)
+{
+    if (eng->rules == NULL) {
+        return ERR_OK;
+    }
+
+    session_t session = SESSION_CLOSED;
+    bool open = eng->rules->is_open(ts, &session);
+
+    /*
+     * is_open과 can_submit을 나눠 둔 이유: 휴장 구간은 "열려 있지 않지만 취소는 되는"
+     * 상태다. 하나로 합치면 그 구간을 표현할 수 없다.
+     */
+    if (!open || !eng->rules->can_submit(session)) {
+        return ERR_MARKET_CLOSED;
+    }
+    if (!eng->rules->is_order_type_allowed(session, type)) {
+        return ERR_NOT_SUPPORTED;
+    }
+    return ERR_OK;
+}
+
+int match_gate_cancel(const match_engine_t *eng, ts_t ts)
+{
+    if (eng->rules == NULL) {
+        return ERR_OK;
+    }
+
+    session_t session = SESSION_CLOSED;
+    (void)eng->rules->is_open(ts, &session);
+
+    return eng->rules->can_cancel(session) ? ERR_OK : ERR_MARKET_CLOSED;
+}
+
+price_t match_resolve_price(const match_engine_t *eng, const order_t *req)
+{
+    if (eng->rules == NULL || eng->rules->resolve_price == NULL) {
+        return req->price;
+    }
+    return eng->rules->resolve_price(eng->book, req);
+}

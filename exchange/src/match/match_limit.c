@@ -27,6 +27,22 @@ int match_limit(match_engine_t *eng, const order_t *req, exec_result_t *out)
 
     match_result_init(out, req->qty);
 
+    int gate = match_gate_submit(eng, req->ts, req->type);
+    if (gate != ERR_OK) {
+        return REJECT(gate);
+    }
+
+    /*
+     * 가격은 규칙이 정한다. 지정가는 주문에 실린 값 그대로지만, 중간가처럼
+     * 호가에 따라 정해지는 유형은 여기서 값이 바뀐다. 엔진은 유형으로 분기하지 않는다.
+     */
+    order_t eff = *req;
+    eff.price = match_resolve_price(eng, req);
+    if (eff.price == BOOK_PRICE_NONE) {
+        return REJECT(ERR_INVALID_PRICE);
+    }
+    req = &eff;
+
     /*
      * 잔량이 호가창에 등록될 수 있으므로 가격이 제한폭과 호가 단위를 만족해야 한다.
      * 호가창을 건드리기 전에 본다 — 거부될 주문이 반쯤 체결되고 나서 실패하면 안 된다.
