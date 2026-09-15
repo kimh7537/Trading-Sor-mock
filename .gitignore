@@ -1,0 +1,9 @@
+build*/
+*.o
+*.a
+compile_commands.json
+
+# 에디터 · 에이전트 도구 디렉터리
+.claude/
+.omc/
+.serena/
