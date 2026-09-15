@@ -19,9 +19,9 @@
 
 ## 현재 상태 (2026-09-15)
 
-T1-02 완료. `core/`(타입·에러 코드)와 루트 CMake만 있다. 아래 "디렉터리 구조"의 나머지는 아직 계획이다.
+T1-03 완료. `core/`(타입·에러 코드·호가 단위)와 루트 CMake만 있다. 아래 "디렉터리 구조"의 나머지는 아직 계획이다.
 
-- 다음 태스크: `docs/TASKS.md`의 T1-03 (호가 단위 테이블)
+- 다음 태스크: `docs/TASKS.md`의 T1-04
 - **빌드는 WSL Ubuntu에서 한다.** Windows 네이티브 MSYS2 gcc에는 libasan/libubsan이 없어
   커밋 전 ASan 게이트를 지킬 수 없다. 아래 명령은 모두 WSL 안에서 실행한다:
   `wsl -d Ubuntu` 후 `cd /mnt/c/Users/hyunwoo/OneDrive/*/Study/mock-sor`
