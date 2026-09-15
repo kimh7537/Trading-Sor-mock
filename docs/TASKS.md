@@ -334,7 +334,7 @@ Phase 1 완료 시점(2026-09-15)에 상세화했다. 완료 조건이 곧 테�
 ---
 
 ### T2-01 통합 호가창
-- [ ] 의존: T1-20
+- [x] 의존: T1-20
 
 `sor/include/consolidated.h`, `sor/src/consolidated.c`
 
