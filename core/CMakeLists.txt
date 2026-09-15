@@ -3,6 +3,7 @@ add_library(core STATIC
     src/tick_size.c
     src/order_pool.c
     src/order_index.c
+    src/wire.c
 )
 target_include_directories(core PUBLIC include)
 
