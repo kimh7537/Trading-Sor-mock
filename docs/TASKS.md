@@ -76,7 +76,7 @@
 ---
 
 ### T1-05 가격 레벨 (FIFO)
-- [ ] 의존: T1-04
+- [x] 의존: T1-04
 
 `exchange/src/book/price_level.c`
 

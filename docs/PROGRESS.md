@@ -25,6 +25,35 @@
 
 ## 2026-09-15
 
+- [T1-05] 가격 레벨 (FIFO)
+  - 한 일: `exchange/include/price_level.h`, `exchange/src/book/price_level.c`,
+    `exchange/tests/test_price_level.c`. `exchange` 라이브러리 타깃 신설.
+    `order_t`에 `prev`/`next`와 `order_remaining_qty()` 추가.
+  - 판단 1 — 침략적(intrusive) 리스트. 링크를 `order_t` 안에 뒀다. 별도 노드 구조체를 두면
+    노드 풀이 하나 더 생기고, 무엇보다 T1-06의 `book_remove(book, order)`가 주문에서 노드를
+    거꾸로 찾을 길이 없어 역방향 인덱스가 또 필요해진다. 대가는 한 주문이 한 번에 한
+    리스트에만 들어간다는 제약인데, 주문은 실제로 한 가격 레벨에만 속하므로 손해가 아니다.
+  - 판단 2 — `level_reduce_qty()`는 `qty`가 아니라 `filled_qty`를 늘린다. 원 주문 수량을
+    지우면 나중에 "이 주문의 평균 체결 단가"를 낼 수 없다. 이 프로젝트의 최종 산출물이
+    그 숫자이므로 원 수량 보존이 우선이다. 수량 감소 정정은 T1-11에서 별도로 다룬다.
+  - 판단 3 — 전량 소진은 `reduce_qty`가 알아서 떼지 않고 호출부가 `pop_front`/`remove`로
+    한다. 함수 하나가 한 가지만 하고, T1-08 매칭 루프에서 "이 주문은 여기서 끝난다"가
+    호출부에 드러난다. 잔량 이상을 깎으라는 요청은 `ERR_INVALID_QTY`로 거절한다.
+  - 판단 4 — **assert와 에러 코드를 가르는 기준을 정했다: 안전하게 거절할 수 있으면 에러를
+    반환하고, 알릴 통로가 없을 때만 assert.** T1-04의 `order_pool_release()`가 assert였던
+    것은 `void` 반환이라 알릴 방법이 없고 무시하면 프리리스트가 조용히 썩기 때문이다.
+    `level_reduce_qty()`는 거절해도 상태가 전혀 안 바뀌고 반환값이 있으므로 에러다.
+    링크 정합성 검사(`assert_linked`)는 남겼다 — 어긋난 링크는 거절로 되돌릴 수 없다.
+  - 막힌 점: 처음에 `reduce_qty`에 assert와 에러 반환을 둘 다 넣었더니 Debug에서 음수 테스트가
+    통과할 수 없었다. 위 기준을 세우고 assert를 뺐다.
+  - 확인: 변이 6종(합계 누락 / FIFO를 LIFO로 / tail 갱신 누락 / 잔량 대신 원 수량 차감 /
+    filled_qty 대신 qty 차감 / 전량 소진 허용) 전부 테스트가 잡았다. 테스트는 매 연산 뒤에
+    리스트를 실제로 훑어 합계·개수·앞뒤 링크·head/tail을 대조한다.
+  - 결과: Debug ctest 5/5, ASan ctest 5/5 통과. 경고 0.
+  - ADR 후보: "가격 레벨을 침략적 이중 연결 리스트로" 와 "assert vs 에러 코드 기준".
+    템플릿 규칙대로 직접 쓸 것.
+  - 다음: T1-06 호가창 (T1-03 + T1-05 의존, 둘 다 완료).
+
 - [T1-04] 주문 구조체와 주문 풀
   - 한 일: `core/include/order.h`(`order_t`, 불투명 `order_pool_t`),
     `core/src/order_pool.c`, `test_order_pool.c`, `test_order_pool_double_free.c`.

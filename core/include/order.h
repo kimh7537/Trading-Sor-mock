@@ -22,7 +22,19 @@ typedef struct order {
     side_t       side;
     order_type_t type;
     market_t     market;
+
+    /* 가격 레벨 FIFO 링크. 어느 리스트에도 속하지 않으면 둘 다 NULL이다.
+     * 주문 안에 링크를 두면 임의 위치 제거가 역참조 없이 O(1)이 된다.
+     * 대신 한 주문은 한 번에 한 리스트에만 들어간다. */
+    struct order *prev;
+    struct order *next;
 } order_t;
+
+/* 미체결 잔량. 호가창이 다루는 수량은 언제나 이 값이다. */
+static inline qty_t order_remaining_qty(const order_t *order)
+{
+    return order->qty - order->filled_qty;
+}
 
 /* 내부 구조는 order_pool.c에만 있다. 호출부는 슬롯 배치를 알 필요가 없다. */
 typedef struct order_pool order_pool_t;

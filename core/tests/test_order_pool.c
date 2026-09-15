@@ -98,6 +98,8 @@ static void test_reuse_is_reinitialized(void)
     order->side = SIDE_SELL;
     order->type = ORDER_IOC;
     order->market = MARKET_NXT;
+    order->prev = order;  /* 링크가 남아 있으면 다음 사용자가 남의 큐에 끼어든다 */
+    order->next = order;
 
     order_pool_release(pool, order);
 
@@ -113,6 +115,8 @@ static void test_reuse_is_reinitialized(void)
     assert(reused->side == SIDE_BUY);
     assert(reused->type == ORDER_LIMIT);
     assert(reused->market == MARKET_KRX);
+    assert(reused->prev == NULL);
+    assert(reused->next == NULL);
 
     order_pool_destroy(pool);
 }
