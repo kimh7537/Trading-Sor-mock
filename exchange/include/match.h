@@ -1,0 +1,83 @@
+#ifndef MINI_SOR_MATCH_H
+#define MINI_SOR_MATCH_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "order.h"
+#include "order_book.h"
+#include "types.h"
+
+/*
+ * 매칭 엔진 (docs/SPEC.md 4).
+ *
+ * 가격 우선 -> 시간 우선으로 상대 호가를 소진한다.
+ * 체결 가격은 먼저 호가창에 있던 주문(maker)의 가격이다.
+ *
+ * 엔진이 호가창·주문 풀·주문 인덱스를 모두 소유한다. 들어오는 주문은 값으로 넘기고,
+ * 잔량이 남아 호가창에 등록될 때만 엔진이 풀에서 슬롯을 꺼내 복사한다.
+ * 소유권을 나누면 "전량 체결된 상대 주문의 슬롯을 누가 돌려주는가"가 모호해진다.
+ *
+ * 시스템 시각을 읽지 않는다. 모든 시각은 들어오는 주문이 들고 온 논리 시각을 쓴다.
+ */
+
+/*
+ * 한 번의 주문이 만들어 낼 수 있는 체결 건수 상한.
+ * ponytail: 고정 배열. 넘치면 집계는 정확히 유지하고 목록만 잘린다(truncated).
+ * T1-12에서 이벤트 싱크가 들어오면 목록은 그쪽으로 흘려보내고 이 배열은 없앤다.
+ */
+#define EXEC_FILLS_MAX 64
+
+/* 체결 한 건. */
+typedef struct {
+    price_t    price;    /* 체결 가격 = maker의 호가 */
+    qty_t      qty;
+    order_id_t maker_id; /* 호가창에 있던 쪽 */
+    order_id_t taker_id; /* 들어온 쪽 */
+    ts_t       ts;       /* taker가 들고 온 논리 시각 */
+} fill_t;
+
+/* 주문 하나를 처리한 결과. */
+typedef struct {
+    fill_t  fills[EXEC_FILLS_MAX];
+    int32_t fill_count;
+    bool    truncated; /* 체결 건수가 EXEC_FILLS_MAX를 넘어 목록이 잘렸다 */
+
+    qty_t   filled_qty; /* 총 체결 수량. 목록이 잘려도 정확하다 */
+    int64_t notional;   /* 총 체결 금액. 평균 단가 = notional / filled_qty */
+    qty_t   remaining_qty;
+    bool    resting; /* 잔량이 호가창에 등록됐는가 */
+
+    order_status_t status;
+} exec_result_t;
+
+typedef struct match_engine match_engine_t;
+
+/*
+ * 기준가로 호가창을, capacity로 주문 풀과 인덱스를 잡는다.
+ * capacity는 동시에 호가창에 살아 있을 수 있는 주문 수의 상한이다.
+ * 인자가 잘못됐거나 할당에 실패하면 NULL.
+ */
+match_engine_t *match_engine_create(price_t base_price, int32_t capacity);
+void match_engine_destroy(match_engine_t *eng);
+
+/* 호가 조회용. 엔진이 소유하므로 호출부가 파괴하지 않는다. */
+const order_book_t *match_book(const match_engine_t *eng);
+
+/*
+ * 지정가 주문을 접수한다.
+ *
+ * req는 틀이다 — 엔진이 읽기만 하고 보관하지 않는다. id, side, price, qty, ts,
+ * market을 채워 넣는다. filled_qty는 0이어야 한다.
+ *
+ * 매수는 최우선매도호가가 지정가 이하인 동안, 매도는 반대로 체결한다.
+ * 남은 잔량은 호가창에 등록된다.
+ *
+ * 성공하면 ERR_OK. 가격 제한폭 밖이면 ERR_PRICE_LIMIT, 호가 단위에 안 맞으면
+ * ERR_INVALID_TICK, 수량이 범위 밖이면 ERR_INVALID_QTY, 주문번호가 겹치면
+ * ERR_DUPLICATE, 등록할 자리가 없으면 ERR_POOL_EXHAUSTED.
+ * 거부되면 호가창은 전혀 바뀌지 않는다.
+ */
+int match_limit(match_engine_t *eng, const order_t *req, exec_result_t *out);
+
+#endif /* MINI_SOR_MATCH_H */

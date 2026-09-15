@@ -331,3 +331,30 @@ int book_snapshot(const order_book_t *book, side_t side, int depth,
 
     return filled;
 }
+
+order_t *book_front(order_book_t *book, side_t side, price_t price)
+{
+    if (book == NULL || (side != SIDE_BUY && side != SIDE_SELL)) {
+        return NULL;
+    }
+
+    int32_t idx = price_to_index(book, price);
+    if (idx < 0) {
+        return NULL;
+    }
+    return book->levels[side][idx].head;
+}
+
+int book_reduce_qty(order_book_t *book, order_t *order, qty_t qty)
+{
+    if (book == NULL || order == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    int32_t idx = price_to_index(book, order->price);
+    assert(idx >= 0);
+    if (idx < 0) {
+        return ERR_NOT_FOUND;
+    }
+    return level_reduce_qty(&book->levels[order->side][idx], order, qty);
+}

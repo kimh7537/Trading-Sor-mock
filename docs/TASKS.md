@@ -129,7 +129,7 @@
 ---
 
 ### T1-08 매칭 — 지정가
-- [ ] 의존: T1-06, T1-07
+- [x] 의존: T1-06, T1-07
 
 `exchange/src/match/match_limit.c`
 

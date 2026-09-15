@@ -51,6 +51,18 @@ int book_remove(order_book_t *book, order_t *order);
 price_t book_best_bid(const order_book_t *book);
 price_t book_best_ask(const order_book_t *book);
 
+/*
+ * 해당 가격 레벨의 최우선(시간 우선) 주문. 비었거나 범위 밖이면 NULL.
+ * 매칭 엔진이 상대 주문을 앞에서부터 소진하는 통로다.
+ */
+order_t *book_front(order_book_t *book, side_t side, price_t price);
+
+/*
+ * 호가창에 있는 주문의 부분 체결을 반영한다. 레벨 잔량 합계도 함께 준다.
+ * 엄격히 부분 체결만 받는다 — 전량 체결은 book_remove로 뗀다.
+ */
+int book_reduce_qty(order_book_t *book, order_t *order, qty_t qty);
+
 /* 특정 가격의 잔량 합계. 범위 밖이거나 비어 있으면 0. */
 qty_t book_qty_at(const order_book_t *book, side_t side, price_t price);
 
