@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "errors.h"
 
@@ -66,17 +67,23 @@ void match_emit(const match_engine_t *eng, event_type_t type, ts_t ts,
         return; /* 싱크가 없으면 이벤트 구조체를 채우지도 않는다 */
     }
 
-    order_event_t ev = {
-        .type = type,
-        .ts = ts,
-        .order_id = order_id,
-        .market = market,
-        .price = price,
-        .qty = qty,
-        .remaining_qty = remaining,
-        .counterparty_id = counterparty,
-        .reason = reason,
-    };
+    /*
+     * 지정 초기화자로 만들면 패딩 바이트 값이 불특정이다. 이벤트 스트림을 바이트
+     * 단위로 비교하는 것이 결정성 검증(T1-19)의 방법이므로, 패딩까지 밀어야
+     * "같은 입력에 같은 바이트"가 성립한다. memset을 먼저 하는 이유가 이것이다.
+     */
+    order_event_t ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = type;
+    ev.ts = ts;
+    ev.order_id = order_id;
+    ev.market = market;
+    ev.price = price;
+    ev.qty = qty;
+    ev.remaining_qty = remaining;
+    ev.counterparty_id = counterparty;
+    ev.reason = reason;
+
     event_emit(&eng->sink, &ev);
 }
 
@@ -157,13 +164,14 @@ qty_t match_sweep(match_engine_t *eng, const order_t *taker, price_t limit,
         qty_t maker_rem_after = maker_rem - fill_qty;
 
 
-        fill_t fill = {
-            .price = best, /* 체결 가격은 먼저 있던 주문의 호가다 (SPEC 4.1) */
-            .qty = fill_qty,
-            .maker_id = maker_id,
-            .taker_id = taker->id,
-            .ts = taker->ts,
-        };
+        /* 이벤트와 같은 이유로 패딩까지 민다 — 체결 목록도 비교 대상이 된다. */
+        fill_t fill;
+        memset(&fill, 0, sizeof(fill));
+        fill.price = best; /* 체결 가격은 먼저 있던 주문의 호가다 (SPEC 4.1) */
+        fill.qty = fill_qty;
+        fill.maker_id = maker_id;
+        fill.taker_id = taker->id;
+        fill.ts = taker->ts;
 
         if (fill_qty == maker_rem) {
             /* 상대가 전량 체결됐다. 호가창·인덱스에서 빼고 슬롯을 돌려준다. */
