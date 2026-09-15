@@ -58,6 +58,14 @@ typedef struct {
     int64_t    notional;   /* 체결 금액 */
     qty_t      canceled_qty;
     bool       live; /* 아직 호가창에 남아 있는가 */
+    /*
+     * 거래소가 이 주문을 받았는가.
+     *
+     * 거부된 다리와 접수된 뒤 전량 취소된 다리는 수량만 보면 구별되지 않는다 —
+     * 둘 다 체결 0, 취소 = 보낸 수량이다. 그런데 논리 주문의 상태는 "거부"와
+     * "취소"로 달라야 한다. 그 차이를 담는 값이다.
+     */
+    bool accepted;
 } phys_leg_t;
 
 /*
@@ -106,6 +114,12 @@ const logical_order_t *omap_get_by_phys(const order_map_t *map,
 
 /* 물리 다리 하나를 찾는다. 없으면 NULL. */
 const phys_leg_t *omap_leg(const order_map_t *map, order_id_t phys_id);
+
+/*
+ * 거래소가 이 물리 주문을 받았다고 표시한다.
+ * 없는 물리 주문이면 ERR_NOT_FOUND. 두 번 불러도 무해하다.
+ */
+int omap_on_accept(order_map_t *map, order_id_t phys_id);
 
 /*
  * 체결을 반영한다. 물리 주문번호로 온 체결 통보를 그 다리에 더하고,

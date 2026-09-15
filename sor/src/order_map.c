@@ -249,6 +249,20 @@ const phys_leg_t *omap_leg(const order_map_t *map, order_id_t phys_id)
     return find_leg((order_map_t *)map, phys_id);
 }
 
+int omap_on_accept(order_map_t *map, order_id_t phys_id)
+{
+    if (map == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    phys_leg_t *leg = find_leg(map, phys_id);
+    if (leg == NULL) {
+        return ERR_NOT_FOUND;
+    }
+    leg->accepted = true;
+    return ERR_OK;
+}
+
 int omap_on_fill(order_map_t *map, order_id_t phys_id, qty_t qty, price_t price)
 {
     if (map == NULL) {

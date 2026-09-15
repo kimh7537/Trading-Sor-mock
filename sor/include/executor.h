@@ -88,6 +88,52 @@ typedef struct {
 int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
                 const exec_plan_t *plan, exec_report_t *out);
 
+/* --- 취소 --- */
+
+/*
+ * 논리 주문 취소 — 살아 있는 물리 주문을 전부 취소한다.
+ *
+ * **한쪽 취소가 실패하면 성공한 취소를 되돌리지 않는다.** 이유가 셋이다.
+ *
+ *  1. 취소를 되돌리는 것은 곧 **주문을 다시 내는 것**이다. 큐의 원래 자리는 이미
+ *     비었고 다시 붙으면 맨 뒤다. 시간 우선순위를 복원할 방법이 없다
+ *  2. 되돌리는 사이에 체결될 수 있다. 사용자는 취소됐다고 믿는데 체결이 나는 것이
+ *     이 상황에서 가장 나쁜 결과다
+ *  3. **실패한 취소는 재시도할 수 있다.** 되돌리기는 되돌릴 수 없지만 재시도는
+ *     안전하다. 그래서 보상하지 않고, 어느 다리가 남았는지 보고서에 정확히 남긴다
+ *
+ * 보상 처리의 범위는 여기까지다 — 집행기는 되돌리지 않고, 재시도는 호출자가 한다.
+ */
+typedef struct {
+    order_id_t phys_id;
+    market_t   market;
+    bool       was_live;     /* 취소를 시도했는가 (이미 끝난 다리는 건너뛴다) */
+    int        rc;           /* 시도했을 때 거래소가 돌려준 코드 */
+    qty_t      canceled_qty; /* 이번 취소로 사라진 수량 */
+} cancel_leg_t;
+
+typedef struct {
+    cancel_leg_t legs[PLAN_LEGS_MAX];
+    int32_t      leg_count;
+    int32_t      attempted; /* 살아 있어서 취소를 시도한 다리 수 */
+    int32_t      failed;    /* 그중 실패한 다리 수 */
+
+    qty_t          canceled_qty; /* 이번 취소로 사라진 총 수량 */
+    qty_t          working_qty;  /* 취소 뒤에도 시장에 남아 있는 수량 */
+    order_status_t status;
+} cancel_report_t;
+
+/*
+ * 살아 있는 모든 물리 주문을 취소한다.
+ *
+ * 전부 성공하면 ERR_OK. 일부가 실패하면 **성공한 것은 그대로 두고** 첫 실패 코드를
+ * 돌려준다 — 실패한 다리는 out->legs[i].rc에 이유가 남고 out->failed가 올라간다.
+ * 취소할 살아 있는 주문이 하나도 없으면 ERR_NOT_FOUND(매칭 엔진의 취소와 같은 뜻).
+ * 없는 논리 주문도 ERR_NOT_FOUND.
+ */
+int exec_cancel(order_map_t *map, venues_t *venues, order_id_t logical_id,
+                ts_t ts, cancel_report_t *out);
+
 /*
  * 매핑에 쌓인 상태만 보고 논리 주문의 현재 상태를 다시 계산한다.
  *

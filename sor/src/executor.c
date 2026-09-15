@@ -137,6 +137,10 @@ int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
             continue;
         }
 
+        int arc = omap_on_accept(map, phys[i]);
+        assert(arc == ERR_OK);
+        (void)arc;
+
         lr->filled_qty = res.filled_qty;
         lr->notional = res.notional;
         lr->remaining_qty = res.remaining_qty;
@@ -174,6 +178,87 @@ int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
     return ERR_OK;
 }
 
+int exec_cancel(order_map_t *map, venues_t *venues, order_id_t logical_id,
+                ts_t ts, cancel_report_t *out)
+{
+    if (map == NULL || venues == NULL || out == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const logical_order_t *lo = omap_get(map, logical_id);
+    if (lo == NULL) {
+        return ERR_NOT_FOUND;
+    }
+
+    out->leg_count = lo->leg_count;
+
+    int first_fail = ERR_OK;
+
+    for (int32_t i = 0; i < lo->leg_count; i++) {
+        cancel_leg_t *cl = &out->legs[i];
+        order_id_t    phys_id = lo->legs[i].phys_id;
+
+        cl->phys_id = phys_id;
+        cl->market = lo->legs[i].market;
+
+        /*
+         * 이미 끝난 다리(전량 체결·거부·이미 취소)는 건너뛴다. 실패가 아니다 —
+         * 취소할 것이 없을 뿐이다. "한쪽 이미 체결"이 바로 이 경우다.
+         */
+        if (!lo->legs[i].live) {
+            cl->was_live = false;
+            continue;
+        }
+
+        cl->was_live = true;
+        out->attempted++;
+
+        match_engine_t *eng = venues->eng[lo->legs[i].market];
+        if (eng == NULL) {
+            cl->rc = ERR_NULL_PTR;
+        } else {
+            exec_result_t res;
+            memset(&res, 0, sizeof(res));
+            cl->rc = match_cancel(eng, phys_id, ts, &res);
+            if (cl->rc == ERR_OK) {
+                cl->canceled_qty = res.remaining_qty;
+            }
+        }
+
+        if (cl->rc != ERR_OK) {
+            /*
+             * 이 다리는 취소되지 못했다. **앞서 취소한 다리는 되돌리지 않는다** —
+             * 되돌리는 것은 주문을 다시 내는 것이고 시간 우선순위를 복원할 수 없다.
+             * 실패한 다리는 여전히 살아 있으므로 호출자가 재시도할 수 있다.
+             */
+            out->failed++;
+            if (first_fail == ERR_OK) {
+                first_fail = cl->rc;
+            }
+            continue;
+        }
+
+        int crc = omap_on_cancel(map, phys_id, cl->canceled_qty);
+        assert(crc == ERR_OK);
+        (void)crc;
+        out->canceled_qty += cl->canceled_qty;
+    }
+
+    out->working_qty = omap_remaining(map, logical_id);
+
+    int st_rc = exec_status(map, logical_id, &out->status);
+    assert(st_rc == ERR_OK);
+    (void)st_rc;
+
+    if (out->attempted == 0) {
+        /* 살아 있는 물리 주문이 없다. 매칭 엔진의 취소와 같은 뜻으로 답한다. */
+        return ERR_NOT_FOUND;
+    }
+    return first_fail;
+}
+
 int exec_status(const order_map_t *map, order_id_t logical_id,
                 order_status_t *out_status)
 {
@@ -191,19 +276,34 @@ int exec_status(const order_map_t *map, order_id_t logical_id,
 
     if (filled >= lo->order_qty) {
         *out_status = STATUS_FILLED;
-    } else if (filled > 0) {
+        return ERR_OK;
+    }
+    if (filled > 0) {
         /*
-         * 한쪽이 거부돼도 체결된 쪽은 유효하다. 그래서 "부분 체결"이지 "거부"가
-         * 아니다 — 체결이 한 주라도 있으면 거부로 부르지 않는다.
+         * 체결이 한 주라도 있으면 그 사실이 상태를 지배한다. 한쪽이 거부돼도,
+         * 나머지를 취소했어도 "부분 체결"이다 — 거부나 취소로 부르면 체결된 수량이
+         * 상태에서 사라진다. 아직 진행 중인지는 working_qty가 말해 준다.
          */
         *out_status = STATUS_PARTIAL;
-    } else if (working > 0) {
+        return ERR_OK;
+    }
+    if (working > 0) {
         *out_status = STATUS_NEW; /* 아직 아무것도 안 됐지만 시장에 살아 있다 */
-    } else {
-        /* 체결도 없고 살아 있는 것도 없다 — 전부 거부되거나 취소됐다. */
-        *out_status = STATUS_REJECTED;
+        return ERR_OK;
     }
 
+    /*
+     * 체결도 없고 살아 있는 것도 없다. 거부와 취소를 수량만으로는 구별할 수 없다 —
+     * 둘 다 "체결 0, 취소 = 보낸 수량"이다. 거래소가 한 번이라도 받아 준 다리가
+     * 있었는지로 가른다.
+     */
+    for (int32_t i = 0; i < lo->leg_count; i++) {
+        if (lo->legs[i].accepted) {
+            *out_status = STATUS_CANCELED;
+            return ERR_OK;
+        }
+    }
+    *out_status = STATUS_REJECTED;
     return ERR_OK;
 }
 
