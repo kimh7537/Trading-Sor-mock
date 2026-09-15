@@ -136,4 +136,12 @@ extern const exec_strategy_t STRATEGY_KRX_ONLY;
  */
 extern const exec_strategy_t STRATEGY_BEST_PRICE;
 
+/*
+ * SPLIT — 양 시장의 즉시 체결 가능 잔량에 비례해서 나눠 보낸다.
+ *
+ * 단수는 최대 나머지 방식(Hare quota)으로 배분한다 — 나머지가 큰 시장부터 한 주씩.
+ * 다리 수량의 합은 원 주문 수량과 정확히 같다.
+ */
+extern const exec_strategy_t STRATEGY_SPLIT;
+
 #endif /* MINI_SOR_STRATEGY_H */

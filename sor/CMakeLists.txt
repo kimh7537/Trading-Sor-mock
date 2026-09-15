@@ -4,6 +4,7 @@ add_library(sor STATIC
     src/strategy.c
     src/strategy_krx_only.c
     src/strategy_best_price.c
+    src/strategy_split.c
 )
 target_include_directories(sor PUBLIC include)
 target_link_libraries(sor PUBLIC exchange)
