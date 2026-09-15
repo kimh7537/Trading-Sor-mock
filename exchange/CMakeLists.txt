@@ -9,6 +9,7 @@ add_library(exchange STATIC
     src/event.c
     src/rules/market_rules.c
     src/rules/krx.c
+    src/rules/nxt.c
 )
 target_include_directories(exchange PUBLIC include PRIVATE src/match)
 target_link_libraries(exchange PUBLIC core)
