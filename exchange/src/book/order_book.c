@@ -358,3 +358,36 @@ int book_reduce_qty(order_book_t *book, order_t *order, qty_t qty)
     }
     return level_reduce_qty(&book->levels[order->side][idx], order, qty);
 }
+
+qty_t book_qty_up_to(const order_book_t *book, side_t side, price_t limit,
+                     qty_t want)
+{
+    if (book == NULL || (side != SIDE_BUY && side != SIDE_SELL) || want <= 0) {
+        return 0;
+    }
+
+    const price_level_t *levels = book->levels[side];
+    /* 매수 호가는 높은 쪽이 우선이라 배열을 거꾸로 훑는다. */
+    int32_t step = (side == SIDE_BUY) ? -1 : 1;
+    int32_t i = (side == SIDE_BUY) ? book->level_count - 1 : 0;
+    qty_t sum = 0;
+
+    for (; i >= 0 && i < book->level_count; i += step) {
+        if (levels[i].order_count == 0) {
+            continue;
+        }
+        if (limit != BOOK_PRICE_NONE) {
+            price_t p = index_to_price(book, i);
+            /* side는 호가창에 있는 쪽이다. 매도 레벨이면 limit 이하만 센다. */
+            bool within = (side == SIDE_SELL) ? (p <= limit) : (p >= limit);
+            if (!within) {
+                break; /* 더 가면 점점 불리해지므로 볼 필요가 없다 */
+            }
+        }
+        sum += levels[i].total_qty;
+        if (sum >= want) {
+            return want; /* 충분하다. 끝까지 셀 이유가 없다 */
+        }
+    }
+    return sum;
+}

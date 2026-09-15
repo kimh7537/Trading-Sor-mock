@@ -1,0 +1,105 @@
+#include <assert.h>
+#include <stddef.h>
+
+#include "errors.h"
+#include "match_internal.h"
+#include "tick_size.h"
+
+/*
+ * IOC / FOK (docs/SPEC.md 4.2).
+ *
+ * 둘 다 지정가처럼 가격을 가지고 들어오되 호가창에 남지 않는다. 차이는 부분 체결을
+ * 받아들이느냐다 — IOC는 받고, FOK는 전량 아니면 아무것도 아니다.
+ */
+
+/* 가격 검증. 둘 다 지정가와 같은 기준을 쓴다. */
+static int check_price(const match_engine_t *eng, const order_t *req,
+                       exec_result_t *out)
+{
+    if (req->price < book_price_low(eng->book) ||
+        req->price > book_price_high(eng->book)) {
+        out->status = STATUS_REJECTED;
+        return ERR_PRICE_LIMIT;
+    }
+    if (!is_valid_tick(req->price)) {
+        out->status = STATUS_REJECTED;
+        return ERR_INVALID_TICK;
+    }
+    return ERR_OK;
+}
+
+int match_ioc(match_engine_t *eng, const order_t *req, exec_result_t *out)
+{
+    if (eng == NULL || req == NULL || out == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    match_result_init(out, req->qty);
+
+    int rc = check_price(eng, req, out);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    rc = match_validate(eng, req);
+    if (rc != ERR_OK) {
+        out->status = STATUS_REJECTED;
+        return rc;
+    }
+
+    qty_t remaining = match_sweep(eng, req, req->price, out);
+
+    out->remaining_qty = remaining;
+    out->resting = false; /* 잔량은 등록하지 않고 취소한다 */
+
+    if (out->filled_qty == 0) {
+        /* 한 건도 못 붙었다. 시장가와 같은 이유로 거부로 알린다. */
+        out->status = STATUS_REJECTED;
+        return ERR_NO_LIQUIDITY;
+    }
+    out->status = (remaining == 0) ? STATUS_FILLED : STATUS_PARTIAL;
+
+    return ERR_OK;
+}
+
+int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out)
+{
+    if (eng == NULL || req == NULL || out == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    match_result_init(out, req->qty);
+
+    int rc = check_price(eng, req, out);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    rc = match_validate(eng, req);
+    if (rc != ERR_OK) {
+        out->status = STATUS_REJECTED;
+        return rc;
+    }
+
+    /*
+     * 먼저 세어 본다. 부분 체결 후 되돌리는 방식은 쓰지 않는다 —
+     * 되돌리려면 이미 뗀 상대 주문을 제자리에 다시 넣어야 하는데,
+     * 그러면 그 주문들의 시간 우선순위가 복원되지 않는다.
+     */
+    side_t maker_side = (req->side == SIDE_BUY) ? SIDE_SELL : SIDE_BUY;
+    qty_t available =
+        book_qty_up_to(eng->book, maker_side, req->price, req->qty);
+
+    if (available < req->qty) {
+        out->status = STATUS_REJECTED;
+        return ERR_NO_LIQUIDITY;
+    }
+
+    qty_t remaining = match_sweep(eng, req, req->price, out);
+    /* 세어 본 만큼은 반드시 붙는다. 안 붙었다면 세는 쪽과 먹는 쪽이 어긋난 것이다. */
+    assert(remaining == 0);
+
+    out->remaining_qty = remaining;
+    out->resting = false;
+    out->status = STATUS_FILLED;
+
+    return ERR_OK;
+}

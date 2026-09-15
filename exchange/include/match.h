@@ -90,4 +90,20 @@ int match_limit(match_engine_t *eng, const order_t *req, exec_result_t *out);
  */
 int match_market(match_engine_t *eng, const order_t *req, exec_result_t *out);
 
+/*
+ * IOC — 즉시 체결 가능한 만큼만 체결하고 잔량을 취소한다.
+ * 가격 검증은 지정가와 같다. 지정가와 다른 점은 잔량을 등록하지 않는다는 것뿐이다.
+ * 한 건도 체결되지 않으면 ERR_NO_LIQUIDITY.
+ */
+int match_ioc(match_engine_t *eng, const order_t *req, exec_result_t *out);
+
+/*
+ * FOK — 전량 즉시 체결이 불가능하면 아무것도 체결하지 않는다.
+ *
+ * 체결 가능 수량을 먼저 세어 보고 모자라면 호가창을 건드리지 않은 채 거부한다.
+ * 부분 체결 후 되돌리는 방식이 아니다 — 되돌리기는 시간 우선순위를 복원할 수 없다.
+ * 전량 체결 불가면 ERR_NO_LIQUIDITY.
+ */
+int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out);
+
 #endif /* MINI_SOR_MATCH_H */

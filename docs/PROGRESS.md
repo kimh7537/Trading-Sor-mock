@@ -25,6 +25,24 @@
 
 ## 2026-09-15
 
+- [T1-10] 매칭 — IOC / FOK
+  - 한 일: `exchange/src/match/match_ioc_fok.c`, `exchange/tests/test_match_ioc_fok.c`.
+    호가창에 `book_qty_up_to()` 추가.
+  - 판단 1 — FOK는 **먼저 세고 나서 실행한다**. 부분 체결 후 되돌리는 방식을 쓰지 않는
+    이유는 롤백이 불가능해서가 아니라, 되돌려도 **시간 우선순위가 복원되지 않기**
+    때문이다. 이미 뗀 상대 주문을 다시 넣으면 그 주문들이 큐 뒤로 간다.
+  - 판단 2 — 세는 함수(`book_qty_up_to`)는 레벨 배열을 최우선호가부터 훑으며 더하고,
+    요구 수량에 도달하면 즉시 멈춘다. 스냅샷 버퍼로 세면 깊이 상한이 생겨 깊은 FOK를
+    잘못 거부한다. 레벨을 직접 훑으면 상한이 없다.
+  - 판단 3 — IOC가 한 건도 못 붙으면 `ERR_NO_LIQUIDITY`로 거부한다. 시장가와 같은
+    기준이다 — 체결도 등록도 없는 결과를 ERR_OK로 주면 접수된 것으로 오해한다.
+  - 판단 4 — 테스트가 FOK 실패 전후로 잔량뿐 아니라 **각 레벨 맨 앞 주문의 주문번호**까지
+    비교한다. 잔량만 보면 "뗐다가 다시 넣은" 구현을 통과시킨다.
+  - 확인: 변이 5종 전부 잡았다 — FOK 사전 검사 제거 / IOC 잔량 등록 / IOC 무체결을
+    ERR_OK로 / qty_up_to가 limit 무시 / qty_up_to 조기 종료 제거.
+  - 결과: Debug ctest 10/10, ASan ctest 10/10 통과. 경고 0.
+  - 다음: T1-11 취소와 정정.
+
 - [T1-09] 매칭 — 시장가
   - 한 일: `exchange/src/match/match_market.c`, `exchange/tests/test_match_market.c`.
     `errors.h`에 `ERR_NO_LIQUIDITY(-13)` 추가.

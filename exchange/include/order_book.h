@@ -67,6 +67,14 @@ int book_reduce_qty(order_book_t *book, order_t *order, qty_t qty);
 qty_t book_qty_at(const order_book_t *book, side_t side, price_t price);
 
 /*
+ * limit 가격까지의 레벨 잔량을 최우선호가부터 더한다. want에 도달하면 즉시 멈춘다.
+ * limit이 BOOK_PRICE_NONE이면 가격 제한 없이 센다.
+ * 호가창을 바꾸지 않는다 — FOK가 "전량 체결 가능한가"를 먼저 묻는 통로다.
+ */
+qty_t book_qty_up_to(const order_book_t *book, side_t side, price_t limit,
+                     qty_t want);
+
+/*
  * 최우선호가부터 depth단까지 채운다. 매수는 높은 가격부터, 매도는 낮은 가격부터.
  * 빈 레벨은 건너뛴다. 채운 줄 수를 반환하고, 인자가 잘못되면 음수 에러 코드.
  */
