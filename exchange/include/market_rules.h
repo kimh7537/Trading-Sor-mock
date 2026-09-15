@@ -61,6 +61,16 @@ typedef struct market_rules {
      * 엔진이 "중간가면 이렇게" 같은 분기를 갖지 않게 하는 것이 이 함수의 목적이다.
      */
     price_t (*resolve_price)(const order_book_t *book, const order_t *req);
+
+    /*
+     * 정정으로 가격을 지정할 수 있는 유형인가.
+     *
+     * 가격이 규칙에서 나오는 유형(중간가)은 false다. 그런 주문의 가격을 정정으로
+     * 바꿀 수 있게 하면 두 가지가 깨진다 — 접수 시점 고정이라는 약속이 무너지고,
+     * 재계산이 자기 주문을 포함하므로 정정할 때마다 가격이 반대편으로 밀려 올라간다.
+     * 수량 정정은 여전히 가능하다.
+     */
+    bool (*allows_reprice)(order_type_t type);
 } market_rules_t;
 
 /*

@@ -82,6 +82,14 @@ static void test_submit_cancel(void)
     assert(!KRX_RULES.can_cancel(SESSION_PRE_BREAK));
 }
 
+/* 정정으로 가격을 바꿀 수 있는 유형 — KRX는 전부 가능 */
+static void test_allows_reprice(void)
+{
+    assert(KRX_RULES.allows_reprice(ORDER_LIMIT));
+    assert(KRX_RULES.allows_reprice(ORDER_MARKET));
+    assert(KRX_RULES.allows_reprice(ORDER_MIDPOINT)); /* 애초에 접수가 안 된다 */
+}
+
 /* 가격은 실려 온 값 그대로 */
 static void test_resolve_price(void)
 {
@@ -149,6 +157,7 @@ int main(void)
     test_session_boundaries();
     test_order_types();
     test_submit_cancel();
+    test_allows_reprice();
     test_resolve_price();
     test_through_engine();
     return 0;

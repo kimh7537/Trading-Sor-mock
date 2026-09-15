@@ -67,6 +67,9 @@ int match_gate_cancel(const match_engine_t *eng, ts_t ts);
  */
 price_t match_resolve_price(const match_engine_t *eng, const order_t *req);
 
+/* 이 유형의 가격을 정정으로 바꿀 수 있는가. 규칙 테이블이 없으면 허용. */
+bool match_allows_reprice(const match_engine_t *eng, order_type_t type);
+
 /* 접수 전 공통 검증. 호가창을 건드리기 전에 부른다. */
 int match_validate(const match_engine_t *eng, const order_t *req);
 

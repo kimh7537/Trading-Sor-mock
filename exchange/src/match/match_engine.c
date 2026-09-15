@@ -296,3 +296,11 @@ price_t match_resolve_price(const match_engine_t *eng, const order_t *req)
     }
     return eng->rules->resolve_price(eng->book, req);
 }
+
+bool match_allows_reprice(const match_engine_t *eng, order_type_t type)
+{
+    if (eng->rules == NULL || eng->rules->allows_reprice == NULL) {
+        return true;
+    }
+    return eng->rules->allows_reprice(type);
+}

@@ -87,7 +87,16 @@ int match_modify(match_engine_t *eng, order_id_t id, price_t new_price,
         return ERR_NOT_FOUND;
     }
 
-    /* 검증을 전부 호가창에서 떼기 전에 한다. 떼고 나서 실패하면 주문이 공중에 뜬다. */
+    /*
+     * 가격을 바꿀 수 있는 유형인지 규칙에게 묻는다. 엔진은 주문 유형으로 분기하지
+     * 않는다 — 중간가처럼 가격이 규칙에서 나오는 유형은 규칙이 거절한다.
+     * 수량만 바꾸는 정정은 가격이 같으므로 이 검사를 그냥 통과한다.
+     */
+    if (new_price != order->price && !match_allows_reprice(eng, order->type)) {
+        return REJECT(ERR_NOT_SUPPORTED);
+    }
+
+    /* 나머지 검증은 호가창에서 떼기 전에 한다. 떼고 나서 실패하면 주문이 공중에 뜬다. */
     if (new_price < book_price_low(eng->book) ||
         new_price > book_price_high(eng->book)) {
         return REJECT(ERR_PRICE_LIMIT);

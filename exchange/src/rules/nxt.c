@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include "market_rules.h"
+#include "tick_size.h"
 
 /*
  * NXT 규칙 (docs/SPEC.md 2.2, 4.2).
@@ -76,14 +77,46 @@ static bool nxt_can_cancel(session_t session)
     return session != SESSION_CLOSED;
 }
 
+/*
+ * 중간가 (docs/SPEC.md 4.2, T1-16).
+ *
+ * 가격 = (최우선매수호가 + 최우선매도호가) / 2, 호가 단위로 **내림**.
+ *
+ * 내림으로 고정한 이유가 핵심이다. 매수는 내림·매도는 올림처럼 편별로 방향을
+ * 나누면 같은 호가 상태에서 매수 중간가와 매도 중간가가 서로 다른 가격을 받아
+ * 영원히 만나지 못한다. 방향이 하나여야 두 중간가 주문이 같은 가격에서 체결된다.
+ *
+ * 한쪽 호가가 비어 있으면 중간값이 정의되지 않는다. BOOK_PRICE_NONE을 돌려주면
+ * 엔진이 ERR_INVALID_PRICE로 거부한다.
+ *
+ * 값은 이 시점의 호가로 한 번 정해지고 그 뒤로 갱신되지 않는다(접수 시점 고정).
+ * 지속 갱신은 호가가 바뀔 때마다 등록된 중간가 주문을 전부 다른 레벨로 옮겨야 하고,
+ * 그 이동이 또 호가를 바꿔 연쇄가 생긴다. 시간 우선순위를 어떻게 유지할지도
+ * 정의되지 않는다. 단순화 지점이며 ADR-0003에 근거를 적었다.
+ */
 static price_t nxt_resolve_price(const order_book_t *book, const order_t *req)
 {
-    /*
-     * 중간가는 T1-16에서 구현한다. 그때까지는 지정가와 같이 취급한다.
-     * 지금 임의로 계산해 두면 T1-16이 그 구현을 검증 없이 물려받게 된다.
-     */
-    (void)book;
-    return req->price;
+    if (req->type != ORDER_MIDPOINT) {
+        return req->price; /* 나머지 유형은 실려 온 값 그대로 */
+    }
+
+    price_t bid = book_best_bid(book);
+    price_t ask = book_best_ask(book);
+    if (bid == BOOK_PRICE_NONE || ask == BOOK_PRICE_NONE) {
+        return BOOK_PRICE_NONE; /* 한쪽이 비면 중간값이 없다 */
+    }
+
+    /* 둘 다 양수이므로 정수 나눗셈의 절단이 곧 내림이다. */
+    price_t mid = (bid + ask) / 2;
+
+    /* 스프레드가 한 틱이면 내림 결과가 매수호가와 같아진다. 그것도 유효한 답이다. */
+    return round_to_tick(mid, false);
+}
+
+static bool nxt_allows_reprice(order_type_t type)
+{
+    /* 중간가는 가격이 호가에서 나온다. 정정으로 임의 가격에 놓을 수 없다. */
+    return type != ORDER_MIDPOINT;
 }
 
 const market_rules_t NXT_RULES = {
@@ -93,4 +126,5 @@ const market_rules_t NXT_RULES = {
     .can_submit = nxt_can_submit,
     .can_cancel = nxt_can_cancel,
     .resolve_price = nxt_resolve_price,
+    .allows_reprice = nxt_allows_reprice,
 };

@@ -125,6 +125,16 @@ static void test_submit_cancel(void)
     assert(!NXT_RULES.can_cancel(SESSION_CLOSED));
 }
 
+/* 중간가만 정정으로 가격을 못 바꾼다 */
+static void test_allows_reprice(void)
+{
+    assert(NXT_RULES.allows_reprice(ORDER_LIMIT));
+    assert(NXT_RULES.allows_reprice(ORDER_MARKET));
+    assert(NXT_RULES.allows_reprice(ORDER_IOC));
+    assert(NXT_RULES.allows_reprice(ORDER_FOK));
+    assert(!NXT_RULES.allows_reprice(ORDER_MIDPOINT));
+}
+
 /* KRX와 NXT가 동시에 열려 있지 않은 구간이 실제로 있다 (SOR 테스트의 근거) */
 static void test_asymmetry_with_krx(void)
 {
@@ -212,6 +222,7 @@ int main(void)
     test_boundaries();
     test_order_types();
     test_submit_cancel();
+    test_allows_reprice();
     test_asymmetry_with_krx();
     test_through_engine();
     return 0;

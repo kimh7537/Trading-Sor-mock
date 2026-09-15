@@ -49,6 +49,13 @@ static bool krx_can_cancel(session_t session)
     return session == SESSION_REGULAR;
 }
 
+static bool krx_allows_reprice(order_type_t type)
+{
+    (void)type;
+    /* KRX에는 가격이 규칙에서 나오는 유형이 없다. 전부 정정 가능. */
+    return true;
+}
+
 static price_t krx_resolve_price(const order_book_t *book, const order_t *req)
 {
     (void)book;
@@ -63,4 +70,5 @@ const market_rules_t KRX_RULES = {
     .can_submit = krx_can_submit,
     .can_cancel = krx_can_cancel,
     .resolve_price = krx_resolve_price,
+    .allows_reprice = krx_allows_reprice,
 };

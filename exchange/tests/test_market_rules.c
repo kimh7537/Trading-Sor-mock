@@ -76,6 +76,11 @@ static bool dummy_can_cancel(session_t session)
     return G.allow_cancel;
 }
 
+static bool dummy_allows_reprice(order_type_t type)
+{
+    return type != ORDER_MIDPOINT;
+}
+
 static price_t dummy_resolve(const order_book_t *book, const order_t *req)
 {
     (void)book;
@@ -90,6 +95,7 @@ static const market_rules_t DUMMY = {
     .can_submit = dummy_can_submit,
     .can_cancel = dummy_can_cancel,
     .resolve_price = dummy_resolve,
+    .allows_reprice = dummy_allows_reprice,
 };
 
 static order_id_t NEXT_ID = 1;
