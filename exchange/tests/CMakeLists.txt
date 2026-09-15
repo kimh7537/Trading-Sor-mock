@@ -1,3 +1,4 @@
 mini_sor_add_test(test_price_level exchange)
 mini_sor_add_test(test_order_book exchange)
 mini_sor_add_test(test_match_limit exchange)
+mini_sor_add_test(test_match_market exchange)

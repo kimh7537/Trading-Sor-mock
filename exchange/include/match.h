@@ -80,4 +80,14 @@ const order_book_t *match_book(const match_engine_t *eng);
  */
 int match_limit(match_engine_t *eng, const order_t *req, exec_result_t *out);
 
+/*
+ * 시장가 주문을 접수한다. req->price는 무시한다 — 가격 제한 없이 상대 호가를
+ * 최우선부터 소진한다.
+ *
+ * 잔량이 남아도 호가창에 등록하지 않는다. 미체결분은 그대로 취소된다
+ * (out->resting은 항상 false).
+ * 반대 호가가 전혀 없으면 아무것도 체결하지 않고 ERR_NO_LIQUIDITY로 거부한다.
+ */
+int match_market(match_engine_t *eng, const order_t *req, exec_result_t *out);
+
 #endif /* MINI_SOR_MATCH_H */

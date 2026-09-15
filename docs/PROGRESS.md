@@ -25,6 +25,27 @@
 
 ## 2026-09-15
 
+- [T1-09] 매칭 — 시장가
+  - 한 일: `exchange/src/match/match_market.c`, `exchange/tests/test_match_market.c`.
+    `errors.h`에 `ERR_NO_LIQUIDITY(-13)` 추가.
+  - 판단 1 — T1-08에서 `match_sweep`을 `limit` 인자로 일반화해 둔 덕에 시장가는
+    `BOOK_PRICE_NONE`을 넘기는 것이 전부다. 매칭 루프를 복제하지 않았다.
+  - 판단 2 — 반대 호가가 전혀 없으면 **아무것도 하지 않고 거부**한다. 체결도 등록도
+    못 하는 주문을 ERR_OK로 돌려주면 호출부가 "접수됐다"고 오해한다. 전용 에러 코드를
+    새로 뒀다 — ERR_NOT_FOUND("주문을 찾을 수 없음")로 뭉뚱그리면 의미가 안 맞는다.
+  - 판단 3 — `req->price`를 아예 보지 않는다. 시장가에 가격이 실려 와도 무시한다.
+  - 막힌 점 (방법론): 변이 2종이 "안 잡힌 것처럼" 보였는데 원인이 둘 다 달랐다.
+    · 하나는 변이를 넣으면 `best`가 미사용이 되어 `-Werror`로 **빌드가 실패**했고,
+      실패해도 옛 바이너리가 남아 ctest가 통과했다. 빌드 실패를 검사하지 않던
+      변이 스크립트의 허점이다. 이후로는 빌드 실패를 명시적으로 잡는다.
+    · 다른 하나는 테스트가 시장가 주문의 `price`를 0으로 두고 있어서, 잔량을 잘못
+      등록하는 구현이어도 제한폭에 막혀 증상이 안 났다. 등록 가능한 가격으로 바꿔야
+      버그가 드러난다. "거부가 버그를 가린다"는 패턴이다.
+  - 확인: 변이 4종 전부 잡았다 — 잔량 등록 / 반대 호가 검사 무력화 / limit을 req->price로 /
+    반대편 최우선호가를 같은 편으로.
+  - 결과: Debug ctest 9/9, ASan ctest 9/9 통과. 경고 0.
+  - 다음: T1-10 IOC / FOK.
+
 - [T1-08] 매칭 — 지정가
   - 한 일: `exchange/include/match.h`, `src/match/match_internal.h`,
     `src/match/match_engine.c`, `src/match/match_limit.c`,
