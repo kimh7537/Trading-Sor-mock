@@ -23,4 +23,11 @@ bool is_valid_tick(price_t price);
 /* 호가 단위로 올림(up=true) 또는 내림. 이미 맞으면 그대로. 범위 밖이면 0. */
 price_t round_to_tick(price_t price, bool up);
 
+/*
+ * price가 속한 호가 단위 구간의 배타적 상한. 범위 밖이면 0.
+ * 예: tick_segment_end(3000) == 5000 (5원 구간은 2,000 이상 5,000 미만).
+ * 호가창이 가격을 배열 인덱스로 접을 때 구간 단위로 건너뛰기 위해 쓴다.
+ */
+price_t tick_segment_end(price_t price);
+
 #endif /* MINI_SOR_TICK_SIZE_H */

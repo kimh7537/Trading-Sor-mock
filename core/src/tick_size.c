@@ -85,3 +85,19 @@ price_t round_to_tick(price_t price, bool up)
     assert(is_valid_tick(result));
     return result;
 }
+
+price_t tick_segment_end(price_t price)
+{
+    if (!in_range(price)) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < TICK_TABLE_LEN; i++) {
+        if (price < TICK_TABLE[i].below) {
+            return TICK_TABLE[i].below;
+        }
+    }
+
+    assert(0 && "표 마지막 구간이 PRICE_MAX를 덮지 못했다");
+    return 0;
+}

@@ -93,6 +93,30 @@ int main(void)
     assert(round_to_tick(20049, false) == 20000);
     assert(round_to_tick(500999, false) == 500000);
 
+    /* 구간의 배타적 상한. 호가창이 구간 단위로 건너뛸 때 쓴다 */
+    assert(tick_segment_end(1) == 2000);
+    assert(tick_segment_end(1999) == 2000);
+    assert(tick_segment_end(2000) == 5000);
+    assert(tick_segment_end(4999) == 5000);
+    assert(tick_segment_end(5000) == 20000);
+    assert(tick_segment_end(20000) == 50000);
+    assert(tick_segment_end(50000) == 200000);
+    assert(tick_segment_end(200000) == 500000);
+    assert(tick_segment_end(500000) == PRICE_MAX + 1);
+    assert(tick_segment_end(PRICE_MAX) == PRICE_MAX + 1);
+    assert(tick_segment_end(0) == 0);
+    assert(tick_segment_end(PRICE_MAX + 1) == 0);
+
+    /* 상한 바로 앞은 같은 구간, 상한은 다음 구간이다 */
+    for (price_t b = 1; b < PRICE_MAX; b = tick_segment_end(b)) {
+        price_t end = tick_segment_end(b);
+        assert(tick_size_of(end - 1) == tick_size_of(b));
+        if (end <= PRICE_MAX) {
+            assert(tick_size_of(end) != tick_size_of(b));
+            assert(is_valid_tick(end)); /* 구간 시작은 새 구간 단위에 맞는다 */
+        }
+    }
+
     /* 올림·내림 결과는 항상 유효 호가다 */
     for (price_t p = 1; p < 60000; p += 7) {
         price_t up = round_to_tick(p, true);

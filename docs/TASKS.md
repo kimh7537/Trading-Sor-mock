@@ -94,7 +94,7 @@
 ---
 
 ### T1-06 호가창
-- [ ] 의존: T1-05, T1-03
+- [x] 의존: T1-05, T1-03
 
 `exchange/src/book/order_book.c`
 
