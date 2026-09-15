@@ -45,6 +45,41 @@ const order_book_t *match_book(const match_engine_t *eng)
     return eng != NULL ? eng->book : NULL;
 }
 
+void match_set_sink(match_engine_t *eng, const event_sink_t *sink)
+{
+    if (eng == NULL) {
+        return;
+    }
+    if (sink != NULL) {
+        eng->sink = *sink;
+    } else {
+        eng->sink.fn = NULL;
+        eng->sink.ctx = NULL;
+    }
+}
+
+void match_emit(const match_engine_t *eng, event_type_t type, ts_t ts,
+                order_id_t order_id, market_t market, price_t price, qty_t qty,
+                qty_t remaining, order_id_t counterparty, int reason)
+{
+    if (eng->sink.fn == NULL) {
+        return; /* 싱크가 없으면 이벤트 구조체를 채우지도 않는다 */
+    }
+
+    order_event_t ev = {
+        .type = type,
+        .ts = ts,
+        .order_id = order_id,
+        .market = market,
+        .price = price,
+        .qty = qty,
+        .remaining_qty = remaining,
+        .counterparty_id = counterparty,
+        .reason = reason,
+    };
+    event_emit(&eng->sink, &ev);
+}
+
 void match_result_init(exec_result_t *out, qty_t order_qty)
 {
     out->fill_count = 0;
@@ -116,11 +151,16 @@ qty_t match_sweep(match_engine_t *eng, const order_t *taker, price_t limit,
 
         qty_t maker_rem = order_remaining_qty(maker);
         qty_t fill_qty = (remaining < maker_rem) ? remaining : maker_rem;
+        /* maker는 전량 체결되면 슬롯이 풀로 돌아간다. 이벤트에 쓸 값을 먼저 뜬다. */
+        order_id_t maker_id = maker->id;
+        market_t maker_market = maker->market;
+        qty_t maker_rem_after = maker_rem - fill_qty;
+
 
         fill_t fill = {
             .price = best, /* 체결 가격은 먼저 있던 주문의 호가다 (SPEC 4.1) */
             .qty = fill_qty,
-            .maker_id = maker->id,
+            .maker_id = maker_id,
             .taker_id = taker->id,
             .ts = taker->ts,
         };
@@ -141,6 +181,20 @@ qty_t match_sweep(match_engine_t *eng, const order_t *taker, price_t limit,
 
         record_fill(out, &fill);
         remaining -= fill_qty;
+
+        /*
+         * 순서 고정: 상대(maker)가 먼저, 들어온 쪽(taker)이 다음.
+         * maker 슬롯은 위에서 이미 풀로 돌아갔을 수 있으므로 값을 미리 떠 뒀다.
+         */
+        match_emit(eng,
+                   (maker_rem_after == 0) ? EVENT_EXECUTED
+                                          : EVENT_PARTIALLY_EXECUTED,
+                   taker->ts, maker_id, maker_market, best, fill_qty,
+                   maker_rem_after, taker->id, ERR_OK);
+        match_emit(eng,
+                   (remaining == 0) ? EVENT_EXECUTED : EVENT_PARTIALLY_EXECUTED,
+                   taker->ts, taker->id, taker->market, best, fill_qty,
+                   remaining, maker_id, ERR_OK);
     }
 
     return remaining;
@@ -182,4 +236,14 @@ int match_rest(match_engine_t *eng, const order_t *req, qty_t remaining,
 
     out->resting = true;
     return ERR_OK;
+}
+
+int match_reject(const match_engine_t *eng, ts_t ts, order_id_t id,
+                 market_t market, price_t price, qty_t qty, int rc,
+                 exec_result_t *out)
+{
+    out->status = STATUS_REJECTED;
+    match_emit(eng, EVENT_REJECTED, ts, id, market, price, qty, qty,
+               ORDER_ID_INVALID, rc);
+    return rc;
 }

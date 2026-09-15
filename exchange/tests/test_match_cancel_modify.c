@@ -64,7 +64,7 @@ static void test_cancel(void)
     rest_at(eng, SIDE_BUY, 9900, 50);
 
     exec_result_t res;
-    assert(match_cancel(eng, a, &res) == ERR_OK);
+    assert(match_cancel(eng, a, NEXT_TS++, &res) == ERR_OK);
     assert(res.status == STATUS_CANCELED);
     assert(res.remaining_qty == 100); /* 취소된 잔량 */
     assert(res.filled_qty == 0);
@@ -74,10 +74,10 @@ static void test_cancel(void)
     assert(book_best_bid(book) == 9900); /* 다음 호가로 내려갔다 */
 
     /* 두 번 취소는 안 된다 */
-    assert(match_cancel(eng, a, &res) == ERR_NOT_FOUND);
-    assert(match_cancel(eng, 999999, &res) == ERR_NOT_FOUND);
-    assert(match_cancel(NULL, a, &res) == ERR_NULL_PTR);
-    assert(match_cancel(eng, a, NULL) == ERR_NULL_PTR);
+    assert(match_cancel(eng, a, NEXT_TS++, &res) == ERR_NOT_FOUND);
+    assert(match_cancel(eng, 999999, NEXT_TS++, &res) == ERR_NOT_FOUND);
+    assert(match_cancel(NULL, a, 0, &res) == ERR_NULL_PTR);
+    assert(match_cancel(eng, a, 0, NULL) == ERR_NULL_PTR);
 
     match_engine_destroy(eng);
 }
@@ -97,7 +97,7 @@ static void test_cancel_partially_filled(void)
     assert(res.filled_qty == 30);
     assert(book_qty_at(book, SIDE_SELL, 10000) == 70);
 
-    assert(match_cancel(eng, resting, &res) == ERR_OK);
+    assert(match_cancel(eng, resting, NEXT_TS++, &res) == ERR_OK);
     assert(res.remaining_qty == 70); /* 기체결 30은 취소 대상이 아니다 */
     assert(book_qty_at(book, SIDE_SELL, 10000) == 0);
 
@@ -117,10 +117,10 @@ static void test_filled_order_gone(void)
     assert(match_limit(eng, &taker, &res) == ERR_OK);
     assert(res.filled_qty == 50);
 
-    assert(match_cancel(eng, maker, &res) == ERR_NOT_FOUND);
-    assert(match_modify(eng, maker, 10000, 40, &res) == ERR_NOT_FOUND);
+    assert(match_cancel(eng, maker, NEXT_TS++, &res) == ERR_NOT_FOUND);
+    assert(match_modify(eng, maker, 10000, 40, NEXT_TS++, &res) == ERR_NOT_FOUND);
     /* taker는 애초에 등록된 적이 없다 */
-    assert(match_cancel(eng, taker.id, &res) == ERR_NOT_FOUND);
+    assert(match_cancel(eng, taker.id, NEXT_TS++, &res) == ERR_NOT_FOUND);
 
     match_engine_destroy(eng);
 }
@@ -137,7 +137,7 @@ static void test_modify_qty_down_keeps_priority(void)
     order_id_t c = rest_at(eng, SIDE_SELL, 10000, 50);
 
     exec_result_t res;
-    assert(match_modify(eng, a, 10000, 20, &res) == ERR_OK); /* 맨 앞을 줄인다 */
+    assert(match_modify(eng, a, 10000, 20, NEXT_TS++, &res) == ERR_OK); /* 맨 앞을 줄인다 */
     assert(res.status == STATUS_NEW);
     assert(res.remaining_qty == 20);
     assert(res.resting);
@@ -169,7 +169,7 @@ static void test_modify_qty_up_loses_priority(void)
     order_id_t c = rest_at(eng, SIDE_SELL, 10000, 50);
 
     exec_result_t res;
-    assert(match_modify(eng, a, 10000, 80, &res) == ERR_OK);
+    assert(match_modify(eng, a, 10000, 80, NEXT_TS++, &res) == ERR_OK);
     assert(res.remaining_qty == 80);
     assert(book_qty_at(book, SIDE_SELL, 10000) == 80 + 50 + 50);
 
@@ -198,7 +198,7 @@ static void test_modify_price_loses_priority(void)
 
     exec_result_t res;
     /* a를 10,000으로 내린다. 이미 있던 b, c보다 뒤에 서야 한다 */
-    assert(match_modify(eng, a, 10000, 50, &res) == ERR_OK);
+    assert(match_modify(eng, a, 10000, 50, NEXT_TS++, &res) == ERR_OK);
     assert(book_qty_at(book, SIDE_SELL, 10010) == 0);
     assert(book_qty_at(book, SIDE_SELL, 10000) == 150);
     assert(book_best_ask(book) == 10000);
@@ -221,7 +221,7 @@ static void test_modify_noop_keeps_priority(void)
     order_id_t b = rest_at(eng, SIDE_SELL, 10000, 50);
 
     exec_result_t res;
-    assert(match_modify(eng, a, 10000, 50, &res) == ERR_OK);
+    assert(match_modify(eng, a, 10000, 50, NEXT_TS++, &res) == ERR_OK);
 
     order_id_t q[4];
     assert(queue_of(book, SIDE_SELL, 10000, q, 4) == 2);
@@ -245,7 +245,7 @@ static void test_modify_partially_filled(void)
     assert(book_qty_at(book, SIDE_SELL, 10000) == 60);
 
     /* 원 수량을 100 -> 70으로. 기체결 40은 그대로이므로 잔량은 30이 된다 */
-    assert(match_modify(eng, resting, 10000, 70, &res) == ERR_OK);
+    assert(match_modify(eng, resting, 10000, 70, NEXT_TS++, &res) == ERR_OK);
     assert(res.status == STATUS_PARTIAL); /* 기체결분이 있다 */
     assert(res.remaining_qty == 30);
     assert(book_qty_at(book, SIDE_SELL, 10000) == 30);
@@ -257,14 +257,14 @@ static void test_modify_partially_filled(void)
     assert(o->filled_qty == 40); /* 정정이 기체결을 지우지 않았다 */
 
     /* 기체결 수량 이하로는 줄일 수 없다 — 그건 취소다 */
-    assert(match_modify(eng, resting, 10000, 40, &res) == ERR_INVALID_QTY);
-    assert(match_modify(eng, resting, 10000, 10, &res) == ERR_INVALID_QTY);
+    assert(match_modify(eng, resting, 10000, 40, NEXT_TS++, &res) == ERR_INVALID_QTY);
+    assert(match_modify(eng, resting, 10000, 10, NEXT_TS++, &res) == ERR_INVALID_QTY);
     assert(book_qty_at(book, SIDE_SELL, 10000) == 30); /* 안 바뀌었다 */
 
     /* 가격까지 바꾸는 경로가 더 위험하다. 여기서 늦게 걸리면 주문을 이미 호가창에서
      * 뗀 뒤라 그대로 사라진다. 거절되고 주문이 살아 있어야 한다. */
-    assert(match_modify(eng, resting, 10010, 40, &res) == ERR_INVALID_QTY);
-    assert(match_cancel(eng, resting, &res) == ERR_OK); /* 아직 살아 있다 */
+    assert(match_modify(eng, resting, 10010, 40, NEXT_TS++, &res) == ERR_INVALID_QTY);
+    assert(match_cancel(eng, resting, NEXT_TS++, &res) == ERR_OK); /* 아직 살아 있다 */
     assert(res.remaining_qty == 30);
 
     match_engine_destroy(eng);
@@ -282,8 +282,8 @@ static void test_modify_rejects_cross(void)
 
     exec_result_t res;
     /* 매수를 최우선매도호가까지 올리면 교차한다 */
-    assert(match_modify(eng, bid, 10000, 50, &res) == ERR_INVALID_PRICE);
-    assert(match_modify(eng, bid, 10010, 50, &res) == ERR_INVALID_PRICE);
+    assert(match_modify(eng, bid, 10000, 50, NEXT_TS++, &res) == ERR_INVALID_PRICE);
+    assert(match_modify(eng, bid, 10010, 50, NEXT_TS++, &res) == ERR_INVALID_PRICE);
     assert(res.status == STATUS_REJECTED);
 
     /* 거절 후에도 원 주문은 그대로 */
@@ -292,7 +292,7 @@ static void test_modify_rejects_cross(void)
     assert(book_qty_at(book, SIDE_BUY, 10000) == 0);
 
     /* 교차하지 않는 데까지는 올릴 수 있다 */
-    assert(match_modify(eng, bid, 9990, 50, &res) == ERR_OK);
+    assert(match_modify(eng, bid, 9990, 50, NEXT_TS++, &res) == ERR_OK);
     assert(book_best_bid(book) == 9990);
 
     match_engine_destroy(eng);
@@ -309,14 +309,14 @@ static void test_modify_rejects(void)
     order_id_t b = rest_at(eng, SIDE_BUY, 9900, 50);
     exec_result_t res;
 
-    assert(match_modify(eng, a, book_price_high(book) + 10, 50, &res) ==
+    assert(match_modify(eng, a, book_price_high(book) + 10, 50, NEXT_TS++, &res) ==
            ERR_PRICE_LIMIT);
-    assert(match_modify(eng, a, 9905, 50, &res) == ERR_INVALID_TICK);
-    assert(match_modify(eng, a, 9900, 0, &res) == ERR_INVALID_QTY);
-    assert(match_modify(eng, a, 9900, QTY_MAX + 1, &res) == ERR_INVALID_QTY);
-    assert(match_modify(eng, 999999, 9900, 10, &res) == ERR_NOT_FOUND);
-    assert(match_modify(NULL, a, 9900, 10, &res) == ERR_NULL_PTR);
-    assert(match_modify(eng, a, 9900, 10, NULL) == ERR_NULL_PTR);
+    assert(match_modify(eng, a, 9905, 50, NEXT_TS++, &res) == ERR_INVALID_TICK);
+    assert(match_modify(eng, a, 9900, 0, NEXT_TS++, &res) == ERR_INVALID_QTY);
+    assert(match_modify(eng, a, 9900, QTY_MAX + 1, NEXT_TS++, &res) == ERR_INVALID_QTY);
+    assert(match_modify(eng, 999999, 9900, 10, NEXT_TS++, &res) == ERR_NOT_FOUND);
+    assert(match_modify(NULL, a, 9900, 10, 0, &res) == ERR_NULL_PTR);
+    assert(match_modify(eng, a, 9900, 10, 0, NULL) == ERR_NULL_PTR);
 
     /* 수량도 순서도 그대로 */
     assert(book_qty_at(book, SIDE_BUY, 9900) == 100);
@@ -337,14 +337,14 @@ static void test_reuse_after_cancel(void)
     exec_result_t res;
     order_t req = req_of(SIDE_BUY, 9900, 50);
     assert(match_limit(eng, &req, &res) == ERR_OK);
-    assert(match_cancel(eng, req.id, &res) == ERR_OK);
+    assert(match_cancel(eng, req.id, NEXT_TS++, &res) == ERR_OK);
 
     /* 같은 번호로 다시 낸다 — 인덱스에서 빠졌으므로 중복이 아니다 */
     order_t again = req_of(SIDE_BUY, 9950, 70);
     again.id = req.id;
     assert(match_limit(eng, &again, &res) == ERR_OK);
     assert(book_qty_at(book, SIDE_BUY, 9950) == 70);
-    assert(match_cancel(eng, req.id, &res) == ERR_OK);
+    assert(match_cancel(eng, req.id, NEXT_TS++, &res) == ERR_OK);
     assert(res.remaining_qty == 70);
 
     match_engine_destroy(eng);

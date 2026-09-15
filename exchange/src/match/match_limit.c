@@ -1,8 +1,16 @@
+
 #include <stddef.h>
 
 #include "errors.h"
 #include "match_internal.h"
 #include "tick_size.h"
+
+/* 거부 경로가 반복된다. req와 out이 이름 그대로 보이는 자리에서만 쓴다. */
+#define REJECT(code)                                                       \
+    match_reject(eng, req->ts, req->id, req->market, req->price, req->qty, \
+                 (code), out)
+
+
 
 /*
  * 지정가 매칭 (docs/SPEC.md 4.2).
@@ -25,18 +33,15 @@ int match_limit(match_engine_t *eng, const order_t *req, exec_result_t *out)
      */
     if (req->price < book_price_low(eng->book) ||
         req->price > book_price_high(eng->book)) {
-        out->status = STATUS_REJECTED;
-        return ERR_PRICE_LIMIT;
+        return REJECT(ERR_PRICE_LIMIT);
     }
     if (!is_valid_tick(req->price)) {
-        out->status = STATUS_REJECTED;
-        return ERR_INVALID_TICK;
+        return REJECT(ERR_INVALID_TICK);
     }
 
     int rc = match_validate(eng, req);
     if (rc != ERR_OK) {
-        out->status = STATUS_REJECTED;
-        return rc;
+        return REJECT(rc);
     }
 
     qty_t remaining = match_sweep(eng, req, req->price, out);
@@ -49,9 +54,14 @@ int match_limit(match_engine_t *eng, const order_t *req, exec_result_t *out)
              * 체결분은 이미 일어난 일이라 되돌리지 않는다. 잔량만 등록되지 못했다.
              * out에 담긴 체결 목록은 그대로 유효하다.
              */
-            out->status = (out->filled_qty > 0) ? STATUS_PARTIAL : STATUS_REJECTED;
+            out->status =
+                (out->filled_qty > 0) ? STATUS_PARTIAL : STATUS_REJECTED;
+            match_emit(eng, EVENT_REJECTED, req->ts, req->id, req->market,
+                       req->price, remaining, remaining, ORDER_ID_INVALID, rc);
             return rc;
         }
+        match_emit(eng, EVENT_ACCEPTED, req->ts, req->id, req->market,
+                   req->price, req->qty, remaining, ORDER_ID_INVALID, ERR_OK);
         out->status = (out->filled_qty > 0) ? STATUS_PARTIAL : STATUS_NEW;
     } else {
         out->status = STATUS_FILLED;

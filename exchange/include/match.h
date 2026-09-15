@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "event.h"
 #include "order.h"
 #include "order_book.h"
 #include "types.h"
@@ -61,6 +62,12 @@ typedef struct match_engine match_engine_t;
 match_engine_t *match_engine_create(price_t base_price, int32_t capacity);
 void match_engine_destroy(match_engine_t *eng);
 
+/*
+ * 이벤트 소비자를 건다. NULL을 주면 이벤트를 만들지 않는다(기본값).
+ * 싱크는 엔진보다 오래 살아야 한다 — 엔진은 포인터만 복사한다.
+ */
+void match_set_sink(match_engine_t *eng, const event_sink_t *sink);
+
 /* 호가 조회용. 엔진이 소유하므로 호출부가 파괴하지 않는다. */
 const order_book_t *match_book(const match_engine_t *eng);
 
@@ -112,9 +119,13 @@ int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out);
  * out은 "이번 호출의 결과"다 — filled_qty는 0이고(이번 호출로 체결된 것이 없다),
  * remaining_qty에 취소된 잔량이 담긴다. status는 STATUS_CANCELED.
  *
+ *
+ * ts는 이 취소 요청의 논리 시각이다. 이벤트에 그대로 실린다 — 엔진은 시스템 시각을
+ * 읽지 않으므로 취소도 자기 시각을 들고 와야 한다.
  * 이미 전량 체결된 주문은 호가창에도 인덱스에도 없으므로 ERR_NOT_FOUND다.
  */
-int match_cancel(match_engine_t *eng, order_id_t id, exec_result_t *out);
+int match_cancel(match_engine_t *eng, order_id_t id, ts_t ts,
+                 exec_result_t *out);
 
 /*
  * 주문을 정정한다 (docs/SPEC.md 4.4).
@@ -134,6 +145,6 @@ int match_cancel(match_engine_t *eng, order_id_t id, exec_result_t *out);
  * 거절되면 원 주문은 가격·수량·우선순위 모두 그대로다.
  */
 int match_modify(match_engine_t *eng, order_id_t id, price_t new_price,
-                 qty_t new_qty, exec_result_t *out);
+                 qty_t new_qty, ts_t ts, exec_result_t *out);
 
 #endif /* MINI_SOR_MATCH_H */

@@ -14,7 +14,21 @@ struct match_engine {
     order_pool_t *pool;
     order_index_t *index;
     int32_t capacity;
+    event_sink_t sink;
 };
+
+/* 이벤트 하나를 내보낸다. 싱크가 없으면 아무 일도 하지 않는다. */
+void match_emit(const match_engine_t *eng, event_type_t type, ts_t ts,
+                order_id_t order_id, market_t market, price_t price, qty_t qty,
+                qty_t remaining, order_id_t counterparty, int reason);
+
+/*
+ * 거부를 한 곳에서 처리한다. 결과 상태를 REJECTED로 놓고 REJECTED 이벤트를 내보낸 뒤
+ * 받은 에러 코드를 그대로 돌려준다. 거부 경로가 여럿이라 빠뜨리기 쉬워 모아 뒀다.
+ */
+int match_reject(const match_engine_t *eng, ts_t ts, order_id_t id,
+                 market_t market, price_t price, qty_t qty, int rc,
+                 exec_result_t *out);
 
 /* 결과 구조체를 빈 상태로 되돌린다. */
 void match_result_init(exec_result_t *out, qty_t order_qty);

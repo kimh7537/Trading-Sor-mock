@@ -1,9 +1,17 @@
+
 #include <assert.h>
 #include <stddef.h>
 
 #include "errors.h"
 #include "match_internal.h"
 #include "tick_size.h"
+
+/* 거부 경로가 반복된다. req와 out이 이름 그대로 보이는 자리에서만 쓴다. */
+#define REJECT(code)                                                       \
+    match_reject(eng, req->ts, req->id, req->market, req->price, req->qty, \
+                 (code), out)
+
+
 
 /*
  * IOC / FOK (docs/SPEC.md 4.2).
@@ -18,12 +26,10 @@ static int check_price(const match_engine_t *eng, const order_t *req,
 {
     if (req->price < book_price_low(eng->book) ||
         req->price > book_price_high(eng->book)) {
-        out->status = STATUS_REJECTED;
-        return ERR_PRICE_LIMIT;
+        return REJECT(ERR_PRICE_LIMIT);
     }
     if (!is_valid_tick(req->price)) {
-        out->status = STATUS_REJECTED;
-        return ERR_INVALID_TICK;
+        return REJECT(ERR_INVALID_TICK);
     }
     return ERR_OK;
 }
@@ -42,8 +48,7 @@ int match_ioc(match_engine_t *eng, const order_t *req, exec_result_t *out)
     }
     rc = match_validate(eng, req);
     if (rc != ERR_OK) {
-        out->status = STATUS_REJECTED;
-        return rc;
+        return REJECT(rc);
     }
 
     qty_t remaining = match_sweep(eng, req, req->price, out);
@@ -53,10 +58,14 @@ int match_ioc(match_engine_t *eng, const order_t *req, exec_result_t *out)
 
     if (out->filled_qty == 0) {
         /* 한 건도 못 붙었다. 시장가와 같은 이유로 거부로 알린다. */
-        out->status = STATUS_REJECTED;
-        return ERR_NO_LIQUIDITY;
+        return REJECT(ERR_NO_LIQUIDITY);
     }
     out->status = (remaining == 0) ? STATUS_FILLED : STATUS_PARTIAL;
+
+    if (remaining > 0) {
+        match_emit(eng, EVENT_CANCELED, req->ts, req->id, req->market,
+                   req->price, remaining, 0, ORDER_ID_INVALID, ERR_OK);
+    }
 
     return ERR_OK;
 }
@@ -75,8 +84,7 @@ int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out)
     }
     rc = match_validate(eng, req);
     if (rc != ERR_OK) {
-        out->status = STATUS_REJECTED;
-        return rc;
+        return REJECT(rc);
     }
 
     /*
@@ -89,8 +97,7 @@ int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out)
         book_qty_up_to(eng->book, maker_side, req->price, req->qty);
 
     if (available < req->qty) {
-        out->status = STATUS_REJECTED;
-        return ERR_NO_LIQUIDITY;
+        return REJECT(ERR_NO_LIQUIDITY);
     }
 
     qty_t remaining = match_sweep(eng, req, req->price, out);
