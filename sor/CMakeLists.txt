@@ -9,6 +9,7 @@ add_library(sor STATIC
     src/order_map.c
     src/executor.c
     src/routing_log.c
+    src/execution_quality.c
 )
 target_include_directories(sor PUBLIC include)
 target_link_libraries(sor PUBLIC exchange)
