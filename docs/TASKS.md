@@ -263,7 +263,7 @@ KRX와 NXT의 차이를 인터페이스로 분리한다. **설계가 중요한 �
 ---
 
 ### T1-17 유동성 공급 — Synthetic
-- [ ] 의존: T1-12
+- [x] 의존: T1-12
 
 `exchange/src/liquidity/synthetic.c`
 

@@ -10,8 +10,9 @@ add_library(exchange STATIC
     src/rules/market_rules.c
     src/rules/krx.c
     src/rules/nxt.c
+    src/liquidity/synthetic.c
 )
 target_include_directories(exchange PUBLIC include PRIVATE src/match)
-target_link_libraries(exchange PUBLIC core)
+target_link_libraries(exchange PUBLIC core m)
 
 add_subdirectory(tests)
