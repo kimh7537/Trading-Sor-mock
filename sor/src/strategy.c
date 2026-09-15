@@ -107,3 +107,56 @@ const char *strategy_name(const exec_strategy_t *strategy)
     }
     return strategy->name;
 }
+
+int plan_resting_market(const exec_context_t *ctx, const order_t *req,
+                         market_t *out_market)
+{
+    if (ctx == NULL || req == NULL || out_market == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    /* 매수면 상대는 매도호가다. */
+    side_t maker_side = (req->side == SIDE_BUY) ? SIDE_SELL : SIDE_BUY;
+
+    int32_t pick = -1;
+    price_t pick_quote = BOOK_PRICE_NONE;
+
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        if (!cons_is_open(ctx->cons, (market_t)m, ctx->ts)) {
+            continue;
+        }
+
+        const order_book_t *book = ctx->cons->book[m];
+        price_t quote = (maker_side == SIDE_SELL) ? book_best_ask(book)
+                                                  : book_best_bid(book);
+
+        if (pick < 0) {
+            pick = m;
+            pick_quote = quote;
+            continue;
+        }
+
+        /* 호가가 있는 시장이 없는 시장을 이긴다. */
+        if (pick_quote == BOOK_PRICE_NONE && quote != BOOK_PRICE_NONE) {
+            pick = m;
+            pick_quote = quote;
+            continue;
+        }
+        if (quote == BOOK_PRICE_NONE) {
+            continue;
+        }
+        /* 둘 다 호가가 있으면 유리한 쪽. 같으면 먼저 본 시장이 남는다. */
+        bool better = (req->side == SIDE_BUY) ? (quote < pick_quote)
+                                              : (quote > pick_quote);
+        if (better) {
+            pick = m;
+            pick_quote = quote;
+        }
+    }
+
+    if (pick < 0) {
+        return ERR_MARKET_CLOSED;
+    }
+    *out_market = (market_t)pick;
+    return ERR_OK;
+}

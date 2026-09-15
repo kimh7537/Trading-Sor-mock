@@ -97,6 +97,25 @@ int plan_add_leg(exec_plan_t *plan, market_t market, qty_t qty, price_t price,
  */
 int plan_validate(const exec_plan_t *plan, const order_t *req);
 
+/*
+ * 즉시 체결되지 않는 주문을 **어느 시장에 등록할 것인가**.
+ *
+ * 지정가 주문은 상대 호가가 없어도 호가창에 등록되는 것이 정상이고, 어느 시장에
+ * 등록하느냐도 라우팅 결정의 일부다. 임시방편이 아니라 별도의 판단이다 —
+ * 최선집행 평가(T2-03)는 "지금 체결되는가"를 재므로 이 상황에 답을 주지 못한다.
+ *
+ * 여기서 주문을 거부하면 안 된다. 조용한 장에서 BEST_PRICE만 주문을 버리고
+ * KRX_ONLY는 등록하면, **체결률 차이가 라우팅 품질과 무관한 이유로** 생긴다.
+ * T2-14의 비교가 그것 때문에 오염된다.
+ *
+ * 고르는 규칙 — 열린 시장 중에서 상대 최우선호가가 유리한 쪽. 호가가 있는 시장이
+ * 없는 시장을 이긴다(호가가 있다는 것은 곧 체결 기회가 가깝다는 뜻이다).
+ * 그래도 같으면 시장 열거 순서.
+ * 열린 시장이 하나도 없으면 ERR_MARKET_CLOSED.
+ */
+int plan_resting_market(const exec_context_t *ctx, const order_t *req,
+                         market_t *out_market);
+
 /* 전략 이름. NULL을 받아도 NULL을 반환하지 않는다. */
 const char *strategy_name(const exec_strategy_t *strategy);
 
@@ -107,5 +126,14 @@ const char *strategy_name(const exec_strategy_t *strategy);
  * **다른 전략의 개선폭은 전부 이 전략 대비로 말한다.**
  */
 extern const exec_strategy_t STRATEGY_KRX_ONLY;
+
+/*
+ * BEST_PRICE — 최선집행 평가에서 이긴 시장 **하나**에 전량 보낸다.
+ *
+ * 쪼개지 않는다. 이긴 시장의 잔량이 모자라도 쪼개지 않고 그대로 보낸다 —
+ * 못 채운 잔량은 그 시장에 등록된다. 쪼개는 것은 SPLIT과 SWEEP의 일이고,
+ * 셋을 비교해야 "쪼개는 것이 이득인가"를 말할 수 있다.
+ */
+extern const exec_strategy_t STRATEGY_BEST_PRICE;
 
 #endif /* MINI_SOR_STRATEGY_H */
