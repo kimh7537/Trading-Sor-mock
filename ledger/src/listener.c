@@ -270,8 +270,12 @@ static int serve_conn(int fd, frame_handler_fn fn, void *ctx)
     }
 }
 
-int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx)
+int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx,
+                       bool *accepted)
 {
+    if (accepted != NULL) {
+        *accepted = false;
+    }
     if (ln == NULL || ln->fd < 0) {
         return ERR_NULL_PTR;
     }
@@ -295,6 +299,15 @@ int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx)
         return ERR_INVALID_ARG;
     }
 
+    /*
+     * 여기부터는 접속을 받은 것이 확정이다. **처리 결과와 무관하게 표시한다** —
+     * 이 뒤에 멈춤 시그널이 와도 이미 한 일은 한 일이다. 표시를 뒤로 미루면
+     * 종료 직전에 끝난 접속이 집계에서 사라진다.
+     */
+    if (accepted != NULL) {
+        *accepted = true;
+    }
+
     int handled = serve_conn(cfd, fn, ctx);
     close(cfd);
 
@@ -309,12 +322,13 @@ int listener_run(listener_t *ln, frame_handler_fn fn, void *ctx)
 
     int conns = 0;
     while (!listener_stopping()) {
-        int rc = listener_serve_one(ln, fn, ctx);
-        if (listener_stopping()) {
-            break;
-        }
+        bool accepted = false;
+        int  rc = listener_serve_one(ln, fn, ctx, &accepted);
         if (rc == ERR_NULL_PTR) {
             return rc;
+        }
+        if (!accepted) {
+            break; /* 멈추라고 해서 돌아온 것이다 */
         }
         /*
          * 접속 하나가 잘못된 전문을 보내도 리스너는 살아 있다. 그 접속만 끊고

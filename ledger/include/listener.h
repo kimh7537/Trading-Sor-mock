@@ -87,8 +87,14 @@ void listener_close(listener_t *ln);
  *
  * 멈춤 요청이 있었으면 아무것도 하지 않고 0을 반환한다.
  * 처리한 전문 수를 반환하고, 오류면 음수 에러 코드.
+ *
+ * `accepted`는 **접속을 실제로 받았는지**를 알려 준다(NULL이어도 된다).
+ * 반환값만으로는 구분할 수 없기 때문이다 — 0은 "멈추라고 해서 그냥 돌아왔다"일
+ * 수도 있고 "붙었다가 전문 없이 끊은 접속을 처리했다"일 수도 있다.
+ * 워커가 처리 건수를 세려면(T3-04) 그 둘을 갈라야 한다.
  */
-int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx);
+int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx,
+                       bool *accepted);
 
 /*
  * 멈출 때까지 접속을 받는다. `listener_request_stop()`이 불리면 돌아온다.

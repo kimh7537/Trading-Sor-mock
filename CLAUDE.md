@@ -19,9 +19,9 @@
 
 ## 현재 상태 (2026-09-15)
 
-**Phase 1·2 완료 (34/34), Phase 3 진행 중 (3/15).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너). `fep/`·`channel/`·`web/`은 아직 계획이다.
+**Phase 1·2 완료 (34/34), Phase 3 진행 중 (4/15).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀). `fep/`·`channel/`·`web/`은 아직 계획이다.
 
-- 다음 태스크: `docs/TASKS.md`의 T3-04 (워커 프로세스 풀)
+- 다음 태스크: `docs/TASKS.md`의 T3-05 (공유메모리 세그먼트)
 - **빌드는 WSL Ubuntu에서 한다.** Windows 네이티브 MSYS2 gcc에는 libasan/libubsan이 없어
   커밋 전 ASan 게이트를 지킬 수 없다. 아래 명령은 모두 WSL 안에서 실행한다:
   `wsl -d Ubuntu` 후 `cd /mnt/c/Users/hyunwoo/OneDrive/*/Study/mock-sor`

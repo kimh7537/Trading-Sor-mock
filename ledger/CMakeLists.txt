@@ -3,6 +3,7 @@
 # 시스템 호출을 하지 않으므로 이 매크로가 필요 없다.
 add_library(ledger STATIC
     src/listener.c
+    src/worker_pool.c
 )
 target_include_directories(ledger PUBLIC include)
 target_link_libraries(ledger PUBLIC core)

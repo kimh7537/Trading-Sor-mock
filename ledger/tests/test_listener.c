@@ -259,7 +259,7 @@ static void test_reuseaddr_after_connection(void)
     p.reply = true;
 
     /* 서버가 모르는 종별을 보고 먼저 끊는다. */
-    int rc = listener_serve_one(ln, on_frame, &p);
+    int rc = listener_serve_one(ln, on_frame, &p, NULL);
     assert(rc < 0);
 
     int status = 0;
@@ -348,7 +348,7 @@ static void test_receives_frames(void)
     memset(&p, 0, sizeof(p));
     p.reply = true;
 
-    int handled = listener_serve_one(ln, on_frame, &p);
+    int handled = listener_serve_one(ln, on_frame, &p, NULL);
     assert(handled == 2);
     assert(p.calls == 2);
     assert(p.last_type == MSG_ORDER_REQ);
@@ -423,7 +423,7 @@ static void run_bad_frame_case(uint8_t type, uint32_t body_len, int want_rc)
     memset(&p, 0, sizeof(p));
     p.reply = true;
 
-    int rc = listener_serve_one(ln, on_frame, &p);
+    int rc = listener_serve_one(ln, on_frame, &p, NULL);
     /* 훅이 불리기 전에 끊겼다. */
     assert(p.calls == 0);
 
@@ -482,7 +482,7 @@ static void test_truncated_frame(void)
     probe_t p;
     memset(&p, 0, sizeof(p));
 
-    int rc = listener_serve_one(ln, on_frame, &p);
+    int rc = listener_serve_one(ln, on_frame, &p, NULL);
     assert(rc < 0);
     assert(p.calls == 0);
 
@@ -527,7 +527,7 @@ static void test_truncated_header(void)
     probe_t p;
     memset(&p, 0, sizeof(p));
 
-    int rc = listener_serve_one(ln, on_frame, &p);
+    int rc = listener_serve_one(ln, on_frame, &p, NULL);
     /* 깨끗한 종료(0)가 아니라 오류여야 한다. */
     assert(rc < 0);
     assert(p.calls == 0);
@@ -561,7 +561,7 @@ static void test_clean_disconnect(void)
     probe_t p;
     memset(&p, 0, sizeof(p));
 
-    int rc = listener_serve_one(ln, on_frame, &p);
+    int rc = listener_serve_one(ln, on_frame, &p, NULL);
     assert(rc == 0);
     assert(p.calls == 0);
 
@@ -601,7 +601,7 @@ static void test_signal_stops_accept(void)
     }
 
     /* accept()에서 기다리다 시그널에 깨어나 돌아와야 한다. */
-    int rc = listener_serve_one(ln, on_frame, NULL);
+    int rc = listener_serve_one(ln, on_frame, NULL, NULL);
     assert(rc == 0);
     assert(listener_stopping());
 
@@ -622,7 +622,7 @@ static void test_stop_before_serve(void)
     listener_t *ln = listener_open(0, 16);
     assert(ln != NULL);
 
-    assert(listener_serve_one(ln, on_frame, NULL) == 0);
+    assert(listener_serve_one(ln, on_frame, NULL, NULL) == 0);
     assert(listener_run(ln, on_frame, NULL) == 0);
 
     listener_close(ln);
@@ -632,7 +632,7 @@ static void test_stop_before_serve(void)
 
 static void test_args(void)
 {
-    assert(listener_serve_one(NULL, on_frame, NULL) == ERR_NULL_PTR);
+    assert(listener_serve_one(NULL, on_frame, NULL, NULL) == ERR_NULL_PTR);
     assert(listener_run(NULL, on_frame, NULL) == ERR_NULL_PTR);
 }
 
