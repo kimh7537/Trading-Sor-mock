@@ -26,7 +26,7 @@
 ---
 
 ### T1-02 기본 타입과 에러 코드
-- [ ] 의존: T1-01
+- [x] 의존: T1-01
 
 `core/include/types.h`, `core/include/errors.h`
 

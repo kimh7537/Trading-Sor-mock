@@ -21,4 +21,4 @@ function(mini_sor_add_test name)
 endfunction()
 
 enable_testing()
-add_subdirectory(core/tests)
+add_subdirectory(core)

@@ -1,1 +1,1 @@
-mini_sor_add_test(test_smoke)
+mini_sor_add_test(test_types core)
