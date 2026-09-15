@@ -63,6 +63,32 @@ typedef struct market_rules {
     price_t (*resolve_price)(const order_book_t *book, const order_t *req);
 } market_rules_t;
 
+/*
+ * 논리 시각의 해석 규약.
+ *
+ * ts_t는 나노초 단위 논리 시각이고, 세션 판정은 **그날 자정 기준 경과 시간**으로 한다.
+ * 날짜를 보지 않는 이유는 이 시뮬레이터가 하루치 거래를 다루기 때문이다.
+ * 여러 날을 이어 붙이더라도 하루로 접어서 보면 세션 판정은 그대로 성립한다.
+ *
+ * 시스템 시각을 읽는 곳은 없다. 여기 들어오는 ts는 전부 입력 이벤트가 들고 온 값이다.
+ */
+#define NS_PER_SEC 1000000000LL
+#define NS_PER_DAY (86400LL * NS_PER_SEC)
+
+/* 시:분:초를 자정 기준 나노초로. 세션 경계를 표에 그대로 적기 위한 것이다. */
+#define TOD_NS(h, m, s) \
+    ((((int64_t)(h) * 3600) + ((int64_t)(m) * 60) + (int64_t)(s)) * NS_PER_SEC)
+
+/* 논리 시각을 그날 자정 기준 나노초로 접는다. 음수 시각도 안전하게 다룬다. */
+static inline int64_t ts_time_of_day(ts_t ts)
+{
+    return (((int64_t)ts % NS_PER_DAY) + NS_PER_DAY) % NS_PER_DAY;
+}
+
+/* 각 시장의 규칙 테이블. 전역 상수이며 프로세스 수명 내내 살아 있다. */
+extern const market_rules_t KRX_RULES;
+extern const market_rules_t NXT_RULES;
+
 /* 세션 이름. 정의되지 않은 값에도 NULL을 반환하지 않는다. */
 const char *session_str(session_t session);
 
