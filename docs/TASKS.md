@@ -420,7 +420,7 @@ T1-18과 T2-04가 각각 key=value 파서를 들고 있다. 60줄쯤 겹친다.
 ---
 
 ### T2-05 집행 전략 — KRX_ONLY (기준선)
-- [ ] 의존: T2-03
+- [x] 의존: T2-03
 
 `sor/include/strategy.h`, `sor/src/strategy_krx_only.c`
 
