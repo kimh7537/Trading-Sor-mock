@@ -59,7 +59,7 @@
 ---
 
 ### T1-04 주문 구조체와 주문 풀
-- [ ] 의존: T1-02
+- [x] 의존: T1-02
 
 `core/include/order.h`, `core/src/order_pool.c`
 
