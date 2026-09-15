@@ -6,6 +6,7 @@ add_library(sor STATIC
     src/strategy_best_price.c
     src/strategy_split.c
     src/strategy_sweep.c
+    src/order_map.c
 )
 target_include_directories(sor PUBLIC include)
 target_link_libraries(sor PUBLIC exchange)

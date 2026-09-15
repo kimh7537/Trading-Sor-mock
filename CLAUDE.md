@@ -19,9 +19,9 @@
 
 ## 현재 상태 (2026-09-15)
 
-**Phase 1 완료 (20/20), Phase 2 진행 중 (8/14).** `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`. `ledger/`·`fep/`·`channel/`·`web/`은 아직 계획이다.
+**Phase 1 완료 (20/20), Phase 2 진행 중 (9/14).** `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`. `ledger/`·`fep/`·`channel/`·`web/`은 아직 계획이다.
 
-- 다음 태스크: `docs/TASKS.md`의 T2-09
+- 다음 태스크: `docs/TASKS.md`의 T2-10
 - **빌드는 WSL Ubuntu에서 한다.** Windows 네이티브 MSYS2 gcc에는 libasan/libubsan이 없어
   커밋 전 ASan 게이트를 지킬 수 없다. 아래 명령은 모두 WSL 안에서 실행한다:
   `wsl -d Ubuntu` 후 `cd /mnt/c/Users/hyunwoo/OneDrive/*/Study/mock-sor`
