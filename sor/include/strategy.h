@@ -144,4 +144,13 @@ extern const exec_strategy_t STRATEGY_BEST_PRICE;
  */
 extern const exec_strategy_t STRATEGY_SPLIT;
 
+/*
+ * SWEEP — 통합 호가창을 가격 순으로 훑으며 유리한 호가부터 쓸어 담는다.
+ *
+ * "유리한 시장"을 최선집행 평가가 아니라 가격으로 정한다. 평가는 주문 전체를 어느
+ * 시장에 보낼지를 묻는 시장 단위 판단이고, SWEEP은 다음 한 호가를 어디서 가져올지를
+ * 묻는 호가 단위 판단이라 알갱이가 다르다. 근거는 strategy_sweep.c의 주석에 있다.
+ */
+extern const exec_strategy_t STRATEGY_SWEEP;
+
 #endif /* MINI_SOR_STRATEGY_H */
