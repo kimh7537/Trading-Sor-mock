@@ -116,3 +116,24 @@ int level_reduce_qty(price_level_t *level, order_t *order, qty_t qty)
 
     return ERR_OK;
 }
+
+int level_amend_qty(price_level_t *level, order_t *order, qty_t new_qty)
+{
+    if (level == NULL || order == NULL) {
+        return ERR_NULL_PTR;
+    }
+    assert_linked(level, order);
+
+    /* 줄이는 것만 받는다. 거절해도 상태가 안 바뀌므로 에러로 알린다. */
+    if (new_qty <= order->filled_qty || new_qty >= order->qty) {
+        return ERR_INVALID_QTY;
+    }
+
+    level->total_qty -= (order->qty - new_qty);
+    order->qty = new_qty;
+
+    assert(level->total_qty >= 0);
+    assert(order_remaining_qty(order) > 0);
+
+    return ERR_OK;
+}

@@ -63,6 +63,9 @@ order_t *book_front(order_book_t *book, side_t side, price_t price);
  */
 int book_reduce_qty(order_book_t *book, order_t *order, qty_t qty);
 
+/* 호가창에 있는 주문의 원 수량을 줄인다(수량 감소 정정). 시간 우선순위는 유지된다. */
+int book_amend_qty(order_book_t *book, order_t *order, qty_t new_qty);
+
 /* 특정 가격의 잔량 합계. 범위 밖이거나 비어 있으면 0. */
 qty_t book_qty_at(const order_book_t *book, side_t side, price_t price);
 

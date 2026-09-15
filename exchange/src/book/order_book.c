@@ -391,3 +391,17 @@ qty_t book_qty_up_to(const order_book_t *book, side_t side, price_t limit,
     }
     return sum;
 }
+
+int book_amend_qty(order_book_t *book, order_t *order, qty_t new_qty)
+{
+    if (book == NULL || order == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    int32_t idx = price_to_index(book, order->price);
+    assert(idx >= 0);
+    if (idx < 0) {
+        return ERR_NOT_FOUND;
+    }
+    return level_amend_qty(&book->levels[order->side][idx], order, new_qty);
+}

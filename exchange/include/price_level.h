@@ -41,4 +41,12 @@ int level_remove(price_level_t *level, order_t *order);
  */
 int level_reduce_qty(price_level_t *level, order_t *order, qty_t qty);
 
+/*
+ * 원 주문 수량을 줄인다(수량 감소 정정, docs/SPEC.md 4.4).
+ * 줄이기만 한다 — 늘리면 시간 우선순위를 잃어야 하므로 떼었다 다시 붙여야 한다.
+ * filled_qty는 건드리지 않는다. 체결이 아니라 주문 자체가 작아지는 것이다.
+ * new_qty가 기체결 수량 이하이거나 현재 수량 이상이면 ERR_INVALID_QTY.
+ */
+int level_amend_qty(price_level_t *level, order_t *order, qty_t new_qty);
+
 #endif /* MINI_SOR_PRICE_LEVEL_H */

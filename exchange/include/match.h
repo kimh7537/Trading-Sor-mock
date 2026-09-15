@@ -106,4 +106,34 @@ int match_ioc(match_engine_t *eng, const order_t *req, exec_result_t *out);
  */
 int match_fok(match_engine_t *eng, const order_t *req, exec_result_t *out);
 
+/*
+ * 미체결 잔량을 취소한다.
+ *
+ * out은 "이번 호출의 결과"다 — filled_qty는 0이고(이번 호출로 체결된 것이 없다),
+ * remaining_qty에 취소된 잔량이 담긴다. status는 STATUS_CANCELED.
+ *
+ * 이미 전량 체결된 주문은 호가창에도 인덱스에도 없으므로 ERR_NOT_FOUND다.
+ */
+int match_cancel(match_engine_t *eng, order_id_t id, exec_result_t *out);
+
+/*
+ * 주문을 정정한다 (docs/SPEC.md 4.4).
+ *
+ * new_qty는 **원 주문 수량**이다. 잔량이 아니다. 따라서 이미 체결된 수량보다
+ * 커야 한다 — 같거나 작으면 사실상 취소이므로 ERR_INVALID_QTY로 거절한다.
+ * 기체결 수량(filled_qty)은 정정으로 사라지지 않는다.
+ *
+ * 시간 우선순위
+ *  - 같은 가격 + 수량 감소: 유지 (제자리에서 수량만 줄인다)
+ *  - 가격 변경 또는 수량 증가: 상실 (떼었다가 큐 뒤에 다시 붙인다)
+ *
+ * 정정된 가격이 반대편 최우선호가와 교차하면 ERR_INVALID_PRICE로 거절한다.
+ * 정정 시 매칭은 하지 않는다 — 단순화 지점이며, 교차한 채로 두면 호가창의
+ * 기본 불변조건이 깨지므로 받지 않는 쪽을 택했다.
+ *
+ * 거절되면 원 주문은 가격·수량·우선순위 모두 그대로다.
+ */
+int match_modify(match_engine_t *eng, order_id_t id, price_t new_price,
+                 qty_t new_qty, exec_result_t *out);
+
 #endif /* MINI_SOR_MATCH_H */
