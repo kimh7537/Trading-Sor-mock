@@ -117,4 +117,18 @@ int be_evaluate(const cons_book_t *cons, const order_t *req, ts_t ts,
  */
 int be_pick(const venue_score_t scores[MARKET_COUNT], market_t *out_market);
 
+/*
+ * key = value 설정 파일에서 가중치와 시장 파라미터를 읽는다.
+ * T1-18의 divergent 설정과 같은 형식이다 — '#' 뒤는 주석, 빈 줄은 무시.
+ *
+ * 인식하는 키: weight_price, weight_fill, weight_cost, weight_state,
+ * fee_krx_bp, fee_nxt_bp. 모르는 키는 거절한다 — 오타 난 설정으로 돌린 실험은
+ * 나중에 해석할 수 없다.
+ *
+ * 적지 않은 키는 기본값을 그대로 쓴다. w나 cfg에 NULL을 주면 그쪽은 읽지 않는다.
+ * 가중치 합이 0이거나 음수 값이 있으면 ERR_INVALID_ARG.
+ * 파일을 못 열면 ERR_NOT_FOUND.
+ */
+int be_load_config(const char *path, be_weights_t *w, be_config_t *cfg);
+
 #endif /* MINI_SOR_BEST_EXECUTION_H */

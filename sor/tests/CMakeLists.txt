@@ -1,3 +1,4 @@
 mini_sor_add_test(test_consolidated sor)
 mini_sor_add_test(test_consolidated_update sor)
 mini_sor_add_test(test_best_execution sor)
+mini_sor_add_test(test_be_weights sor)
