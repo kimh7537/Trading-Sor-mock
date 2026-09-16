@@ -5,9 +5,12 @@ add_library(ledger STATIC
     src/listener.c
     src/worker_pool.c
     src/shm_segment.c
+    src/account.c
 )
 target_include_directories(ledger PUBLIC include)
-target_link_libraries(ledger PUBLIC core)
+# 계좌 락이 pthread 프로세스 공유 뮤텍스다. 링크가 필요하다.
+find_package(Threads REQUIRED)
+target_link_libraries(ledger PUBLIC core Threads::Threads)
 target_compile_definitions(ledger PUBLIC _POSIX_C_SOURCE=200809L)
 
 add_executable(ledgerd ledgerd.c)

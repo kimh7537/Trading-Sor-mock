@@ -1,3 +1,4 @@
 mini_sor_add_test(test_listener ledger)
 mini_sor_add_test(test_worker_pool ledger)
 mini_sor_add_test(test_shm ledger)
+mini_sor_add_test(test_account ledger)
