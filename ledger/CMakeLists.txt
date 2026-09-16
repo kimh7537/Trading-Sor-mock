@@ -4,6 +4,7 @@
 add_library(ledger STATIC
     src/listener.c
     src/worker_pool.c
+    src/shm_segment.c
 )
 target_include_directories(ledger PUBLIC include)
 target_link_libraries(ledger PUBLIC core)
