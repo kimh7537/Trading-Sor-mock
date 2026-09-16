@@ -4,6 +4,7 @@ add_library(fep STATIC
     src/evloop.c
     src/framer.c
     src/sendq.c
+    src/ordmap.c
     src/seqtrack.c
     src/session.c
 )
