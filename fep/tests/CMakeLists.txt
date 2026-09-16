@@ -1,3 +1,4 @@
 mini_sor_add_test(test_evloop fep)
 mini_sor_add_test(test_framer fep)
 mini_sor_add_test(test_sendq fep)
+mini_sor_add_test(test_session fep)

@@ -26,7 +26,8 @@
     X(ERR_NO_LIQUIDITY,  -13,  "체결할 반대 호가가 없음")                  \
     X(ERR_NO_MARGIN,     -14,  "증거금이 모자람")                          \
     X(ERR_LIMIT_EXCEEDED,-15,  "주문 한도 초과")                          \
-    X(ERR_IO,            -16,  "입출력 실패 (상대 끊김 포함)")
+    X(ERR_IO,            -16,  "입출력 실패 (상대 끊김 포함)")            \
+    X(ERR_NOT_LOGGED_IN, -17,  "세션이 아직 로그인되지 않음")
 
 #define ERROR_ENUM_ENTRY(name, value, text) name = (value),
 

@@ -4,6 +4,7 @@ add_library(fep STATIC
     src/evloop.c
     src/framer.c
     src/sendq.c
+    src/session.c
 )
 target_include_directories(fep PUBLIC include)
 target_link_libraries(fep PUBLIC core)

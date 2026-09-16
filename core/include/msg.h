@@ -52,6 +52,9 @@
  *                  qty:i32 filled_qty:i32
  * FILL_NOTI (46)   order_id:u64 cl_ord_id:u64 symbol[8] market:u8 side:u8
  *                  price:i32 qty:i32 remaining_qty:i32 exec_id:u64
+ * LOGIN_REQ (16)  session_id[16]
+ * LOGIN_ACK (4)    result:i32
+ * HEARTBEAT (0)    바디 없음 — 헤더의 seq와 ts가 전부다
  *
  * ===========================================================================
  * 요청과 응답
@@ -64,6 +67,9 @@
 #define MSG_ACCOUNT_LEN 12
 #define MSG_SYMBOL_LEN 8
 
+/* 세션 식별자. 어느 FEP가 붙었는지 구분할 수 있으면 된다. */
+#define MSG_SESSION_LEN 16
+
 /* 바디 길이. 위 표와 같다. 계산식으로 적어 필드를 더할 때 같이 움직이게 한다. */
 #define MSG_ORDER_REQ_LEN                                                  \
     (MSG_ACCOUNT_LEN + MSG_SYMBOL_LEN + 8 + 1 + 1 + 1 + 4 + 4)
@@ -75,6 +81,10 @@
 #define MSG_QUERY_REQ_LEN (MSG_ACCOUNT_LEN + 8)
 #define MSG_QUERY_ACK_LEN (8 + 8 + MSG_SYMBOL_LEN + 1 + 4 + 4 + 4)
 #define MSG_FILL_NOTI_LEN (8 + 8 + MSG_SYMBOL_LEN + 1 + 1 + 4 + 4 + 4 + 8)
+#define MSG_LOGIN_REQ_LEN (MSG_SESSION_LEN)
+#define MSG_LOGIN_ACK_LEN (4)
+/* 하트비트는 바디가 없다. 0은 유효한 길이다 — 헤더만으로 뜻이 완성된다. */
+#define MSG_HEARTBEAT_LEN (0)
 
 /*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
@@ -90,7 +100,10 @@
     X(MSG_MODIFY_ACK, 6, MSG_MODIFY_ACK_LEN, "정정 응답")                  \
     X(MSG_QUERY_REQ, 7, MSG_QUERY_REQ_LEN, "조회 요청")                    \
     X(MSG_QUERY_ACK, 8, MSG_QUERY_ACK_LEN, "조회 응답")                    \
-    X(MSG_FILL_NOTI, 9, MSG_FILL_NOTI_LEN, "체결 통보")
+    X(MSG_FILL_NOTI, 9, MSG_FILL_NOTI_LEN, "체결 통보")                    \
+    X(MSG_LOGIN_REQ, 10, MSG_LOGIN_REQ_LEN, "로그인 요청")                 \
+    X(MSG_LOGIN_ACK, 11, MSG_LOGIN_ACK_LEN, "로그인 응답")                 \
+    X(MSG_HEARTBEAT, 12, MSG_HEARTBEAT_LEN, "하트비트")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -200,6 +213,14 @@ typedef struct {
     uint64_t   exec_id;
 } msg_fill_noti_t;
 
+typedef struct {
+    char session_id[MSG_SESSION_LEN + 1];
+} msg_login_req_t;
+
+typedef struct {
+    int32_t result; /* 성공이면 ERR_OK, 아니면 거부 사유 */
+} msg_login_ack_t;
+
 /*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
@@ -216,6 +237,8 @@ int msg_encode_modify_ack(const msg_modify_ack_t *m, uint8_t *buf, size_t cap);
 int msg_encode_query_req(const msg_query_req_t *m, uint8_t *buf, size_t cap);
 int msg_encode_query_ack(const msg_query_ack_t *m, uint8_t *buf, size_t cap);
 int msg_encode_fill_noti(const msg_fill_noti_t *m, uint8_t *buf, size_t cap);
+int msg_encode_login_req(const msg_login_req_t *m, uint8_t *buf, size_t cap);
+int msg_encode_login_ack(const msg_login_ack_t *m, uint8_t *buf, size_t cap);
 
 /*
  * 디코딩 — 바디 길이가 규격과 **정확히 같아야** 한다. 짧으면 필드가 모자라고,
@@ -234,5 +257,7 @@ int msg_decode_modify_ack(const uint8_t *buf, size_t len,
 int msg_decode_query_req(const uint8_t *buf, size_t len, msg_query_req_t *out);
 int msg_decode_query_ack(const uint8_t *buf, size_t len, msg_query_ack_t *out);
 int msg_decode_fill_noti(const uint8_t *buf, size_t len, msg_fill_noti_t *out);
+int msg_decode_login_req(const uint8_t *buf, size_t len, msg_login_req_t *out);
+int msg_decode_login_ack(const uint8_t *buf, size_t len, msg_login_ack_t *out);
 
 #endif /* MINI_SOR_MSG_H */

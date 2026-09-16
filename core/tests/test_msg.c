@@ -36,7 +36,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 9);
+    assert(TABLE_N == 12);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -59,6 +59,13 @@ static void test_type_table(void)
     assert(MSG_QUERY_REQ_LEN == 20);
     assert(MSG_QUERY_ACK_LEN == 37);
     assert(MSG_FILL_NOTI_LEN == 46);
+    assert(MSG_LOGIN_REQ_LEN == 16);
+    assert(MSG_LOGIN_ACK_LEN == 4);
+    /*
+     * 하트비트는 바디가 0이다. 0을 "없음"이 아니라 유효한 길이로 다뤄야
+     * 한다 — 조립기(T3-09)도 디코더도 0을 그대로 받아들인다.
+     */
+    assert(MSG_HEARTBEAT_LEN == 0);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -305,6 +312,12 @@ static void test_roundtrip_all(void)
                   in.remaining_qty = INT32_MAX;
                   in.exec_id = UINT64_MAX;
               });
+
+    ROUNDTRIP(msg_login_req_t, msg_encode_login_req, msg_decode_login_req,
+              MSG_LOGIN_REQ_LEN, { strcpy(in.session_id, "FEP-KRX-0000001"); });
+
+    ROUNDTRIP(msg_login_ack_t, msg_encode_login_ack, msg_decode_login_ack,
+              MSG_LOGIN_ACK_LEN, { in.result = INT32_MIN; });
 }
 
 /* --- 5. 거절 --- */

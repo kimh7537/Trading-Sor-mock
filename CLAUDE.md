@@ -19,9 +19,9 @@
 
 ## 현재 상태 (2026-09-15)
 
-**Phase 1·2 완료 (34/34), Phase 3 진행 중 (10/15).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐). `channel/`·`web/`은 아직 계획이다.
+**Phase 1·2 완료 (34/34), Phase 3 진행 중 (11/15).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐·세션). `channel/`·`web/`은 아직 계획이다.
 
-- 다음 태스크: `docs/TASKS.md`의 T3-11 (FEP — 세션 로그인·하트비트·재접속)
+- 다음 태스크: `docs/TASKS.md`의 T3-12 (FEP — 시퀀스 갭 감지 및 재전송)
 - **빌드는 WSL Ubuntu에서 한다.** Windows 네이티브 MSYS2 gcc에는 libasan/libubsan이 없어
   커밋 전 ASan 게이트를 지킬 수 없다. 아래 명령은 모두 WSL 안에서 실행한다:
   `wsl -d Ubuntu` 후 `cd /mnt/c/Users/hyunwoo/OneDrive/*/Study/mock-sor`

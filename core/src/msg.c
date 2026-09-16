@@ -519,3 +519,63 @@ int msg_decode_fill_noti(const uint8_t *buf, size_t len, msg_fill_noti_t *out)
 
     return (int)(p - buf);
 }
+
+int msg_encode_login_req(const msg_login_req_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_LOGIN_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_SESSION_LEN, m->session_id);
+    p += MSG_SESSION_LEN;
+
+    return (int)(p - buf);
+}
+
+int msg_decode_login_req(const uint8_t *buf, size_t len, msg_login_req_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_LOGIN_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_SESSION_LEN, out->session_id);
+    p += MSG_SESSION_LEN;
+
+    return (int)(p - buf);
+}
+
+int msg_encode_login_ack(const msg_login_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_LOGIN_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_i32(p, m->result);
+    p += 4;
+
+    return (int)(p - buf);
+}
+
+int msg_decode_login_ack(const uint8_t *buf, size_t len, msg_login_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_LOGIN_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    out->result = wire_get_i32(p);
+    p += 4;
+
+    return (int)(p - buf);
+}
