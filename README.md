@@ -12,7 +12,7 @@
 이 프로젝트는 그 환경을 축소 재현한다.
 
 - 규칙이 다른 두 개의 매칭 엔진 (KRX형 / NXT형)
-- 그 위에서 주문을 배분하는 SOR 엔진
+- 그 위에서 주문을 배분하는 SOR 엔진과 집행 전략 4종
 - 증권사 원장·FEP 계층
 - 양 시장 호가와 SOR 판단을 확인하는 화면
 
@@ -23,58 +23,101 @@
 
 ## 결과
 
-> Phase 완료 시 채운다.
+전부 `bench/results/`의 파일에서 옮긴 값이다. 같은 시드로 다시 돌리면 같은 표가 나온다.
 
-| 항목 | 값 |
-|---|---|
-| 처리량 | — TPS |
-| 지연 (p99) | — ms |
-| 집행 전략 개선폭 | KRX_ONLY 대비 — bp |
-| 낙관 대비 수익률 격차 | — % |
+**집행 전략 — 시드 30개, KRX_ONLY 대비** ([`quality-2026-09-16.md`](bench/results/quality-2026-09-16.md))
 
-상세: [`report/`](report/)
+| 시나리오 | 복수시장 전략(BEST_PRICE·SPLIT·SWEEP) | 체결률 p50 (KRX_ONLY → 복수시장) |
+|---|---|---|
+| BALANCED | 22승 5패 3무, 중앙값 +2bp | 52.31% → 100.00% |
+| KRX_THIN | 30승 0패 0무, 중앙값 +6bp | 5.27% → 59.46% |
+| NXT_THIN | 0승 25패 5무, 중앙값 -1bp | 52.31% → 57.63% |
+| CROSSED | 차이 없음 | 21.67% → 21.67% |
+
+- **이득은 단가보다 체결률에서 먼저 온다.** BALANCED에서 KRX만 쓰면 낸 수량의 절반만 체결된다
+- 세 복수시장 전략의 평균 단가가 같은 것은 반올림이 아니라 **같은 호가를 다 먹기 때문**이다.
+  차이는 채우는 순서, 즉 주문마다 잰 슬리피지(0~2bp)에서 난다
+  ([`strategies-2026-09-16.md`](bench/results/strategies-2026-09-16.md))
+
+**성능 — 한 프로세스 안 7단계, Release, 단일 스레드** ([`pipeline-2026-09-16.md`](bench/results/pipeline-2026-09-16.md))
+
+| 항목 | 저널 끔 | 저널 켬 (레코드마다 fsync) |
+|---|---:|---:|
+| 전 구간 p50 | 351 ns | 2.66 ms |
+| 전 구간 p99 | 1,452 ns | 4.46 ms |
+| TPS | 1,534,801 | 376 |
+| 가장 비싼 단계 | SOR 계획 (50.7%) | 저널 기록 (99.8%) |
+
+매칭 엔진만 따로 재면 400만 TPS 안팎이다([`2026-09-15.md`](bench/results/2026-09-15.md)).
+이 숫자들에는 프로세스 사이 전문 송수신 비용이 **빠져 있다.**
 
 ---
 
 ## 구조
 
 ```
-프론트엔드 (React)
-      │ REST / WebSocket
-채널계 (Java / Spring Boot)
+프론트엔드 (React, web/)
+      │ REST / WebSocket (개발 서버 프록시로 같은 출처)
+채널계 (Java / Spring Boot, channel/)
       │ 고정 길이 전문 (TCP)
-원장 (C)  ── 계좌·주문 원장, 증거금·한도 검증
-      │
-SOR 엔진 (C)  ── 통합 호가창, 최선집행 평가, 라우팅
-      ├──────────────┬
-FEP-KRX (C)    FEP-NXT (C)
-      │              │
-KRX 시뮬 (C)   NXT 시뮬 (C)   ── 매칭 엔진 2종
+원장 데몬 ledgerd (C, ledger/)
+      ├─ 계좌·증거금 검증
+      ├─ SOR (sor/) ── 통합 호가창, 최선집행 평가, 전략
+      └─ 매칭 엔진 2종 (exchange/) ── KRX형 / NXT형
 ```
 
-각 계층은 별도 프로세스. 전문으로만 통신한다.
+**지금 띄우는 모습은 위와 같다.** SOR과 두 매칭 엔진이 원장 프로세스 안에 있다.
+설계 그림(원장·SOR·FEP·거래소가 모두 별도 프로세스)으로 가는 조각 — FEP의 epoll 루프,
+세션·시퀀스 복구, 미응답 판정 — 은 `fep/`에 있고 두 프로세스 통합 테스트(T3-15)로
+검증했지만 데몬으로 묶어 띄우지는 않았다. 이유는 [`docs/PROGRESS.md`](docs/PROGRESS.md)의 T6-03.
 
-**주문 핵심 경로에는 메시지 브로커를 쓰지 않는다.** 지연과 순서 보장 때문이다.
-Kafka는 체결 완료 후 정보계로 데이터를 흘려보내는 용도로만 사용한다.
+그 밖에 `core/`(전문·저널·스냅샷·대사), `bench/`(측정 하네스), `sdk/`(전략 엔진용 주문 SDK).
 
 ---
 
 ## 실행
 
-```bash
-# 빌드
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+C는 WSL(Ubuntu), Java·React는 Windows에서 빌드한다(`CLAUDE.md`에 이유).
 
-# 테스트
+```bash
+# C — 빌드와 테스트 (WSL)
+cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ctest --test-dir build --output-on-failure
 
-# 거래소 시뮬 기동
-./build/exchange/exchange_sim --market=krx --config=config/krx.conf
-./build/exchange/exchange_sim --market=nxt --config=config/nxt.conf
+# 메모리 검사
+cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON
+cmake --build build-asan && ctest --test-dir build-asan
 
-# 전체 스택 (Docker)
-docker compose up
+# Java — 테스트 (channel/)
+./mvnw.cmd test
+```
+
+**화면까지 띄우기** — 터미널 셋.
+
+```bash
+# 1. 원장 (WSL). 9100번에서 기다린다
+./build/ledger/ledgerd
+
+# 2. 채널계 (Windows, channel/). 8080번
+./mvnw.cmd spring-boot:run
+
+# 3. 화면 (Windows, web/). http://localhost:5173
+npm install
+npm run dev
+```
+
+화면이 `/api`와 `/ws`를 개발 서버를 통해 채널계로 보낸다(`web/vite.config.ts`).
+원장을 껐다 켜면 호가창과 계좌가 처음 상태(시드 고정)로 돌아간다.
+
+**측정 다시 돌리기** (WSL, Release)
+
+```bash
+cmake -B build-rel -DCMAKE_BUILD_TYPE=Release && cmake --build build-rel
+./build-rel/bench/compare_strategies 2026-09-16   # 전략 비교 표
+./build-rel/bench/quality_report 2026-09-16       # 시드 30개 리포트
+./build-rel/bench/bench_pipeline 2026-09-16       # 7단계 성능
+./build-rel/bench/bench_match                     # 매칭 엔진만
 ```
 
 ---
@@ -85,8 +128,10 @@ docker compose up
 |---|---|
 | [`docs/PLAN.md`](docs/PLAN.md) | 기획서. 왜 만드는가, 진행 경로 |
 | [`docs/SPEC.md`](docs/SPEC.md) | 시장 규칙 명세 (거래시간, 호가단위, 매칭규칙) |
-| [`docs/TASKS.md`](docs/TASKS.md) | 작업 목록 (Phase 1~5) |
+| [`docs/TASKS.md`](docs/TASKS.md) | 작업 목록 (Phase 1~6) |
+| [`docs/PROGRESS.md`](docs/PROGRESS.md) | 작업 기록 — 무엇이 틀렸고 왜 그렇게 고쳤는지 |
 | [`docs/decisions/`](docs/decisions/) | 설계 결정 기록 |
+| [`bench/results/`](bench/results/) | 측정 결과 |
 
 ---
 
@@ -100,9 +145,10 @@ docker compose up
 | 단일가 매매 | 시가·종가 단일가 존재 | 미구현. 연속 체결만 |
 | 호가 단위 | 시장·종목별 차이 | 단일 테이블로 통일 |
 | 청산·결제 | KRX가 수행 | 범위 밖 |
-| 증거금 | 종목·계좌별 복잡한 산정 | 단순 현금 잔고 기준 |
+| 증거금 | 종목·계좌별 복잡한 산정 | 증거금률 100%, 현금 잔고 기준 |
 | 중간가 세부 규칙 | 공개 자료 불충분 | 자체 판단, 근거는 `docs/decisions/` |
 | 시장 감시 | CB, 사이드카 등 | 미구현 |
+| 화면 데모 | 계좌·종목 다수 | 계좌 하나, 종목 하나(005930). 취소·정정은 원장이 "미지원"으로 답한다 |
 
 ---
 

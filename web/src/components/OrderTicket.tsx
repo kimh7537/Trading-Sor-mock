@@ -19,7 +19,7 @@ const OUTCOME_STYLE: Record<string, { color: string; label: string; hint: string
   IN_DOUBT: {
     color: "var(--warn)",
     label: "확인 필요",
-    hint: "원장 응답을 못 받았다. 다시 보내면 중복 주문이 될 수 있으니 조회로 확인한다.",
+    hint: "원장 응답을 못 받았다. 다시 보내면 중복 주문이 될 수 있다 — 호가창에 걸렸는지 먼저 확인한다.",
   },
 };
 

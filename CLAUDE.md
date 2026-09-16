@@ -17,18 +17,30 @@
 **최종 산출물은 동작하는 시스템이 아니라 측정 결과다.**
 "집행 전략별로 평균 체결 단가가 얼마나 달랐는가"를 근거와 함께 제시하는 것이 목표다.
 
-## 현재 상태 (2026-09-15)
+## 현재 상태 (2026-09-17)
 
-**전체 완료 (71/71).** Phase 1~5가 모두 끝났다. Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에, 그것을 시드 30개로 넓힌 집행 품질 리포트가 `bench/results/quality-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐·세션·시퀀스 복구·주문번호 매핑·미응답 판정·전 구간 통합), `channel/`(Spring Boot 골격·전문 매핑·원장 커넥션 풀·REST API·WebSocket). `web/`(거래·주문·전략비교·관제 화면), `sdk/`(전략 엔진용 주문 SDK).
+**Phase 1~5 완료(71/71), Phase 6(감사 후속) 진행.** 전략 비교 표는
+`bench/results/strategies-2026-09-16.md`, 시드 30개 집행 품질 리포트는
+`bench/results/quality-2026-09-16.md`에 있다.
 
-- 코드 태스크는 남아 있지 않다. 남은 것은 **사람이 써야 하는 문서**뿐이다
-  (`docs/decisions/`의 ADR, `docs/INTERVIEW.md`). `docs/PROGRESS.md`의
-  "알려진 빚" 참조
+Phase 6은 "조각은 각자 테스트를 통과하는데 이어 붙인 전체는 동작하지 않던" 문제를
+고친다 — 전문 열거값 C↔Java 불일치(T6-01), 무조건 성공을 돌려주던 원장 데몬(T6-03),
+부르는 곳이 없던 방송(T6-04), CORS로 막혀 주문이 나가지 않던 화면(T6-05).
+지금은 **`ledgerd` + 채널계 + 화면을 띄우면 실제 호가창에서 주문이 체결된다.**
+띄우는 방법은 `README.md`의 "실행".
+
+- 모듈: `core/`(타입·전문·저널·스냅샷·대사), `exchange/`(매칭 엔진), `sor/`(통합
+  호가창·최선집행 평가·전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌·
+  검증·원장 코어·`ledgerd`), `fep/`(epoll·전문 조립·세션·시퀀스 복구·미응답 판정),
+  `sdk/`(전략 엔진용 주문 SDK), `channel/`(Spring Boot), `web/`(React)
+- **SOR과 매칭 엔진은 원장 프로세스 안에서 돈다**(T6-03, "최소 연결"). FEP를 사이에 둔
+  다중 프로세스 구성은 T3-15 통합 테스트로만 검증했다
+- 남은 사람 몫의 문서: `docs/decisions/`의 ADR, `docs/INTERVIEW.md`
 - **어디서 빌드하는지가 언어마다 다르다.**
 
   | 대상 | 어디서 | 왜 |
   |---|---|---|
-  | C (`core/` `exchange/` `sor/` `ledger/` `fep/` `bench/`) | **WSL Ubuntu** | Windows MSYS2 gcc에 libasan/libubsan이 없어 커밋 전 ASan 게이트를 못 지킨다 |
+  | C (`core/` `exchange/` `sor/` `ledger/` `fep/` `bench/` `sdk/`) | **WSL Ubuntu** | Windows MSYS2 gcc에 libasan/libubsan이 없어 커밋 전 ASan 게이트를 못 지킨다 |
   | Java (`channel/`) | **Windows** | JDK 17이 여기 있고 ASan 제약이 없다. Maven은 `mvnw`가 받아 온다 |
   | React (`web/`) | **Windows** | node v22 / npm이 여기 있다 |
 
@@ -56,7 +68,7 @@ KRX 시뮬 (C)   NXT 시뮬 (C)   ── 매칭 엔진 2종
 
 ## 디렉터리 구조
 
-`docs/` 아래만 실재한다. 나머지는 계획이다.
+아래 트리는 처음 계획이고, 실제로는 `sdk/`가 더 있다. 모듈 설명은 위 "현재 상태".
 
 ```
 mini-sor/
