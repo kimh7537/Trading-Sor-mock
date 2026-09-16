@@ -173,3 +173,18 @@ int seqtrack_skip_to(seqtrack_t *tr, uint64_t next_seq)
     tr->recovering = false;
     return ERR_OK;
 }
+
+bool seqtrack_restart_at(seqtrack_t *tr, uint64_t next_seq)
+{
+    if (tr == NULL || next_seq == 0 || next_seq >= tr->expected) {
+        return false; /* 재시작이 아니다. 갭이거나 정상이다 */
+    }
+
+    /*
+     * 갭을 메우던 중이었다면 그것도 끝이다. 메워 줄 상대가 사라졌다 —
+     * 그 자리를 붙들고 있으면 새 상대의 전문을 영영 받지 못한다.
+     */
+    tr->expected = next_seq;
+    tr->recovering = false;
+    return true;
+}

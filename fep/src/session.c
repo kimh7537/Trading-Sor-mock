@@ -432,6 +432,20 @@ static int handle_frame(session_t *s, const wire_header_t *hdr,
         if (ack.result != ERR_OK) {
             return ERR_NOT_LOGGED_IN; /* 상대가 거절했다 */
         }
+        /*
+         * **로그인 응답의 번호가 기대값보다 작으면 상대가 재기동한 것이다.**
+         *
+         * 한 상대의 번호는 커지기만 한다. 더 작은 번호가 왔다는 것은 그
+         * 번호를 매기던 상대가 더는 없다는 뜻이고, 그때는 메울 갭도 없다 —
+         * 예전 전문을 가진 쪽이 사라졌기 때문이다.
+         *
+         * 이것을 처리하지 않으면 재기동한 상대의 **모든 전문이 중복으로
+         * 버려진다.** T3-15의 통합 테스트가 그 증상으로 이 구멍을 찾았다.
+         * 기대값보다 크거나 같으면 그것은 재시작이 아니라 갭이므로
+         * `seqtrack_restart_at`이 아무것도 하지 않는다(T3-12가 그대로 산다).
+         */
+        (void)seqtrack_restart_at(&s->track, hdr->seq + 1);
+
         s->state = SESSION_READY;
         /*
          * **붙은 것이 아니라 로그인된 것이 성공이다.** TCP만 붙고 로그인이

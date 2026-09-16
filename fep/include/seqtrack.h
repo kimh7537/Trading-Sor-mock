@@ -158,6 +158,18 @@ seq_verdict_t seqtrack_on(seqtrack_t *tr, uint64_t seq);
  */
 int seqtrack_skip_to(seqtrack_t *tr, uint64_t next_seq);
 
+/*
+ * **상대가 번호를 처음부터 다시 시작했다.** 기대값을 그리로 옮긴다.
+ *
+ * 한 상대의 번호는 커지기만 하므로, **기대값보다 작은 번호**가 온다는 것은
+ * 그 상대가 새로 시작했다는 뜻이다(재기동). 그때는 메울 갭이 아예 없다 —
+ * 예전 번호를 아는 상대가 더는 존재하지 않는다.
+ *
+ * `next_seq`가 지금 기대값보다 작을 때만 옮긴다. 크거나 같으면 그것은
+ * 재시작이 아니라 **갭**이므로 아무것도 하지 않고 false를 돌려준다.
+ */
+bool seqtrack_restart_at(seqtrack_t *tr, uint64_t next_seq);
+
 uint64_t seqtrack_expected(const seqtrack_t *tr);
 bool     seqtrack_recovering(const seqtrack_t *tr);
 
