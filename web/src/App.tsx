@@ -4,29 +4,53 @@ import { StatusBar } from "./components/StatusBar";
 import { OrderBook } from "./components/OrderBook";
 import { OrderTicket } from "./components/OrderTicket";
 import { SorPanel } from "./components/SorPanel";
+import { Working, type LogicalOrder } from "./components/Working";
+import { Fills } from "./components/Fills";
+import { Strategies } from "./components/Strategies";
+import { Ops } from "./components/Ops";
 import { useStream, type StreamEvent } from "./lib/useStream";
-import { sampleBooks } from "./lib/types";
+import { sampleBooks, type Fill } from "./lib/types";
 import { time } from "./lib/format";
 
-interface LogLine {
-  at: string;
-  kind: string;
-  text: string;
-}
+type Tab = "trade" | "orders" | "strategies" | "ops";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "trade", label: "거래" },
+  { id: "orders", label: "주문·체결" },
+  { id: "strategies", label: "전략 비교" },
+  { id: "ops", label: "관제" },
+];
 
 export default function App() {
-  const [log, setLog] = useState<LogLine[]>([]);
+  const [tab, setTab] = useState<Tab>("trade");
+  const [events, setEvents] = useState(0);
   const [ledgerDown, setLedgerDown] = useState<string | null>(null);
   const [price, setPrice] = useState(70000);
+  const [fills, setFills] = useState<Fill[]>([]);
+  const [orders] = useState<LogicalOrder[]>([]);
 
   const books = useMemo(() => sampleBooks(), []);
 
   const onEvent = useCallback((e: StreamEvent) => {
+    setEvents((n) => n + 1);
     if (e.kind === "ledger-down") setLedgerDown(String(e.payload ?? "원인 미상"));
     if (e.kind === "ledger-up") setLedgerDown(null);
-    setLog((p) =>
-      [{ at: time(), kind: e.kind, text: JSON.stringify(e.payload) }, ...p].slice(0, 200),
-    );
+    if (e.kind === "fill") {
+      const p = e.payload as Partial<Fill>;
+      setFills((prev) =>
+        [
+          {
+            at: time(),
+            market: p.market ?? "KRX",
+            side: p.side ?? 1,
+            price: p.price ?? 0,
+            qty: p.qty ?? 0,
+            clOrdId: p.clOrdId ?? 0,
+          },
+          ...prev,
+        ].slice(0, 200),
+      );
+    }
   }, []);
 
   const { state, attempt } = useStream(onEvent);
@@ -41,67 +65,100 @@ export default function App() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <StatusBar state={state} attempt={attempt} ledgerDown={ledgerDown} />
 
-      <main
+      <nav
         style={{
-          flex: 1,
-          minHeight: 0,
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) 300px 320px",
-          gap: "var(--s-3)",
-          padding: "var(--s-3)",
+          display: "flex",
+          gap: 2,
+          padding: "0 var(--s-4)",
+          background: "var(--bg-panel)",
+          borderBottom: "1px solid var(--line)",
+          flex: "0 0 auto",
         }}
       >
-        <Panel title="호가창 · 005930 삼성전자" pad={false}>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              border: "none",
+              borderRadius: 0,
+              background: "transparent",
+              padding: "10px var(--s-4)",
+              fontSize: 13,
+              fontWeight: tab === t.id ? 700 : 500,
+              color: tab === t.id ? "var(--text)" : "var(--text-faint)",
+              borderBottom: `2px solid ${tab === t.id ? "var(--buy)" : "transparent"}`,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <main style={{ flex: 1, minHeight: 0, padding: "var(--s-3)" }}>
+        {tab === "trade" && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) 300px 320px",
+              gap: "var(--s-3)",
+              height: "100%",
+            }}
+          >
+            <Panel title="호가창 · 005930 삼성전자" pad={false}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 1,
+                  background: "var(--line-soft)",
+                }}
+              >
+                {books.map((b) => (
+                  <div key={b.market} style={{ background: "var(--bg-panel)" }}>
+                    <OrderBook book={b} onPick={setPrice} bestOverall={bestOverall} />
+                  </div>
+                ))}
+              </div>
+            </Panel>
+            <Panel title="SOR 판단">
+              <SorPanel books={books} side={1} />
+            </Panel>
+            <Panel title="주문">
+              <OrderTicket price={price} onPriceChange={setPrice} />
+            </Panel>
+          </div>
+        )}
+
+        {tab === "orders" && (
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
-              gap: 1,
-              background: "var(--line-soft)",
+              gap: "var(--s-3)",
+              height: "100%",
             }}
           >
-            {books.map((b) => (
-              <div key={b.market} style={{ background: "var(--bg-panel)" }}>
-                <OrderBook book={b} onPick={setPrice} bestOverall={bestOverall} />
-              </div>
-            ))}
+            <Panel title="미체결 (논리 → 물리)" pad={false}>
+              <Working orders={orders} />
+            </Panel>
+            <Panel title="체결 내역" pad={false}>
+              <Fills fills={fills} />
+            </Panel>
           </div>
-        </Panel>
+        )}
 
-        <div style={{ display: "grid", gridTemplateRows: "auto 1fr", gap: "var(--s-3)", minHeight: 0 }}>
-          <Panel title="SOR 판단">
-            <SorPanel books={books} side={1} />
+        {tab === "strategies" && (
+          <Panel title="전략별 집행 품질 · Phase 2 측정 결과">
+            <Strategies />
           </Panel>
-          <Panel title="실시간" right={<span className="num">{log.length}</span>} pad={false}>
-            {log.length === 0 ? (
-              <div style={{ padding: "var(--s-5)", color: "var(--text-faint)", fontSize: 12, textAlign: "center" }}>
-                아직 들어온 것이 없다
-              </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {log.map((l, i) => (
-                  <li
-                    key={i}
-                    style={{
-                      display: "flex",
-                      gap: "var(--s-2)",
-                      padding: "6px var(--s-3)",
-                      borderBottom: "1px solid var(--line-soft)",
-                      fontSize: 11,
-                    }}
-                  >
-                    <span className="num" style={{ color: "var(--text-faint)" }}>{l.at}</span>
-                    <span style={{ color: "var(--text-dim)" }}>{l.kind}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </div>
+        )}
 
-        <Panel title="주문">
-          <OrderTicket price={price} onPriceChange={setPrice} />
-        </Panel>
+        {tab === "ops" && (
+          <Panel title="관제">
+            <Ops wsState={state} ledgerDown={ledgerDown} events={events} />
+          </Panel>
+        )}
       </main>
     </div>
   );
