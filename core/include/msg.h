@@ -48,8 +48,8 @@
  *                  new_qty:i32
  * MODIFY_ACK (25)  order_id:u64 cl_ord_id:u64 status:u8 reason:i32 price:i32
  * QUERY_REQ (20)   account[12] order_id:u64   (0이면 전체 조회)
- * QUERY_ACK (37)   order_id:u64 cl_ord_id:u64 symbol[8] status:u8 price:i32
- *                  qty:i32 filled_qty:i32
+ * QUERY_ACK (38)   order_id:u64 cl_ord_id:u64 symbol[8] status:u8 price:i32
+ *                  qty:i32 filled_qty:i32 last:u8
  * FILL_NOTI (46)   order_id:u64 cl_ord_id:u64 symbol[8] market:u8 side:u8
  *                  price:i32 qty:i32 remaining_qty:i32 exec_id:u64
  * LOGIN_REQ (16)  session_id[16]
@@ -81,7 +81,14 @@
 #define MSG_MODIFY_REQ_LEN (MSG_ACCOUNT_LEN + 8 + 8 + 4 + 4)
 #define MSG_MODIFY_ACK_LEN (8 + 8 + 1 + 4 + 4)
 #define MSG_QUERY_REQ_LEN (MSG_ACCOUNT_LEN + 8)
-#define MSG_QUERY_ACK_LEN (8 + 8 + MSG_SYMBOL_LEN + 1 + 4 + 4 + 4)
+/*
+ * 마지막 1바이트는 "이것이 마지막 응답"이라는 표시다(T3-14).
+ *
+ * **끝을 모르면 "거래소에 없다"를 결론 낼 수 없다.** 조회 응답이 여러 건으로
+ * 오는데 어디까지가 답인지 모르면, 응답에 없던 주문이 *아직 안 온 것*인지
+ * *정말 없는 것*인지 구분되지 않는다. 그 구분이 미응답 주문 판정의 전부다.
+ */
+#define MSG_QUERY_ACK_LEN (8 + 8 + MSG_SYMBOL_LEN + 1 + 4 + 4 + 4 + 1)
 #define MSG_FILL_NOTI_LEN (8 + 8 + MSG_SYMBOL_LEN + 1 + 1 + 4 + 4 + 4 + 8)
 #define MSG_LOGIN_REQ_LEN (MSG_SESSION_LEN)
 #define MSG_LOGIN_ACK_LEN (4)
@@ -205,6 +212,11 @@ typedef struct {
     price_t    price;
     qty_t      qty;
     qty_t      filled_qty;
+    /*
+     * 이 응답이 마지막인가. 조회가 한 건도 걸리지 않아도 **마지막 표시가 붙은
+     * 빈 응답 하나는 와야 한다** — 그래야 "없다"가 결론이 된다.
+     */
+    bool last;
 } msg_query_ack_t;
 
 typedef struct {

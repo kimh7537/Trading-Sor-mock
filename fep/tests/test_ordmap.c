@@ -325,6 +325,192 @@ static void test_late_fill_finds_closed_order(void)
     assert(ordmap_count(&g_m) == 1);
 }
 
+/* ===================================================================== */
+/* --- T3-14: 세션 단절 시 미응답 주문 판정 --- */
+/* ===================================================================== */
+
+/*
+ * 끊긴 순간 **응답 못 받은 것만** 판정 보류가 된다.
+ * 접수된 주문은 거래소에 있다는 것을 아는 주문이라 보류할 이유가 없다.
+ */
+static void test_disconnect_marks_only_pending(void)
+{
+    ordmap_init(&g_m);
+
+    assert(ordmap_add(&g_m, 1001) == ERR_OK); /* 응답 전 */
+    assert(ordmap_add(&g_m, 1002) == ERR_OK);
+    assert(ordmap_on_ack(&g_m, 1002, 9002, true) == ERR_OK); /* 접수됨 */
+    assert(ordmap_add(&g_m, 1003) == ERR_OK);
+    assert(ordmap_on_ack(&g_m, 1003, 0, false) == ERR_OK); /* 거부됨 */
+    assert(ordmap_add(&g_m, 1004) == ERR_OK);              /* 응답 전 */
+
+    assert(ordmap_on_disconnect(&g_m) == 2); /* 1001, 1004 */
+
+    assert(ordmap_find_by_cl(&g_m, 1001)->state == ORD_INDOUBT);
+    assert(ordmap_find_by_cl(&g_m, 1004)->state == ORD_INDOUBT);
+    assert(ordmap_find_by_cl(&g_m, 1002)->state == ORD_LIVE); /* 그대로 */
+    assert(ordmap_find_by_cl(&g_m, 1003)->state == ORD_DONE); /* 그대로 */
+
+    assert(ordmap_indoubt_count(&g_m) == 2);
+    /* **판정 보류도 끝나지 않은 주문이다.** 1001, 1002, 1004. */
+    assert(ordmap_live_count(&g_m) == 3);
+}
+
+/*
+ * 조회로 판정한다. 세 가지가 한 번에 갈린다 —
+ * 살아 있었다 / 이미 끝나 있었다 / **거래소가 모른다**.
+ */
+static void test_query_resolves_three_ways(void)
+{
+    ordmap_init(&g_m);
+
+    assert(ordmap_add(&g_m, 1001) == ERR_OK);
+    assert(ordmap_add(&g_m, 1002) == ERR_OK);
+    assert(ordmap_add(&g_m, 1003) == ERR_OK);
+    assert(ordmap_on_disconnect(&g_m) == 3);
+
+    /* 다시 붙어 당일 전체를 조회한다. 응답이 둘 온다. */
+    assert(ordmap_on_query_result(&g_m, 1001, 9001, true) == ERR_OK);
+    assert(ordmap_on_query_result(&g_m, 1002, 9002, false) == ERR_OK);
+
+    /* 아직 끝나지 않았으므로 1003은 그대로 보류다. */
+    assert(ordmap_indoubt_count(&g_m) == 1);
+    assert(ordmap_find_by_cl(&g_m, 1003)->state == ORD_INDOUBT);
+
+    /* 마지막 표시를 받았다. 이제 비로소 "없다"를 결론 낼 수 있다. */
+    assert(ordmap_finish_query(&g_m) == 1);
+
+    assert(ordmap_find_by_cl(&g_m, 1001)->state == ORD_LIVE);
+    assert(ordmap_find_by_cl(&g_m, 1001)->exch_id == 9001);
+    /* 끝난 주문의 번호는 남긴다 — 늦게 오는 체결이 찾아올 수 있다. */
+    assert(ordmap_find_by_cl(&g_m, 1002)->state == ORD_DONE);
+    assert(ordmap_find_by_cl(&g_m, 1002)->exch_id == 9002);
+    /* 없는 주문에는 번호가 없다. */
+    assert(ordmap_find_by_cl(&g_m, 1003)->state == ORD_DONE);
+    assert(ordmap_find_by_cl(&g_m, 1003)->exch_id == 0);
+
+    assert(ordmap_indoubt_count(&g_m) == 0);
+    assert(ordmap_live_count(&g_m) == 1); /* 1001만 살아 있다 */
+}
+
+/* 판정된 주문은 거래소 번호로 다시 찾힌다 — 체결 통보가 붙을 수 있다. */
+static void test_resolved_order_receives_fills(void)
+{
+    ordmap_init(&g_m);
+    assert(ordmap_add(&g_m, 1001) == ERR_OK);
+    assert(ordmap_on_disconnect(&g_m) == 1);
+
+    /* 보류 중에는 번호가 없으므로 체결이 붙을 데가 없다. */
+    assert(ordmap_find_by_exch(&g_m, 9001) == NULL);
+
+    assert(ordmap_on_query_result(&g_m, 1001, 9001, true) == ERR_OK);
+
+    const ordent_t *e = ordmap_find_by_exch(&g_m, 9001);
+    assert(e != NULL && e->cl_ord_id == 1001 && e->state == ORD_LIVE);
+}
+
+/*
+ * **조회가 또 끊기면 보류가 그대로 남는다.**
+ * 여기서 `finish_query`를 부르면 아직 안 온 주문을 없다고 판정한다 —
+ * 그래서 마지막 표시를 받았을 때만 부른다.
+ */
+static void test_disconnect_during_query_keeps_indoubt(void)
+{
+    ordmap_init(&g_m);
+
+    assert(ordmap_add(&g_m, 1001) == ERR_OK);
+    assert(ordmap_add(&g_m, 1002) == ERR_OK);
+    assert(ordmap_on_disconnect(&g_m) == 2);
+
+    /* 하나만 답을 받고 끊겼다. */
+    assert(ordmap_on_query_result(&g_m, 1001, 9001, true) == ERR_OK);
+
+    /* 마지막 표시를 못 받았으므로 `finish_query`를 부르지 않는다. */
+    int32_t again = ordmap_on_disconnect(&g_m);
+    /*
+     * 1001은 이 접속에서 접수 확인을 받았으므로 다시 보류가 된다 —
+     * 그 확인은 끊긴 접속의 것이고, 접수 자체는 거래소가 답한 사실이라
+     * 살아 있다. 여기서 옮겨지는 것은 **새로 PENDING이 된 것**뿐이다.
+     */
+    assert(again == 0);
+
+    /* 1002는 여전히 보류다. **잃어버리지 않았다.** */
+    assert(ordmap_indoubt_count(&g_m) == 1);
+    assert(ordmap_find_by_cl(&g_m, 1002)->state == ORD_INDOUBT);
+    assert(ordmap_find_by_cl(&g_m, 1001)->state == ORD_LIVE);
+
+    /* 다시 붙어 조회를 끝까지 받으면 그때 판정된다. */
+    assert(ordmap_on_query_result(&g_m, 1002, 9002, true) == ERR_OK);
+    assert(ordmap_finish_query(&g_m) == 0);
+    assert(ordmap_indoubt_count(&g_m) == 0);
+}
+
+/* 보류 중인 것을 하나씩 꺼내 보고할 수 있다. */
+static void test_iterate_indoubt(void)
+{
+    ordmap_init(&g_m);
+
+    for (uint64_t i = 1; i <= 5; i++) {
+        assert(ordmap_add(&g_m, 1000 + i) == ERR_OK);
+    }
+    /* 둘은 접수 확인을 받아 둔다. */
+    assert(ordmap_on_ack(&g_m, 1002, 9002, true) == ERR_OK);
+    assert(ordmap_on_ack(&g_m, 1004, 9004, true) == ERR_OK);
+
+    assert(ordmap_on_disconnect(&g_m) == 3); /* 1001, 1003, 1005 */
+
+    int32_t         cursor = 0;
+    uint64_t        seen[8];
+    int32_t         n = 0;
+    const ordent_t *e;
+    while ((e = ordmap_next_indoubt(&g_m, &cursor)) != NULL) {
+        assert(n < 8);
+        seen[n++] = e->cl_ord_id;
+    }
+    assert(n == 3);
+
+    /* 셋이 정확히 그 셋이다. */
+    bool got1001 = false, got1003 = false, got1005 = false;
+    for (int32_t i = 0; i < n; i++) {
+        if (seen[i] == 1001) got1001 = true;
+        if (seen[i] == 1003) got1003 = true;
+        if (seen[i] == 1005) got1005 = true;
+    }
+    assert(got1001 && got1003 && got1005);
+}
+
+/* 거래소가 우리가 모르는 주문을 답해 오면 알린다 */
+static void test_query_result_unknown_order(void)
+{
+    ordmap_init(&g_m);
+    assert(ordmap_add(&g_m, 1001) == ERR_OK);
+    assert(ordmap_on_disconnect(&g_m) == 1);
+
+    assert(ordmap_on_query_result(&g_m, 4242, 9999, true) == ERR_NOT_FOUND);
+    /* 우리 상태는 건드려지지 않았다. */
+    assert(ordmap_indoubt_count(&g_m) == 1);
+
+    /* 살아 있다면서 번호가 없을 수는 없다. */
+    assert(ordmap_on_query_result(&g_m, 1001, 0, true) == ERR_INVALID_ARG);
+    assert(ordmap_find_by_cl(&g_m, 1001)->state == ORD_INDOUBT);
+}
+
+static void test_indoubt_args(void)
+{
+    int32_t cursor = 0;
+
+    assert(ordmap_on_disconnect(NULL) == 0);
+    assert(ordmap_finish_query(NULL) == 0);
+    assert(ordmap_indoubt_count(NULL) == 0);
+    assert(ordmap_on_query_result(NULL, 1, 1, true) == ERR_NULL_PTR);
+    assert(ordmap_next_indoubt(NULL, &cursor) == NULL);
+
+    ordmap_init(&g_m);
+    assert(ordmap_next_indoubt(&g_m, NULL) == NULL);
+    cursor = -1;
+    assert(ordmap_next_indoubt(&g_m, &cursor) == NULL);
+}
+
 /* --- 인자 --- */
 
 static void test_args(void)
@@ -368,6 +554,13 @@ int main(void)
     STEP(test_evicts_by_age_not_by_index);
     STEP(test_evicted_slot_is_clean);
     STEP(test_late_fill_finds_closed_order);
+    STEP(test_disconnect_marks_only_pending);
+    STEP(test_query_resolves_three_ways);
+    STEP(test_resolved_order_receives_fills);
+    STEP(test_disconnect_during_query_keeps_indoubt);
+    STEP(test_iterate_indoubt);
+    STEP(test_query_result_unknown_order);
+    STEP(test_indoubt_args);
     STEP(test_args);
     return 0;
 }

@@ -57,7 +57,7 @@ static void test_type_table(void)
     assert(MSG_MODIFY_REQ_LEN == 36);
     assert(MSG_MODIFY_ACK_LEN == 25);
     assert(MSG_QUERY_REQ_LEN == 20);
-    assert(MSG_QUERY_ACK_LEN == 37);
+    assert(MSG_QUERY_ACK_LEN == 38);
     assert(MSG_FILL_NOTI_LEN == 46);
     assert(MSG_LOGIN_REQ_LEN == 16);
     assert(MSG_LOGIN_ACK_LEN == 4);
@@ -300,6 +300,7 @@ static void test_roundtrip_all(void)
                   in.price = 70000;
                   in.qty = 10;
                   in.filled_qty = 3;
+                  in.last = true;
               });
 
     ROUNDTRIP(msg_fill_noti_t, msg_encode_fill_noti, msg_decode_fill_noti,

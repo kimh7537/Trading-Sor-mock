@@ -1,5 +1,6 @@
 #include "ordmap.h"
 
+#include <assert.h>
 #include <string.h>
 
 #include "errors.h"
@@ -25,7 +26,12 @@ int32_t ordmap_live_count(const ordmap_t *m)
     }
     int32_t n = 0;
     for (int32_t i = 0; i < ORDMAP_MAX; i++) {
-        if (m->ent[i].state == ORD_PENDING || m->ent[i].state == ORD_LIVE) {
+        /*
+         * **판정 보류도 끝나지 않은 주문이다.** 빼면 "남은 게 없다"고 보고한
+         * 뒤에 체결이 들어오는 일이 생긴다.
+         */
+        if (m->ent[i].state == ORD_PENDING || m->ent[i].state == ORD_LIVE ||
+            m->ent[i].state == ORD_INDOUBT) {
             n++;
         }
     }
@@ -236,4 +242,124 @@ int ordmap_cancel_key(const ordmap_t *m, uint64_t cl_ord_id,
     *out_exch_id = e->exch_id;
 
     return ERR_OK;
+}
+
+/* --- T3-14: 끊겼을 때의 판정 --- */
+
+int32_t ordmap_on_disconnect(ordmap_t *m)
+{
+    if (m == NULL) {
+        return 0;
+    }
+
+    int32_t moved = 0;
+    for (int32_t i = 0; i < ORDMAP_MAX; i++) {
+        /*
+         * **응답을 못 받은 것만 옮긴다.** 접수된(LIVE) 주문은 거래소에 있다는
+         * 것을 아는 주문이라 보류할 이유가 없고, 끝난(DONE) 주문도 마찬가지다.
+         * 이미 보류 중인 것은 그대로 둔다 — 조회가 또 끊겼다는 뜻이다.
+         */
+        if (m->ent[i].state == ORD_PENDING) {
+            m->ent[i].state = ORD_INDOUBT;
+            moved++;
+        }
+    }
+    return moved;
+}
+
+int ordmap_on_query_result(ordmap_t *m, uint64_t cl_ord_id, order_id_t exch_id,
+                           bool live)
+{
+    if (m == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    ordent_t *e = find_cl(m, cl_ord_id);
+    if (e == NULL) {
+        /*
+         * 우리가 보낸 적 없는 주문을 거래소가 알고 있다. 심각한 일이지만
+         * **이 계층이 판단할 일이 아니다** — 알리고 위로 넘긴다.
+         */
+        return ERR_NOT_FOUND;
+    }
+
+    if (live) {
+        if (exch_id == 0) {
+            return ERR_INVALID_ARG; /* 살아 있다면서 번호가 없을 수는 없다 */
+        }
+        e->state = ORD_LIVE;
+        e->exch_id = exch_id;
+    } else {
+        /*
+         * 거래소가 알고는 있으나 살아 있지 않다(체결 완료·취소·거부).
+         * 번호는 실려 온 대로 남긴다 — **늦게 오는 체결이 찾아올 수 있다.**
+         */
+        e->state = ORD_DONE;
+        if (exch_id != 0) {
+            e->exch_id = exch_id;
+        }
+    }
+
+    return ERR_OK;
+}
+
+int32_t ordmap_finish_query(ordmap_t *m)
+{
+    if (m == NULL) {
+        return 0;
+    }
+
+    int32_t resolved = 0;
+    for (int32_t i = 0; i < ORDMAP_MAX; i++) {
+        /*
+         * 조회가 끝났는데도 보류로 남아 있다 = **거래소가 모르는 주문**이다.
+         * 곧 전문이 닿지 않았다는 뜻이므로 주문은 없다.
+         *
+         * 이 결론은 "응답이 끝났다"를 알아야만 낼 수 있다. 그래서 이 함수는
+         * 마지막 표시를 실제로 받았을 때만 불러야 한다 — 헤더의 설명 참조.
+         *
+         * 거래소 번호는 **이미 0이다.** 보류는 PENDING에서만 오고 PENDING은
+         * 번호를 받은 적이 없다. 그래서 여기서 0을 넣는 것은 아무 일도 하지
+         * 않는다 — 실제로 그 대입을 지워도 변이 검사가 구분하지 못했다(D3).
+         *
+         * 무의미한 대입 대신 **불변조건을 검사한다.** 언젠가 접수된 주문까지
+         * 보류로 옮기는 변경이 들어오면 여기서 걸린다. 그때는 번호가 남아
+         * 있어서 없는 주문에 체결이 붙는다.
+         */
+        if (m->ent[i].state == ORD_INDOUBT) {
+            assert(m->ent[i].exch_id == 0);
+            m->ent[i].state = ORD_DONE;
+            resolved++;
+        }
+    }
+    return resolved;
+}
+
+int32_t ordmap_indoubt_count(const ordmap_t *m)
+{
+    if (m == NULL) {
+        return 0;
+    }
+    int32_t n = 0;
+    for (int32_t i = 0; i < ORDMAP_MAX; i++) {
+        if (m->ent[i].state == ORD_INDOUBT) {
+            n++;
+        }
+    }
+    return n;
+}
+
+const ordent_t *ordmap_next_indoubt(const ordmap_t *m, int32_t *cursor)
+{
+    if (m == NULL || cursor == NULL || *cursor < 0) {
+        return NULL;
+    }
+    for (int32_t i = *cursor; i < ORDMAP_MAX; i++) {
+        if (m->ent[i].state == ORD_INDOUBT) {
+            *cursor = i + 1;
+            return &m->ent[i];
+        }
+    }
+    *cursor = ORDMAP_MAX;
+    return NULL;
 }

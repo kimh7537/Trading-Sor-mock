@@ -430,6 +430,7 @@ int msg_encode_query_ack(const msg_query_ack_t *m, uint8_t *buf, size_t cap)
     wire_put_i32(p, m->filled_qty);
     p += 4;
 
+    wire_put_u8(p++, m->last ? 1u : 0u);
     return (int)(p - buf);
 }
 
@@ -457,6 +458,7 @@ int msg_decode_query_ack(const uint8_t *buf, size_t len, msg_query_ack_t *out)
     out->filled_qty = wire_get_i32(p);
     p += 4;
 
+    out->last = (wire_get_u8(p++) != 0);
     return (int)(p - buf);
 }
 
