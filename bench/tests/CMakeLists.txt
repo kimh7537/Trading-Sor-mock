@@ -1,1 +1,2 @@
 mini_sor_add_test(test_compare compare)
+mini_sor_add_test(test_quality compare)

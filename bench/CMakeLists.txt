@@ -16,11 +16,15 @@ target_compile_definitions(bench_pipeline PRIVATE _POSIX_C_SOURCE=200809L)
 # 이것도 ctest에 넣지 않는다. 저널을 켠 판은 fsync가 2만 번 돈다.
 
 # 전략 비교 하네스. 실험 본체는 라이브러리로 두어 테스트가 직접 부를 수 있게 한다.
-add_library(compare STATIC compare.c)
+add_library(compare STATIC compare.c quality.c)
 target_include_directories(compare PUBLIC .)
 target_link_libraries(compare PUBLIC sor)
 
 add_executable(compare_strategies compare_strategies.c)
 target_link_libraries(compare_strategies PRIVATE compare)
+
+# 집행 품질 리포트(T5-08). 시드 30개면 compare_run 30번이다. ctest에 넣지 않는다.
+add_executable(quality_report quality_report.c)
+target_link_libraries(quality_report PRIVATE compare)
 
 add_subdirectory(tests)
