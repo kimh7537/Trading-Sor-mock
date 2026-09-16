@@ -19,9 +19,9 @@
 
 ## 현재 상태 (2026-09-15)
 
-**Phase 1·2·3 완료 (49/49), Phase 4 진행 중 (4/13).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐·세션·시퀀스 복구·주문번호 매핑·미응답 판정·전 구간 통합), `channel/`(Spring Boot 골격·전문 매핑·원장 커넥션 풀·REST API). `web/`은 아직 계획이다.
+**Phase 1·2·3 완료 (49/49), Phase 4 진행 중 (5/13).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐·세션·시퀀스 복구·주문번호 매핑·미응답 판정·전 구간 통합), `channel/`(Spring Boot 골격·전문 매핑·원장 커넥션 풀·REST API·WebSocket). `web/`은 아직 계획이다.
 
-- 다음 태스크: `docs/TASKS.md`의 T4-05 (WebSocket 실시간 배포)
+- 다음 태스크: `docs/TASKS.md`의 T4-06 (React 프로젝트 골격)
 - **어디서 빌드하는지가 언어마다 다르다.**
 
   | 대상 | 어디서 | 왜 |
