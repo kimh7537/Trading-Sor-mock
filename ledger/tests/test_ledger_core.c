@@ -1,0 +1,615 @@
+/*
+ * T6-03 원장 코어 — 전문 하나가 검증·증거금·배분·체결·정산을 지나가는가.
+ *
+ * 소켓을 쓰지 않는다. 전문 바이트를 만들어 처리 훅에 직접 넣고, 돌아온 응답 바이트와
+ * 계좌 잔고·호가창을 본다. 리스너(T3-03)는 따로 시험됐다.
+ *
+ * **돈이 맞는지는 매 단계 따로 본다.** 이 데모는 계좌가 하나라 자기 주문끼리
+ * 체결되면 매수의 출금과 매도의 입금이 상쇄되어 합계가 0이 된다. 합계만 보면
+ * "매수를 지정가로 잘못 정산하고 매도도 같은 값으로 입금"한 버그가 통과한다.
+ * 그래서 유동성과 체결하는 경우(상쇄 없음)와 묶인 금액을 따로 본다.
+ */
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "errors.h"
+#include "ledger_core.h"
+#include "msg.h"
+#include "tick_size.h"
+
+#define STEP(fn)                                                            \
+    do {                                                                    \
+        fprintf(stderr, "[%s]\n", #fn);                                     \
+        fn();                                                               \
+    } while (0)
+
+#define ACCT "123456789012"
+#define CASH ((int64_t)100000000)
+
+/* 유동성 없는 빈 호가창 — 체결 상대를 테스트가 직접 만든다. */
+static ledger_core_t *empty_core(int32_t capacity)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 0;
+    cfg.order_capacity = capacity;
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+    return c;
+}
+
+/* 기본 설정(유동성 있음). 시장당 유동성을 줄여 빠르게 돈다. */
+static ledger_core_t *liquid_core(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 300;
+    cfg.order_capacity = 256;
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+    return c;
+}
+
+/*
+ * 주문 전문을 만들어 넣고 응답 전문을 풀어 돌려준다. 응답 바이트는 raw에 남긴다.
+ */
+static int send_order_ex(ledger_core_t *c, const char *account, uint8_t side,
+                         uint8_t type, uint8_t market, price_t price, qty_t qty,
+                         uint64_t cl, msg_order_ack_t *ack, uint8_t *raw,
+                         int *raw_len)
+{
+    msg_order_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", account);
+    snprintf(req.symbol, sizeof(req.symbol), "%s", "005930");
+    req.cl_ord_id = cl;
+    req.side = side;
+    req.type = type;
+    req.market = market;
+    req.price = price;
+    req.qty = qty;
+
+    uint8_t body[MSG_ORDER_REQ_LEN];
+    assert(msg_encode_order_req(&req, body, sizeof(body)) ==
+           (int)MSG_ORDER_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_ORDER_REQ;
+    h.body_len = MSG_ORDER_REQ_LEN;
+    h.seq = cl;
+    h.ts = 7;
+
+    uint8_t out[256];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_ORDER_ACK_LEN));
+
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_ORDER_ACK);
+    assert(rh.seq == cl); /* 요청의 시퀀스를 그대로 돌려준다 */
+    assert(msg_decode_order_ack(out + WIRE_HEADER_LEN, MSG_ORDER_ACK_LEN, ack) >=
+           0);
+    assert(ack->cl_ord_id == cl);
+
+    if (raw != NULL) {
+        memcpy(raw, out, (size_t)n);
+        *raw_len = n;
+    }
+    return ack->reason;
+}
+
+static int send_order(ledger_core_t *c, uint8_t side, uint8_t market,
+                      price_t price, qty_t qty, uint64_t cl,
+                      msg_order_ack_t *ack)
+{
+    return send_order_ex(c, ACCT, side, ORDER_LIMIT, market, price, qty, cl,
+                         ack, NULL, NULL);
+}
+
+static void balance(ledger_core_t *c, int64_t *cash, int64_t *reserved)
+{
+    assert(ledger_core_balance(c, ACCT, cash, reserved) == ERR_OK);
+}
+
+/* --- 1. 유동성과 체결하는 매수 --- */
+
+/*
+ * **매수는 매도호가를 먹는다.** 방향 값이 C의 정의(`SIDE_BUY=0`)대로 해석되는지를
+ * C 쪽에서도 못 박는다 — T6-01에서 화면의 "매수"가 매도로 읽혔다.
+ *
+ * 유동성과 체결하므로 입금으로 상쇄되지 않는다. 예수금이 정확히 `매도호가 x 수량`만큼
+ * 줄어야 한다.
+ */
+static void test_buy_takes_liquidity(void)
+{
+    ledger_core_t      *c = liquid_core();
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+    const order_book_t *nxt = ledger_core_book(c, MARKET_NXT);
+
+    price_t ask = book_best_ask(krx);
+    assert(ask != BOOK_PRICE_NONE);
+    qty_t level = book_qty_at(krx, SIDE_SELL, ask);
+    qty_t qty = (level < 37) ? level : 37;
+    assert(qty > 0);
+
+    price_t nxt_ask = book_best_ask(nxt);
+    qty_t   nxt_level = book_qty_at(nxt, SIDE_SELL, nxt_ask);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, ask, qty, 1, &ack) == ERR_OK);
+
+    assert(ack.filled_qty == qty);
+    assert(ack.status == STATUS_FILLED);
+    assert(ack.price == ask);
+    assert(ack.order_id != 0);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(cash == CASH - (int64_t)ask * qty); /* 정확히 체결 대금만큼 */
+    assert(reserved == 0);                      /* 다 체결됐으니 묶인 돈이 없다 */
+
+    /* 매도호가가 줄었다 — 매수가 매도로 읽혔다면 매수호가가 늘었을 것이다 */
+    assert(book_qty_at(krx, SIDE_SELL, ask) == level - qty);
+    /* 지정한 시장만 건드렸다 */
+    assert(book_best_ask(nxt) == nxt_ask);
+    assert(book_qty_at(nxt, SIDE_SELL, nxt_ask) == nxt_level);
+
+    ledger_core_destroy(c);
+}
+
+/* 매도는 매수호가를 먹고 **대금이 입금된다.** 매도는 증거금을 묶지 않는다 */
+static void test_sell_takes_liquidity(void)
+{
+    ledger_core_t      *c = liquid_core();
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+
+    price_t bid = book_best_bid(krx);
+    assert(bid != BOOK_PRICE_NONE);
+    qty_t level = book_qty_at(krx, SIDE_BUY, bid);
+    qty_t qty = (level < 23) ? level : 23;
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, bid, qty, 2, &ack) == ERR_OK);
+    assert(ack.filled_qty == qty);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(cash == CASH + (int64_t)bid * qty);
+    assert(reserved == 0);
+    assert(book_qty_at(krx, SIDE_BUY, bid) == level - qty);
+
+    ledger_core_destroy(c);
+}
+
+/* --- 2. 걸어 두기와 나중 체결(maker) --- */
+
+/*
+ * **호가창에 남은 주문은 증거금이 묶인 채로 있고, 나중에 체결되면 그때 정산된다.**
+ *
+ * 집행기 보고서는 "지금 들어온 주문"의 체결만 알려 준다. 예전에 걸어 둔 주문이
+ * 체결되는 경우를 원장이 놓치면 **묶인 돈이 영영 안 풀린다.** 콜백이 그것을 잡는지 본다.
+ */
+static void test_resting_then_maker_fill(void)
+{
+    ledger_core_t      *c = empty_core(64);
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 20, 10, &ack) == ERR_OK);
+    assert(ack.filled_qty == 0);
+    assert(ack.status == STATUS_NEW);
+    assert(book_qty_at(krx, SIDE_BUY, 70000) == 20);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(cash == CASH);
+    assert(reserved == (int64_t)70000 * 20); /* 걸어 둔 만큼 묶였다 */
+
+    /* 더 싼 매도가 들어와 걸어 둔 매수를 12주 친다. 체결은 maker 가격 70,000 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 69900, 12, 11, &ack) == ERR_OK);
+    assert(ack.filled_qty == 12);
+    assert(ack.price == 70000);
+
+    balance(c, &cash, &reserved);
+    /*
+     * maker 매수: 예수금 -840,000, 묶음 -840,000
+     * taker 매도: 예수금 +840,000
+     * 같은 계좌라 예수금은 제자리다. **묶음이 8주분으로 줄었는지가 핵심이다.**
+     */
+    assert(reserved == (int64_t)70000 * 8);
+    assert(cash == CASH);
+
+    /* 나머지 8주도 친다 — 묶음이 0이 되어야 한다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 8, 12, &ack) == ERR_OK);
+    assert(ack.filled_qty == 8);
+    balance(c, &cash, &reserved);
+    assert(reserved == 0);
+    assert(cash == CASH);
+    assert(book_qty_at(krx, SIDE_BUY, 70000) == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **매수가 더 싸게 체결되면 남는 증거금을 푼다.**
+ * 69,000에 걸린 매도를 70,000 지정가 매수가 치면 1,000원 x 10주가 남는다.
+ */
+static void test_price_improvement_released(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_SELL, MARKET_NXT, 69000, 10, 20, &ack) == ERR_OK);
+    assert(ack.filled_qty == 0);
+
+    assert(send_order(c, SIDE_BUY, MARKET_NXT, 70000, 10, 21, &ack) == ERR_OK);
+    assert(ack.filled_qty == 10);
+    assert(ack.price == 69000); /* maker 가격에 체결 */
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(reserved == 0); /* 700,000을 묶었고 690,000 정산 + 10,000 해제 */
+    assert(cash == CASH);  /* 같은 계좌: -690,000 + 690,000 */
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **체결되지 않을 수량의 증거금을 푼다** — 호가창에 남지 않는 IOC.
+ *
+ * 5주밖에 없는 곳에 IOC 12주를 내면 7주는 취소된다. 그 7주분이 계속 묶여 있으면
+ * 돈이 조금씩 사라진다.
+ */
+static void test_ioc_remainder_released(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 5, 30, &ack) == ERR_OK);
+
+    assert(send_order_ex(c, ACCT, SIDE_BUY, ORDER_IOC, MARKET_KRX, 70000, 12, 31,
+                         &ack, NULL, NULL) == ERR_OK);
+    assert(ack.filled_qty == 5);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(reserved == 0);
+    assert(cash == CASH);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **NXT를 지정하면 NXT 호가창에 간다.**
+ *
+ * 처음엔 시장을 늘 KRX로 보내는 변이(L12)가 살아남았다. NXT를 쓰는 테스트가 빈
+ * 호가창에서 자기 주문끼리 체결시키는 것뿐이라, 둘 다 KRX로 가도 똑같이 체결됐다.
+ * 유동성이 있는 호가창에서 **어느 시장의 호가가 줄었는지**로 본다.
+ */
+static void test_explicit_nxt_goes_to_nxt(void)
+{
+    ledger_core_t      *c = liquid_core();
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+    const order_book_t *nxt = ledger_core_book(c, MARKET_NXT);
+
+    price_t na = book_best_ask(nxt);
+    qty_t   nl = book_qty_at(nxt, SIDE_SELL, na);
+    qty_t   qty = (nl < 11) ? nl : 11;
+    price_t ka = book_best_ask(krx);
+    qty_t   kl = book_qty_at(krx, SIDE_SELL, ka);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_NXT, na, qty, 45, &ack) == ERR_OK);
+    assert(ack.filled_qty == qty);
+
+    assert(book_qty_at(nxt, SIDE_SELL, na) == nl - qty); /* NXT가 줄었다 */
+    assert(book_best_ask(krx) == ka);                    /* KRX는 그대로 */
+    assert(book_qty_at(krx, SIDE_SELL, ka) == kl);
+
+    ledger_core_destroy(c);
+}
+
+/* 조회 전문을 만들어 넣고 응답을 푼다 */
+static void query(ledger_core_t *c, order_id_t id, msg_query_ack_t *ack)
+{
+    msg_query_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", ACCT);
+    req.order_id = id;
+
+    uint8_t body[MSG_QUERY_REQ_LEN];
+    assert(msg_encode_query_req(&req, body, sizeof(body)) ==
+           (int)MSG_QUERY_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_QUERY_REQ;
+    h.body_len = MSG_QUERY_REQ_LEN;
+    h.seq = 90;
+
+    uint8_t out[256];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_QUERY_ACK_LEN));
+    assert(msg_decode_query_ack(out + WIRE_HEADER_LEN, MSG_QUERY_ACK_LEN, ack) >=
+           0);
+    assert(ack->order_id == id);
+    assert(ack->last == 1);
+}
+
+/*
+ * **호가창에 걸어 뒀던 주문의 나중 체결이 조회에 보인다.**
+ *
+ * 돈은 콜백이 맞게 정산해도, 그 주문의 체결 수량을 매핑에 적지 않으면 미체결 화면이
+ * 영영 "0주 체결"로 남는다. 처음엔 그 반영을 빼도 테스트가 통과했다(변이 L4) — 매핑을
+ * 읽는 곳이 없었기 때문이다. 조회를 구현해 관측할 수 있게 했다.
+ */
+static void test_query_reflects_maker_fill(void)
+{
+    ledger_core_t  *c = empty_core(64);
+    msg_order_ack_t ack;
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 20, 555, &ack) == ERR_OK);
+    order_id_t resting = ack.order_id;
+
+    msg_query_ack_t q;
+    query(c, resting, &q);
+    assert(q.status == STATUS_NEW);
+    assert(q.cl_ord_id == 555); /* 주문을 낸 쪽의 번호를 돌려준다 */
+    assert(q.qty == 20 && q.filled_qty == 0);
+    assert(q.price == 70000);
+    assert(strcmp(q.symbol, "005930") == 0);
+
+    /* 매도 12주가 걸어 둔 매수를 친다 — 걸어 둔 쪽은 maker */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 12, 556, &ack) == ERR_OK);
+
+    query(c, resting, &q);
+    assert(q.filled_qty == 12);
+    assert(q.status == STATUS_PARTIAL);
+
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 8, 557, &ack) == ERR_OK);
+    query(c, resting, &q);
+    assert(q.filled_qty == 20);
+    assert(q.status == STATUS_FILLED);
+
+    /* 모르는 번호, 전체 조회(0)는 "없음"으로 답한다 */
+    query(c, resting + 1000, &q);
+    assert(q.status == STATUS_REJECTED && q.qty == 0);
+    query(c, 0, &q);
+    assert(q.status == STATUS_REJECTED && q.qty == 0);
+
+    ledger_core_destroy(c);
+}
+
+/* --- 3. SOR --- */
+
+/*
+ * **시장을 자동으로 두면 더 싼 쪽으로 간다.**
+ * `market = MSG_MARKET_AUTO`면 BEST_PRICE 전략이 통합 호가창을 보고 고른다.
+ */
+static void test_auto_routes_to_cheaper_market(void)
+{
+    ledger_core_t      *c = liquid_core();
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+    const order_book_t *nxt = ledger_core_book(c, MARKET_NXT);
+
+    price_t ak = book_best_ask(krx);
+    price_t an = book_best_ask(nxt);
+    assert(ak != BOOK_PRICE_NONE && an != BOOK_PRICE_NONE);
+
+    const order_book_t *cheap = (ak <= an) ? krx : nxt;
+    const order_book_t *other = (ak <= an) ? nxt : krx;
+    price_t             best = (ak <= an) ? ak : an;
+    price_t             other_ask = (ak <= an) ? an : ak;
+
+    qty_t level = book_qty_at(cheap, SIDE_SELL, best);
+    qty_t qty = (level < 9) ? level : 9;
+    qty_t other_level = book_qty_at(other, SIDE_SELL, other_ask);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MSG_MARKET_AUTO, best, qty, 40, &ack) ==
+           ERR_OK);
+    assert(ack.filled_qty == qty);
+    assert(ack.price == best);
+
+    assert(book_qty_at(cheap, SIDE_SELL, best) == level - qty);
+    if (ak != an) {
+        /* 두 시장 호가가 다르면 비싼 쪽은 건드리지 않았어야 한다 */
+        assert(book_qty_at(other, SIDE_SELL, other_ask) == other_level);
+    }
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(cash == CASH - (int64_t)best * qty);
+    assert(reserved == 0);
+
+    ledger_core_destroy(c);
+}
+
+/* --- 4. 거부 --- */
+
+/*
+ * **거부는 이유를 말하고 돈을 건드리지 않는다.** 예전 껍데기는 무엇이 와도 성공이라고
+ * 답했다.
+ */
+static void test_rejects_leave_money_alone(void)
+{
+    ledger_core_t  *c = empty_core(64);
+    msg_order_ack_t ack;
+    int64_t         cash, reserved;
+
+    /* 호가 단위 — 70,000원대는 100원 단위다 */
+    assert(tick_size_of(70000) == 100);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70050, 10, 50, &ack) ==
+           ERR_INVALID_TICK);
+    assert(ack.status == STATUS_REJECTED);
+
+    /* 없는 계좌 */
+    assert(send_order_ex(c, "999999999999", SIDE_BUY, ORDER_LIMIT, MARKET_KRX,
+                         70000, 10, 51, &ack, NULL, NULL) == ERR_NOT_FOUND);
+
+    /* 증거금 부족 — 7억 원어치 */
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 10000, 52, &ack) ==
+           ERR_NO_MARGIN);
+
+    /*
+     * 없는 시장. 배분 단계(`plan_add_leg`)가 거절하고, **그 전에 묶은 증거금을
+     * 푼다.** 이 경로는 처음에 앞쪽의 중복 검사에 가려 한 번도 실행되지 않았다.
+     */
+    assert(send_order(c, SIDE_BUY, 7, 70000, 10, 53, &ack) == ERR_INVALID_ARG);
+    balance(c, &cash, &reserved);
+    assert(reserved == 0);
+
+    /* 옛 번호 체계의 "매도"(2)는 없는 방향이다 — T6-01 */
+    assert(send_order(c, 2, MARKET_KRX, 70000, 10, 54, &ack) == ERR_INVALID_ARG);
+
+    balance(c, &cash, &reserved);
+    assert(cash == CASH);
+    assert(reserved == 0);
+    assert(book_best_bid(ledger_core_book(c, MARKET_KRX)) == BOOK_PRICE_NONE);
+
+    ledger_core_destroy(c);
+}
+
+/* 자리가 차면 거절한다. 묶은 돈이 새지 않는다 */
+static void test_capacity(void)
+{
+    ledger_core_t  *c = empty_core(2);
+    msg_order_ack_t ack;
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 1, 60, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 1, 61, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 1, 62, &ack) ==
+           ERR_POOL_EXHAUSTED);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(reserved == (int64_t)70000 * 2); /* 세 번째는 묶지 않았다 */
+
+    ledger_core_destroy(c);
+}
+
+/* --- 5. 연결하지 않은 종별 --- */
+
+/*
+ * **취소는 아직 안 된다고 말한다.** 예전 껍데기는 취소 성공을 돌려줘서, 호가창에
+ * 그대로 남은 주문을 취소됐다고 믿게 만들었다.
+ */
+static void test_cancel_is_not_faked(void)
+{
+    ledger_core_t *c = empty_core(8);
+
+    msg_cancel_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", ACCT);
+    req.order_id = 200000000;
+    req.cl_ord_id = 70;
+
+    uint8_t body[MSG_CANCEL_REQ_LEN];
+    assert(msg_encode_cancel_req(&req, body, sizeof(body)) ==
+           (int)MSG_CANCEL_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_CANCEL_REQ;
+    h.body_len = MSG_CANCEL_REQ_LEN;
+    h.seq = 70;
+
+    uint8_t out[256];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_CANCEL_ACK_LEN));
+
+    msg_cancel_ack_t ack;
+    assert(msg_decode_cancel_ack(out + WIRE_HEADER_LEN, MSG_CANCEL_ACK_LEN,
+                                 &ack) >= 0);
+    assert(ack.reason == ERR_NOT_SUPPORTED);
+    assert(ack.status == STATUS_REJECTED);
+
+    ledger_core_destroy(c);
+}
+
+/* 바디 길이가 규격과 다르면 접속을 끊으라고(음수) 답한다 */
+static void test_bad_body_drops(void)
+{
+    ledger_core_t *c = empty_core(8);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_ORDER_REQ;
+    h.body_len = MSG_ORDER_REQ_LEN - 1;
+
+    uint8_t body[MSG_ORDER_REQ_LEN];
+    memset(body, 0, sizeof(body));
+    uint8_t out[256];
+    assert(ledger_core_handle(&h, body, out, sizeof(out), c) < 0);
+
+    /* 인자 */
+    assert(ledger_core_handle(NULL, body, out, sizeof(out), c) < 0);
+    assert(ledger_core_handle(&h, body, out, sizeof(out), NULL) < 0);
+    assert(ledger_core_book(c, (market_t)MARKET_COUNT) == NULL);
+
+    int64_t x, y;
+    assert(ledger_core_balance(c, "nobody000000", &x, &y) == ERR_NOT_FOUND);
+
+    ledger_core_destroy(c);
+    ledger_core_destroy(NULL);
+}
+
+/* --- 6. 결정성 --- */
+
+/*
+ * **같은 전문 순서는 같은 응답 바이트를 만든다.** 원장이 시스템 시각이나 전역
+ * 난수를 읽으면 여기서 깨진다.
+ */
+static void test_deterministic(void)
+{
+    ledger_core_t *a = liquid_core();
+    ledger_core_t *b = liquid_core();
+
+    const uint8_t sides[] = {SIDE_BUY, SIDE_SELL, SIDE_BUY, SIDE_BUY, SIDE_SELL};
+    const uint8_t mkts[] = {MARKET_KRX, MARKET_NXT, MSG_MARKET_AUTO, MARKET_NXT,
+                            MSG_MARKET_AUTO};
+    const price_t prices[] = {70300, 69700, 70200, 69500, 70100};
+    const qty_t   qtys[] = {41, 17, 29, 13, 31};
+
+    for (int i = 0; i < 5; i++) {
+        msg_order_ack_t aa, bb;
+        uint8_t         ra[256], rb[256];
+        int             la = 0, lb = 0;
+        send_order_ex(a, ACCT, sides[i], ORDER_LIMIT, mkts[i], prices[i],
+                      qtys[i], (uint64_t)(80 + i), &aa, ra, &la);
+        send_order_ex(b, ACCT, sides[i], ORDER_LIMIT, mkts[i], prices[i],
+                      qtys[i], (uint64_t)(80 + i), &bb, rb, &lb);
+        assert(la == lb);
+        assert(memcmp(ra, rb, (size_t)la) == 0);
+    }
+
+    int64_t ca, qa, cb, qb;
+    balance(a, &ca, &qa);
+    balance(b, &cb, &qb);
+    assert(ca == cb && qa == qb);
+
+    ledger_core_destroy(a);
+    ledger_core_destroy(b);
+}
+
+int main(void)
+{
+    STEP(test_buy_takes_liquidity);
+    STEP(test_sell_takes_liquidity);
+    STEP(test_resting_then_maker_fill);
+    STEP(test_price_improvement_released);
+    STEP(test_ioc_remainder_released);
+    STEP(test_explicit_nxt_goes_to_nxt);
+    STEP(test_query_reflects_maker_fill);
+    STEP(test_auto_routes_to_cheaper_market);
+    STEP(test_rejects_leave_money_alone);
+    STEP(test_capacity);
+    STEP(test_cancel_is_not_faked);
+    STEP(test_bad_body_drops);
+    STEP(test_deterministic);
+    return 0;
+}

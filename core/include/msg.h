@@ -72,6 +72,15 @@
 /* 세션 식별자. 어느 FEP가 붙었는지 구분할 수 있으면 된다. */
 #define MSG_SESSION_LEN 16
 
+/*
+ * ORDER_REQ의 `market`에 이 값이 오면 **시장을 원장이 SOR로 정한다**(T6-03).
+ *
+ * `market_t`(0=KRX, 1=NXT)에 세 번째 값을 더하지 않고 전문에서만 쓰는 값으로 둔다.
+ * 열거형에 넣으면 `MARKET_COUNT`가 3이 되어, 시장마다 도는 반복문이 전부 "SOR"이라는
+ * 존재하지 않는 시장까지 돌게 된다. 필드 길이(u8)는 그대로라 전문 배치가 바뀌지 않는다.
+ */
+#define MSG_MARKET_AUTO 255
+
 /* 바디 길이. 위 표와 같다. 계산식으로 적어 필드를 더할 때 같이 움직이게 한다. */
 #define MSG_ORDER_REQ_LEN                                                  \
     (MSG_ACCOUNT_LEN + MSG_SYMBOL_LEN + 8 + 1 + 1 + 1 + 4 + 4)

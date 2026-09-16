@@ -25,6 +25,24 @@
 
 ## 2026-09-17
 
+- [T6-03] 원장 데몬을 실제 원장으로
+  - 한 일: `ledger/{include,src}/ledger_core.*`(새 모듈), `ledger/tests/test_ledger_core.c`,
+    `ledger/ledgerd.c`(기본 포트 9100, 코어 연결), `core/include/msg.h`(`MSG_MARKET_AUTO`),
+    채널계 접속 풀 1개·기본 포트 9100.
+  - **발견** — 원장 데몬은 T3-03 껍데기 그대로 무조건 성공을 돌려줬다. 계좌·검증·SOR·매칭은
+    각자 테스트를 통과했지만 **이어 주는 코드가 없었다.** 채널계 기본 포트는 0이라 그대로
+    띄우면 모든 주문이 503이었고, 풀 8개 vs 단일 접속 리스너라 동시 주문이 5초 매달렸다.
+  - **판단 — fork 워커를 안 쓴다.** 워커마다 매칭 엔진이 따로 생겨 호가창이 워커 수만큼
+    갈라진다. 단일 프로세스·단일 스레드로 처리하고 채널계 풀을 1로 맞췄다.
+  - **판단 — 정산은 체결 이벤트 콜백 한 곳.** taker 체결과 나중에 오는 maker 체결을 같은
+    코드가 정산한다. 안 체결될 수량은 `주문 - 체결 - 살아 있음` 불변식 하나로 푼다.
+  - 변이 20개: 19개 잡힘. L13(용량 검사 삭제)은 Debug에서 안 잡히고 **ASan에서
+    heap-buffer-overflow로 잡힘** — 커밋 게이트가 ASan을 돌리므로 남긴다.
+    L18(논리 시각을 안 늘림)은 같은 가격 FIFO가 삽입 순서로 이미 정해져 관찰 불가 — 주석.
+    처음 돌렸을 때 살아남은 L4(maker 체결 매핑)·L9(배분 실패 해제)·L12(지정 시장)를 보고
+    단건 주문 조회를 구현하고, 중복 시장 검사를 지우고, NXT 지정 테스트를 더했다.
+  - C 58/58 × Debug·Release·ASan, Java 통과.
+
 - [T6-07] KRX_ONLY 대비 bp를 체결 금액에서 직접 계산
   - 한 일: `sor/{include,src}/execution_quality.*`(`eq_avg_diff_bp` 추가),
     `sor/tests/test_execution_quality.c`, `bench/compare.c`, `bench/quality.c`,
