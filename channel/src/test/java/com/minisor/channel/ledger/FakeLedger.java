@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>접속마다 스레드 하나를 쓴다. 이쪽은 시험 상대역이지 운영 코드가 아니다.
  */
-final class FakeLedger implements AutoCloseable {
+public final class FakeLedger implements AutoCloseable {
 
     private final ServerSocket server;
     private final Thread acceptor;
@@ -32,30 +32,30 @@ final class FakeLedger implements AutoCloseable {
     /** 참이면 요청을 받고 답하지 않는다 — 상대가 매달리는 상황을 만든다. */
     private volatile boolean silent;
 
-    FakeLedger() throws IOException {
+    public FakeLedger() throws IOException {
         server = new ServerSocket(0);
         acceptor = new Thread(this::acceptLoop, "fake-ledger");
         acceptor.setDaemon(true);
         acceptor.start();
     }
 
-    int port() {
+    public int port() {
         return server.getLocalPort();
     }
 
-    int connections() {
+    public int connections() {
         return connections.get();
     }
 
-    int requests() {
+    public int requests() {
         return requests.get();
     }
 
-    void setDelayMs(long ms) {
+    public void setDelayMs(long ms) {
         delayMs = ms;
     }
 
-    void setSilent(boolean v) {
+    public void setSilent(boolean v) {
         silent = v;
     }
 
