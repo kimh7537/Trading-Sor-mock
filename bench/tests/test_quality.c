@@ -4,7 +4,7 @@
  * 전략의 우열은 여기서 판정하지 않는다 — 그건 리포트의 내용이다.
  * 여기서는 **리포트를 믿을 수 있는 조건**을 본다.
  *  1. 분포(중앙값·최소·최대)가 손으로 센 값과 같다. 짝수 개는 낮은 쪽
- *  2. 판정 규칙 — 한 번이라도 비기거나 지면 항상 우위가 아니다
+ *  2. 판정 규칙 — 이름이 문자 그대로 참이다. 비김은 판정을 뒤집지 않는다(T6-02)
  *  3. 시드 N개 집계가 compare_run() N번과 칸마다 같다 (시드가 1씩 나아간다)
  *  4. 같은 인자 -> 바이트까지 같은 파일
  *  5. 시드 개수 범위, 시드 넘침을 거절한다
@@ -40,11 +40,21 @@ static void test_dist(void)
 
 static void test_verdict(void)
 {
-    assert(quality_verdict_of(5, 0, 0) == QUALITY_ALWAYS_BETTER);
-    assert(quality_verdict_of(0, 5, 0) == QUALITY_ALWAYS_WORSE);
+    assert(quality_verdict_of(5, 0, 0) == QUALITY_NEVER_WORSE);
+    assert(quality_verdict_of(0, 5, 0) == QUALITY_NEVER_BETTER);
     assert(quality_verdict_of(0, 0, 5) == QUALITY_NO_DIFF);
-    assert(quality_verdict_of(4, 0, 1) == QUALITY_MIXED); /* 한 번 비김 */
-    assert(quality_verdict_of(0, 4, 1) == QUALITY_MIXED);
+
+    /*
+     * **비김이 섞여도 판정은 뒤집히지 않는다**(T6-02). 실제 리포트에 나온 두
+     * 칸을 그대로 옮긴다 — 둘 다 "엇갈림"으로 찍혀 결론이 틀리게 읽혔다.
+     */
+    assert(quality_verdict_of(29, 0, 1) == QUALITY_NEVER_WORSE);
+    assert(quality_verdict_of(0, 20, 10) == QUALITY_NEVER_BETTER);
+
+    /* **한 번이라도 지면(이기면) 진 적 없음(이긴 적 없음)이 아니다** */
+    assert(quality_verdict_of(29, 1, 0) == QUALITY_MIXED);
+    assert(quality_verdict_of(1, 29, 0) == QUALITY_MIXED);
+    assert(quality_verdict_of(1, 1, 28) == QUALITY_MIXED);
     assert(quality_verdict_of(3, 2, 0) == QUALITY_MIXED);
 }
 

@@ -35,14 +35,21 @@ int quality_dist(int32_t *values, int32_t n, quality_dist_t *out)
 quality_verdict_t quality_verdict_of(int32_t wins, int32_t losses,
                                      int32_t ties)
 {
+    /*
+     * **비김은 판정을 뒤집지 않는다**(T6-02). 처음에는 비김이 하나라도 있으면
+     * "엇갈림"으로 보냈는데, 29승 0패 1무가 엇갈림이 되어 결론 문장이 데이터와
+     * 반대로 읽혔다.
+     */
+    (void)ties;
+
     if (wins == 0 && losses == 0) {
         return QUALITY_NO_DIFF;
     }
-    if (losses == 0 && ties == 0) {
-        return QUALITY_ALWAYS_BETTER;
+    if (losses == 0) {
+        return QUALITY_NEVER_WORSE;
     }
-    if (wins == 0 && ties == 0) {
-        return QUALITY_ALWAYS_WORSE;
+    if (wins == 0) {
+        return QUALITY_NEVER_BETTER;
     }
     return QUALITY_MIXED;
 }
@@ -50,10 +57,10 @@ quality_verdict_t quality_verdict_of(int32_t wins, int32_t losses,
 const char *quality_verdict_str(quality_verdict_t v)
 {
     switch (v) {
-    case QUALITY_ALWAYS_BETTER:
-        return "항상 우위";
-    case QUALITY_ALWAYS_WORSE:
-        return "항상 열위";
+    case QUALITY_NEVER_WORSE:
+        return "진 적 없음";
+    case QUALITY_NEVER_BETTER:
+        return "이긴 적 없음";
     case QUALITY_NO_DIFF:
         return "차이 없음";
     case QUALITY_MIXED:
@@ -152,7 +159,7 @@ static void write_pct(FILE *f, int32_t bp)
 static void write_conclusion(FILE *f, const quality_report_t *r, int32_t s)
 {
     static const quality_verdict_t ORDER[] = {
-        QUALITY_ALWAYS_BETTER, QUALITY_MIXED, QUALITY_ALWAYS_WORSE,
+        QUALITY_NEVER_WORSE, QUALITY_MIXED, QUALITY_NEVER_BETTER,
         QUALITY_NO_DIFF};
 
     fprintf(f, "- **%s** —", scenario_str((scenario_t)s));
@@ -171,11 +178,13 @@ static void write_conclusion(FILE *f, const quality_report_t *r, int32_t s)
                 fprintf(f, ", ");
             }
             fprintf(f, "%s", c->strategy);
-            if (ORDER[v] == QUALITY_MIXED) {
+            /*
+             * 비김이 섞일 수 있으므로 **어느 판정이든 승/패/무를 같이 적는다.**
+             * "진 적 없음"만 보고 30전 30승으로 읽으면 안 된다.
+             */
+            if (ORDER[v] != QUALITY_NO_DIFF) {
                 fprintf(f, "(%d승 %d패 %d무, 중앙값 %+dbp)", c->wins,
                         c->losses, c->ties, c->vs_krx_only_bp.p50);
-            } else if (ORDER[v] != QUALITY_NO_DIFF) {
-                fprintf(f, "(중앙값 %+dbp)", c->vs_krx_only_bp.p50);
             }
             shown++;
         }
@@ -233,11 +242,11 @@ int quality_write_md(const quality_report_t *r, const char *date,
         }
     }
     fprintf(f,
-            "\n기준선을 뺀 %d칸 중 항상 우위 %d, 엇갈림 %d, 항상 열위 %d, "
+            "\n기준선을 뺀 %d칸 중 진 적 없음 %d, 엇갈림 %d, 이긴 적 없음 %d, "
             "차이 없음 %d.\n",
             COMPARE_SCENARIO_COUNT * (COMPARE_STRATEGY_COUNT - 1),
-            count[QUALITY_ALWAYS_BETTER], count[QUALITY_MIXED],
-            count[QUALITY_ALWAYS_WORSE], count[QUALITY_NO_DIFF]);
+            count[QUALITY_NEVER_WORSE], count[QUALITY_MIXED],
+            count[QUALITY_NEVER_BETTER], count[QUALITY_NO_DIFF]);
 
     fprintf(f, "\n## 결과\n\n");
     fprintf(f,
@@ -268,9 +277,11 @@ int quality_write_md(const quality_report_t *r, const char *date,
             "- **KRX_ONLY 대비(bp)**: 양수면 그만큼 싸게 샀다. 승/패/무는 이 "
             "값이 양수·음수·0이었던 시드 수다\n");
     fprintf(f,
-            "- **판정**: 모든 시드에서 이겼으면 항상 우위, 모두 졌으면 항상 "
-            "열위, 이기고 진 적이 없으면 차이 없음, 그 밖은 엇갈림. 한 번이라도 "
-            "비기면 항상 우위가 아니다\n");
+            "- **판정**: 이긴 적이 있고 진 적이 없으면 **진 적 없음**, 진 적이 "
+            "있고 이긴 적이 없으면 **이긴 적 없음**, 둘 다 있으면 **엇갈림**, "
+            "둘 다 없으면 **차이 없음**. **비김은 판정을 뒤집지 않는다** — "
+            "29승 1무를 엇갈림이라 부르면 한 번도 안 진 전략이 들쭉날쭉한 것처럼 "
+            "읽힌다. \"항상\"이라는 말은 쓰지 않으니 승/패/무를 함께 본다\n");
     fprintf(f,
             "- **p50**: 시드 수가 짝수면 가운데 둘 중 낮은 쪽이다. 평균을 내면 "
             "어느 시드에서도 나오지 않은 숫자가 되고, 낮은 쪽이면 개선폭을 "

@@ -35,11 +35,25 @@
 
 #define QUALITY_MAX_SEEDS 256
 
+/*
+ * 판정. **이름이 문자 그대로 참이어야 한다**(T6-02).
+ *
+ * 처음에는 "항상 우위/항상 열위"를 비김이 하나도 없을 때만 주고 나머지를 전부
+ * "엇갈림"에 넣었다. 과장하지 않으려는 판단이었지만, 그 결과 **29승 0패 1무**와
+ * **0승 20패 10무**가 둘 다 "엇갈림"이 됐다 — 한 번도 안 진 전략이 들쭉날쭉한
+ * 것처럼, 한 번도 못 이긴 전략이 가끔 이기는 것처럼 읽혔다. 과장을 피하려다
+ * 반대 방향으로 틀렸다.
+ *
+ * 그래서 "항상"이라는 말을 버리고 실제로 일어난 일만 이름으로 쓴다. 비김은
+ * 판정을 뒤집지 않는다. 엇갈림은 **이긴 적도 진 적도 있을 때만**이다.
+ *
+ * 순서를 바꾸지 않는다 — `QUALITY_MIXED`가 마지막이어야 개수 배열이 맞는다.
+ */
 typedef enum {
-    QUALITY_ALWAYS_BETTER, /* 모든 시드에서 KRX_ONLY보다 쌌다 */
-    QUALITY_ALWAYS_WORSE,  /* 모든 시드에서 비쌌다 */
-    QUALITY_NO_DIFF,       /* 모든 시드에서 같았다. 기준선 자신이 여기 온다 */
-    QUALITY_MIXED          /* 시드에 따라 갈렸다 */
+    QUALITY_NEVER_WORSE,  /* 이긴 적이 있고 진 적은 없다(비김은 섞여도 된다) */
+    QUALITY_NEVER_BETTER, /* 진 적이 있고 이긴 적은 없다 */
+    QUALITY_NO_DIFF,      /* 이긴 적도 진 적도 없다. 기준선 자신이 여기 온다 */
+    QUALITY_MIXED         /* 이긴 적도 진 적도 있다 */
 } quality_verdict_t;
 
 typedef struct {
@@ -76,7 +90,11 @@ typedef struct {
  */
 int quality_dist(int32_t *values, int32_t n, quality_dist_t *out);
 
-/* 이긴·진·비긴 수로 판정한다. 이기고 진 것이 모두 0이면 QUALITY_NO_DIFF. */
+/*
+ * 이긴·진·비긴 수로 판정한다. 규칙은 위 열거형 주석과 같다.
+ * `ties`는 판정에 쓰지 않는다 — **비김은 판정을 뒤집지 않는다.** 인자로 받는
+ * 것은 부르는 쪽이 세 수를 함께 넘기게 해 빠뜨림을 막으려는 것이다.
+ */
 quality_verdict_t quality_verdict_of(int32_t wins, int32_t losses,
                                      int32_t ties);
 
