@@ -174,6 +174,11 @@ class OrderApiTest {
             Thread.sleep(20);
         }
 
+        /* 앞 테스트가 원장을 "응답 없음"으로 만들었을 수 있다. 그 회복 알림을 먼저 흘려보낸다 */
+        assertThat(get("/api/book?market=0").statusCode()).isEqualTo(200);
+        Thread.sleep(200);
+        sink.got.clear();
+
         ledger.setFillQty(4);
         assertThat(post(order(20)).statusCode()).isEqualTo(200);
         waitFor(sink.got, 2);
@@ -191,6 +196,42 @@ class OrderApiTest {
         Thread.sleep(100);
         assertThat(sink.got).hasSize(3);
         assertThat(sink.got.get(2)).contains("\"kind\":\"order\"");
+
+        ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
+    }
+
+    /**
+     * T6-10 — 원장이 답하지 않으면 {@code ledger-down}, 다시 답하면 {@code ledger-up}을
+     * 방송한다. 화면의 "원장 끊김" 표시가 켜지고 꺼진다.
+     */
+    @Test
+    void ledgerDownAndUpAreBroadcast() throws Exception {
+        Sink sink = new Sink();
+        WebSocket ws =
+                HttpClient.newHttpClient()
+                        .newWebSocketBuilder()
+                        .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
+                        .get(5, TimeUnit.SECONDS);
+        for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
+            Thread.sleep(20);
+        }
+        assertThat(get("/api/book?market=0").statusCode()).isEqualTo(200);
+        Thread.sleep(200);
+        sink.got.clear();
+
+        ledger.setSilent(true);
+        assertThat(post(order(22)).statusCode()).isEqualTo(202);
+        ledger.setSilent(false);
+        assertThat(post(order(23)).statusCode()).isEqualTo(200);
+
+        for (int i = 0; i < 250 && sink.got.stream().noneMatch(m -> m.contains("ledger-up")); i++) {
+            Thread.sleep(20);
+        }
+        List<String> status =
+                sink.got.stream().filter(m -> m.contains("\"kind\":\"ledger-")).toList();
+        assertThat(status).hasSize(2);
+        assertThat(status.get(0)).contains("ledger-down");
+        assertThat(status.get(1)).contains("ledger-up");
 
         ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
     }

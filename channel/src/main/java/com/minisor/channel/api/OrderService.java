@@ -92,12 +92,14 @@ public class OrderService {
              * **아직 아무것도 보내지 않았다.** 원장이 죽었거나 풀이 모자란
              * 것이고, 주문은 확실히 나가지 않았다 — 모호하지 않다.
              */
+            hub.ledgerReachable(false, e.getMessage());
             throw e;
         }
 
         try {
             OrderAck ack = c.call(m, OrderAck.class, logicalClock.getAndIncrement());
             pool.release(c);
+            hub.ledgerReachable(true, null);
 
             if (ack.reason != 0) {
                 return OrderResponseDto.rejected(
@@ -112,6 +114,7 @@ public class OrderService {
              * 모른다고 답한다.
              */
             pool.release(c);
+            hub.ledgerReachable(false, e.getMessage());
             return OrderResponseDto.inDoubt(
                     req.clOrdId(), "원장 응답을 받지 못했다. 조회로 확인해야 한다");
         }

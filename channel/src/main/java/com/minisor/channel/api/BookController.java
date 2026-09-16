@@ -6,6 +6,7 @@ import static com.minisor.channel.wire.WireEnums.MARKET_NXT;
 import com.minisor.channel.ledger.LedgerConnection;
 import com.minisor.channel.ledger.LedgerConnectionPool;
 import com.minisor.channel.ledger.LedgerException;
+import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.BookAck;
 import com.minisor.channel.wire.BookReq;
 import java.util.ArrayList;
@@ -31,12 +32,14 @@ public class BookController {
     public record BookDto(String symbol, int market, List<Level> bids, List<Level> asks) {}
 
     private final LedgerConnectionPool pool;
+    private final StreamHub hub;
 
     /** 전문에 실을 논리 시각. 시스템 시각을 읽지 않는다(OrderService와 같다). */
     private final AtomicLong logicalClock = new AtomicLong(1);
 
-    public BookController(LedgerConnectionPool pool) {
+    public BookController(LedgerConnectionPool pool, StreamHub hub) {
         this.pool = pool;
+        this.hub = hub;
     }
 
     @GetMapping("/api/book")
@@ -55,7 +58,10 @@ public class BookController {
         try {
             c = pool.borrow();
             ack = c.call(req, BookAck.class, logicalClock.getAndIncrement());
+            hub.ledgerReachable(true, null);
         } catch (LedgerException e) {
+            /* 화면이 1초마다 부르므로, 원장이 죽으면 여기서 가장 먼저 알게 된다 */
+            hub.ledgerReachable(false, e.getMessage());
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         } finally {
             if (c != null) {
