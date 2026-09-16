@@ -23,7 +23,9 @@
     X(ERR_DUPLICATE,     -10,  "이미 존재하는 주문 식별자")                \
     X(ERR_POOL_EXHAUSTED,-11,  "사전 할당 풀 소진")                        \
     X(ERR_BOOK_FULL,     -12,  "호가창 용량 초과")                        \
-    X(ERR_NO_LIQUIDITY,  -13,  "체결할 반대 호가가 없음")
+    X(ERR_NO_LIQUIDITY,  -13,  "체결할 반대 호가가 없음")                  \
+    X(ERR_NO_MARGIN,     -14,  "증거금이 모자람")                          \
+    X(ERR_LIMIT_EXCEEDED,-15,  "주문 한도 초과")
 
 #define ERROR_ENUM_ENTRY(name, value, text) name = (value),
 

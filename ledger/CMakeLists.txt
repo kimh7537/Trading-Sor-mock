@@ -6,6 +6,7 @@ add_library(ledger STATIC
     src/worker_pool.c
     src/shm_segment.c
     src/account.c
+    src/order_validate.c
 )
 target_include_directories(ledger PUBLIC include)
 # 계좌 락이 pthread 프로세스 공유 뮤텍스다. 링크가 필요하다.
