@@ -25,6 +25,16 @@
 
 ## 2026-09-17
 
+- [T6-12] 전체 안내서와 오류·판단 기록
+  - 한 일: `docs/GUIDE.md`(약 6,400줄), `docs/ENGINEERING-NOTES.md`(약 1,080줄), README 문서 표.
+  - **만든 방법** — 모듈 절(core·exchange / sor·bench·sdk / ledger·fep / channel·web)과 오류 기록 초안은
+    영역별 에이전트가 코드와 `docs/`만 읽고 썼고, 공통 장(읽는 순서, 주문 하나의 여행, 기초 기술, 실행,
+    결과 읽는 법, 용어집)은 직접 썼다. 초안의 파일 이름·동작 설명은 코드와 대조해 고쳤다(예: 주문 풀은
+    `order_pool.c`, 미응답 판정은 `fep/src/ordmap.c`, 워커들이 리스닝 소켓을 함께 `accept`한다는 설명).
+  - **숫자는 `bench/results/`를 따른다.** PROGRESS의 T1-20·T5-05 표는 다시 측정하기 전 값이라 결과 파일과
+    다르다 — 문서 2 머리말에 적었다.
+  - `docs/INTERVIEW.md`는 CLAUDE.md상 본인이 쓰는 문서라 손대지 않았다. 문서 2가 그 재료다.
+
 - [T6-11] 원장 접속 풀의 경합과 화면의 응답 처리
   - 한 일: `LedgerConnectionPool`(세마포어로 자리 관리), `LedgerConnectionPoolTest`(동시
     빌리기 200판, 버려질 때 대기자 깨우기, 원장 재시작 뒤 자리 유지), `web/src/lib/api.ts`.
