@@ -12,6 +12,7 @@ add_library(exchange STATIC
     src/rules/nxt.c
     src/liquidity/synthetic.c
     src/liquidity/divergent.c
+    src/feed_source.c
 )
 target_include_directories(exchange PUBLIC include PRIVATE src/match)
 target_link_libraries(exchange PUBLIC core m)
