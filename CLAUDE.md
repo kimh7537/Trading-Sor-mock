@@ -19,12 +19,20 @@
 
 ## 현재 상태 (2026-09-15)
 
-**Phase 1·2 완료 (34/34), Phase 3 진행 중 (12/15).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐·세션·시퀀스 복구). `channel/`·`web/`은 아직 계획이다.
+**Phase 1·2 완료 (34/34), Phase 3 진행 중 (12/15), Phase 4 착수 (1/13).** Phase 2의 산출물인 전략 비교 표가 `bench/results/strategies-2026-09-16.md`에 있다. `core/`, `exchange/`(매칭 엔진), `sor/`(통합 호가창·최선집행 평가·집행 전략 4종), `bench/`, `ledger/`(리스너·워커 풀·공유메모리·계좌 원장·주문 검증), `fep/`(epoll 이벤트 루프·전문 조립·송신 큐·세션·시퀀스 복구), `channel/`(Spring Boot 골격). `web/`은 아직 계획이다.
 
 - 다음 태스크: `docs/TASKS.md`의 T3-13 (FEP — 주문번호 매핑)
-- **빌드는 WSL Ubuntu에서 한다.** Windows 네이티브 MSYS2 gcc에는 libasan/libubsan이 없어
-  커밋 전 ASan 게이트를 지킬 수 없다. 아래 명령은 모두 WSL 안에서 실행한다:
+- **어디서 빌드하는지가 언어마다 다르다.**
+
+  | 대상 | 어디서 | 왜 |
+  |---|---|---|
+  | C (`core/` `exchange/` `sor/` `ledger/` `fep/` `bench/`) | **WSL Ubuntu** | Windows MSYS2 gcc에 libasan/libubsan이 없어 커밋 전 ASan 게이트를 못 지킨다 |
+  | Java (`channel/`) | **Windows** | JDK 17이 여기 있고 ASan 제약이 없다. Maven은 `mvnw`가 받아 온다 |
+  | React (`web/`) | **Windows** | node v22 / npm이 여기 있다 |
+
+  C 빌드는 WSL 안에서 실행한다:
   `wsl -d Ubuntu` 후 `cd /mnt/c/Users/hyunwoo/OneDrive/*/Study/mock-sor`
+  Java는 `cd channel && ./mvnw.cmd test` (Windows 셸).
 
 ## 아키텍처
 

@@ -2,63 +2,72 @@
 
 진행하다 사람의 손이 필요해 멈춘 지점을 적는다. 해결되면 지운다.
 
+**열린 블로커는 없다.**
+
 ---
 
-## [B-01] Phase 4 툴체인이 WSL에 없다 (2026-09-16)
+## [B-01] Phase 4 툴체인이 WSL에 없다 (2026-09-16) — **해결됨 (전제가 틀렸다)**
 
-**상태**: 열림. 사람이 한 줄 실행해 줘야 한다.
+**상태**: 닫힘. 사람의 손이 필요 없었다.
 
-### 무엇이 없나
+### 무엇이 틀렸나
 
-WSL Ubuntu에 Phase 4(채널계 Java/Spring Boot + 프론트엔드 React)에 필요한 것이
-하나도 없다.
+이 블로커는 "Phase 4도 WSL에서 빌드해야 한다"를 **아무도 확인하지 않고**
+전제했다. 그 전제가 틀렸다.
 
-| 도구 | 상태 |
-|---|---|
-| java / javac | 없음 |
-| maven / gradle | 없음 |
-| node | 없음 |
-| npm | 10.9.2가 응답하지만 **Windows 쪽 npm이 PATH로 새어 든 것**이다. node가 없으므로 리눅스 툴체인으로 쓸 수 없다 |
+WSL을 써야 하는 이유는 하나뿐이다 — **C 코드의 ASan/UBSan.** Windows 네이티브
+MSYS2 gcc에 `libasan`/`libubsan`이 없어서 커밋 전 메모리 검사 게이트를 지킬 수
+없다. 그것은 **C에만 해당하는 제약**이고 Java·React와는 아무 관계가 없다.
 
-### 왜 내가 못 깔았나
+Windows 쪽을 확인해 보니 필요한 것이 이미 있었다.
 
-`sudo`가 비밀번호를 요구한다(`sudo -n true` 실패). 자동 진행 중에는 답할 사람이
-없어서 설치가 비밀번호 프롬프트에서 멈춘다.
+| 도구 | Windows | 판단 |
+|---|---|---|
+| java / javac | **17.0.12 LTS** | Spring Boot 4.x가 요구하는 17 이상. 그대로 쓴다 |
+| node | **v22.14.0** | 최신 LTS 계열. 그대로 쓴다 |
+| npm | **10.9.2** | 위 node에 딸린 것이다 |
+| maven | 없음 | **필요 없다.** Spring Boot가 Maven Wrapper(`mvnw`)를 함께 낸다 |
 
-### 해결
+Maven이 없는 것은 문제가 아니었다. `mvnw`가 Maven 자신을 내려받아 실행한다 —
+그것이 래퍼가 존재하는 이유다.
 
-WSL 안에서 한 번 실행한다.
+### 어떻게 확인했나
 
-```bash
-sudo apt update
-sudo apt install -y openjdk-21-jdk maven nodejs npm
+주장으로 닫지 않고 **실제로 돌려서** 닫았다(T4-01).
+
+```
+cd channel && ./mvnw.cmd -B -ntp test
+...
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
 ```
 
-확인:
+시스템 Maven 없이 빌드와 테스트가 통과했다.
 
-```bash
-java -version && mvn -version && node --version && npm --version
-```
+한 가지 함정이 있었다. Spring Initializr 메타데이터가 알려 준 판 번호는
+`4.1.1.RELEASE`인데 **Maven Central의 실제 좌표는 `4.1.1`**이다(`.RELEASE`
+접미사는 오래전에 없어진 표기다). 그대로 두면 부모 POM을 못 찾는다.
 
-`nodejs`가 너무 낮은 버전으로 깔리면(Ubuntu 기본 저장소는 뒤처진다) nvm을 쓴다.
+### 무엇을 배웠나
 
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-source ~/.bashrc && nvm install --lts
-```
+**"없다"고 적기 전에 "어디에 없는가"를 물었어야 한다.** 이 블로커는 WSL만 보고
+Windows를 보지 않았고, 그 결과 Phase 4의 13개 태스크를 이유 없이 막아 두었다.
 
-### 영향 범위
+블로커를 적는 것은 싸지만 **틀린 블로커는 진행을 막는다.** 다음부터는 블로커를
+적을 때 **"이 제약이 어디서 오는가"를 한 줄 적는다** — 그 한 줄을 못 쓰면
+블로커가 아니라 확인하지 않은 것이다.
 
-- **Phase 2 잔여 (T2-09~T2-14)**: 영향 없음. 순수 C
-- **Phase 3 (원장 + FEP)**: 영향 없음. 순수 C + TCP 소켓
-- **Phase 4 (채널계 + 프론트엔드)**: **전면 차단**
-- **Phase 5**: 측정·문서 부분은 진행 가능. Phase 4에 얹히는 부분은 차단
-
-그래서 이 블로커가 풀릴 때까지 **Phase 2 잔여 → Phase 3 → Phase 5의 측정 부분**
-순서로 진행한다. Phase 4는 건너뛰고 나중에 돌아온다.
-
-### 덧붙임 — 프론트엔드는 툴체인이 생겨도 한계가 있다
+### 남은 한계 (블로커는 아니다)
 
 React 화면은 빌드가 통과해도 **내가 눈으로 확인할 수 없다.** 브라우저를 띄워
-보는 도구가 이 환경에 붙어 있지 않다. "빌드는 되는데 화면이 맞는지 모르는" 상태가
-되므로, Phase 4의 프론트엔드는 사람이 한 번은 직접 봐야 한다.
+보는 도구가 이 환경에 붙어 있지 않다. "빌드는 되는데 화면이 맞는지 모르는"
+상태가 되므로, Phase 4의 프론트엔드(T4-06~T4-13)는 **사람이 한 번은 직접 봐야
+한다.** 진행을 막지는 않지만 그 한계를 알고 받아야 한다.
+
+### 빌드하는 곳 (이후 규칙)
+
+| 대상 | 어디서 | 왜 |
+|---|---|---|
+| `core/` `exchange/` `sor/` `ledger/` `fep/` `bench/` (C) | **WSL Ubuntu** | ASan/UBSan이 Windows gcc에 없다 |
+| `channel/` (Java) | **Windows** | JDK 17이 여기 있고 ASan 제약이 없다 |
+| `web/` (React) | **Windows** | node/npm이 여기 있다 |

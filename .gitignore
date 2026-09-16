@@ -11,3 +11,10 @@ compile_commands.json
 # test_compare가 남기는 임시 출력. 정상 종료 시 스스로 지우지만
 # 중단된 실행(변이 검사 등)이 남길 수 있다.
 test_compare_out*.md
+
+# Java 빌드 산출물 (channel/)
+target/
+
+# 프론트엔드 (web/)
+node_modules/
+dist/
