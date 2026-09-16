@@ -5,6 +5,7 @@ add_library(core STATIC
     src/order_index.c
     src/journal.c
     src/snapshot.c
+    src/recon.c
     src/wire.c
     src/msg.c
 )
