@@ -35,6 +35,24 @@ price_t eq_avg_price(int64_t notional, qty_t filled_qty)
     return (price_t)(notional / filled_qty);
 }
 
+int32_t eq_avg_diff_bp(int64_t notional_a, qty_t filled_a, int64_t notional_b,
+                       qty_t filled_b)
+{
+    if (filled_a <= 0 || filled_b <= 0 || notional_a <= 0 || notional_b <= 0) {
+        return 0; /* 어느 한쪽이라도 체결이 없으면 가격을 비교할 거리가 없다 */
+    }
+
+    /*
+     * 평균을 1/EQ_AVG_SCALE원 단위 정수로 만든다. 원 단위로 버리면 1원 = 1bp가
+     * 사라진다(T6-07). 체결 금액 x 10000은 체결 금액이 9.2 x 10^14원까지 넘치지
+     * 않는다 — 이 시뮬레이터가 한 칸에서 다루는 규모보다 몇 자릿수 크다.
+     */
+    int64_t avg_a = notional_a * EQ_AVG_SCALE / filled_a;
+    int64_t avg_b = notional_b * EQ_AVG_SCALE / filled_b;
+
+    return eq_to_bp(avg_a - avg_b, avg_a);
+}
+
 int eq_benchmark(const cons_book_t *cons, const order_t *req, ts_t ts,
                  price_t *out_benchmark)
 {

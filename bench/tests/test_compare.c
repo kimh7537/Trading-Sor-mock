@@ -209,11 +209,23 @@ static void test_table_shape(void)
             /*
              * 기준선 대비 부호 — **싸게 샀으면 양수**다. 부호가 뒤집히면 표를
              * 읽는 사람이 결론을 정반대로 받아들인다.
+             *
+             * 부호는 **원 단위 평균이 아니라 체결 금액으로** 판단한다(T6-07).
+             * 평균 N_b/F_b와 N_r/F_r의 대소는 N_b*F_r와 N_r*F_b의 대소와 같다.
+             * 차이가 0.5bp 미만이면 0으로 반올림될 수 있으므로 "반대 부호가
+             * 아니다"만 요구한다.
              */
-            if (r->avg_price < res.row[s][0].avg_price) {
-                assert(r->vs_krx_only_bp > 0);
-            } else if (r->avg_price > res.row[s][0].avg_price) {
-                assert(r->vs_krx_only_bp < 0);
+            const compare_row_t *b = &res.row[s][0];
+            if (r->filled_qty > 0 && b->filled_qty > 0) {
+                int64_t cross = b->notional * r->filled_qty -
+                                r->notional * b->filled_qty;
+                if (cross > 0) {
+                    assert(r->vs_krx_only_bp >= 0); /* r이 더 싸게 샀다 */
+                } else if (cross < 0) {
+                    assert(r->vs_krx_only_bp <= 0);
+                } else {
+                    assert(r->vs_krx_only_bp == 0);
+                }
             }
         }
 
@@ -339,9 +351,50 @@ static void test_write_md(void)
            ERR_NOT_FOUND);
 }
 
+/*
+ * **KRX_ONLY 대비를 원 단위 평균 단가끼리 빼지 않는다**(T6-07).
+ *
+ * 기본 시드에서는 옛 계산(버린 평균끼리 차이)과 새 계산(체결 금액에서 직접)이
+ * 우연히 같은 값을 낸다. 그래서 기본 시드만 보면 `compare.c`를 옛 식으로
+ * 되돌려도 통과한다. **두 식이 실제로 갈리는 시드를 찾아서** 거기서 새 식을
+ * 쓰는지 본다. 찾지 못하면 이 검사가 아무 일도 안 한 것이므로 실패시킨다.
+ */
+static void test_vs_krx_only_uses_notional(void)
+{
+    static compare_result_t res;
+    compare_config_t        c = COMPARE_DEFAULT;
+    bool                    diverged = false;
+
+    for (uint64_t seed = c.seed; seed < c.seed + 30u && !diverged; seed++) {
+        c.seed = seed;
+        assert(compare_run(&c, &res) == ERR_OK);
+
+        for (int32_t s = 0; s < COMPARE_SCENARIO_COUNT; s++) {
+            const compare_row_t *b = &res.row[s][0];
+            for (int32_t k = 0; k < COMPARE_STRATEGY_COUNT; k++) {
+                const compare_row_t *r = &res.row[s][k];
+
+                int32_t precise = eq_avg_diff_bp(b->notional, b->filled_qty,
+                                                 r->notional, r->filled_qty);
+                assert(r->vs_krx_only_bp == precise);
+
+                int32_t rounded =
+                    eq_to_bp((int64_t)b->avg_price - r->avg_price, b->avg_price);
+                if (rounded != precise) {
+                    diverged = true;
+                }
+            }
+        }
+    }
+
+    /* 두 식이 갈린 칸을 한 번은 봤어야 위 대조가 옛 식을 잡을 수 있다 */
+    assert(diverged);
+}
+
 int main(void)
 {
     test_same_seed_same_table();
+    test_vs_krx_only_uses_notional();
     test_different_seed_different_table();
     test_seed_feeds_both_generators();
     test_liquidity_is_identical_per_strategy();

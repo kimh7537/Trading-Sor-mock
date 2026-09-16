@@ -293,11 +293,17 @@ int compare_run(const compare_config_t *cfg, compare_result_t *out)
         /*
          * 기준선 대비 차이를 낸다. **매수이므로 싸게 샀을수록 좋다** — 기준선보다
          * 낮은 평균 단가가 양수 bp가 되도록 (기준선 - 이 전략)으로 잡는다.
+         *
+         * **원 단위 평균 단가(`avg_price`)끼리 빼지 않는다**(T6-07). 처음엔 그렇게
+         * 했는데, 10,000원에서 1원 버림이 1bp라 세 전략 사이의 1bp 안팎 차이가
+         * 사라져 30개 시드 내내 셋이 똑같이 나왔다. `execution_quality.h`가 적어
+         * 둔 "bp는 체결 금액에서 직접"을 여기서만 어겼던 것이다.
          */
-        price_t baseline = out->row[s][0].avg_price;
+        const compare_row_t *base = &out->row[s][0];
         for (int32_t k = 0; k < COMPARE_STRATEGY_COUNT; k++) {
-            out->row[s][k].vs_krx_only_bp = eq_to_bp(
-                (int64_t)baseline - out->row[s][k].avg_price, baseline);
+            compare_row_t *r = &out->row[s][k];
+            r->vs_krx_only_bp = eq_avg_diff_bp(base->notional, base->filled_qty,
+                                               r->notional, r->filled_qty);
         }
     }
 
@@ -377,10 +383,13 @@ int compare_write_md(const compare_result_t *res, const char *date,
             "기준가가 밀린 시나리오에서는 밀린 시장이 **불리한 쪽으로만** "
             "나타난다 — 그 시장이 유리해지는 국면은 이 표에 없다\n");
     fprintf(f,
-            "- **KRX_ONLY를 뺀 세 전략의 체결률이 같게 나오는 것은 우연이 "
-            "아니다.** 셋 다 양 시장에 접근하므로 지정가 안에서 가져갈 수 있는 "
-            "총 물량이 같다. 셋의 차이는 *얼마나 채웠는가*가 아니라 *어떤 순서로 "
-            "채웠는가*이고, 그것이 평균 단가의 1~2bp 차이로 나타난다\n");
+            "- **KRX_ONLY를 뺀 세 전략의 체결률과 KRX_ONLY 대비가 같게 나오는 "
+            "것은 우연도 반올림도 아니다.** 셋 다 양 시장에 접근하므로 지정가 "
+            "안에서 가져갈 수 있는 물량이 같고, 결국 **같은 호가를 다 먹는다.** "
+            "체결 금액을 원 단위로 찍어 보면 KRX_THIN·NXT_THIN·CROSSED는 셋이 "
+            "완전히 같고, BALANCED는 5억 원 중 수십~수천 원 차이(0.01bp 미만)다. "
+            "셋의 차이는 *어떤 순서로 채웠는가*이고, 그것은 평균 단가가 아니라 "
+            "**주문마다 잰 슬리피지**(위 표의 0~2bp)에서 드러난다\n");
     fprintf(f,
             "- **세션 규칙을 걸지 않았다.** 걸면 \"어느 시장이 열려 있었나\"가 "
             "체결 단가 차이에 섞인다. 개장 시간의 영향은 T1-13/T1-14가 따로 "

@@ -178,6 +178,57 @@ static void test_bp_not_derived_from_avg_price(void)
     assert(m.slippage_bp == 7); /* 측정용은 금액에서 온다 */
 }
 
+/*
+ * **전략끼리 비교할 때도 평균 단가를 거치면 틀린다**(T6-07).
+ *
+ * 기준선 100주에 1,001,990원(평균 10,019.90), 비교 대상 100주에 1,001,400원
+ * (평균 10,014.00). 실제 차이는 5.90원 / 10,019.90 = 5.888bp -> 6bp.
+ *   원 단위로 버린 평균끼리 빼면: (10,019 - 10,014) / 10,019 = 4.99 -> 5bp
+ *
+ * 1bp가 사라졌다. 전략 비교 표의 차이가 1~6bp 크기라 이 오차가 결론을 흔든다.
+ */
+static void test_avg_diff_not_derived_from_rounded_avg(void)
+{
+    /* 버린 평균으로 계산하면 5가 나온다는 것을 먼저 못 박는다 */
+    price_t ra = eq_avg_price(1001990, 100);
+    price_t rb = eq_avg_price(1001400, 100);
+    assert(ra == 10019 && rb == 10014);
+    assert(eq_to_bp((int64_t)ra - rb, ra) == 5);
+
+    /* 체결 금액에서 직접 내면 6이다 */
+    assert(eq_avg_diff_bp(1001990, 100, 1001400, 100) == 6);
+
+    /* 방향이 바뀌면 부호만 바뀐다 */
+    assert(eq_avg_diff_bp(1001400, 100, 1001990, 100) == -6);
+
+    /* 같은 평균이면 0. 수량이 달라도 평균이 같으면 0이다 */
+    assert(eq_avg_diff_bp(1001400, 100, 3004200, 300) == 0);
+
+    /*
+     * **분모는 기준(a)의 평균이다.** 차이가 몇 bp일 때는 분모를 a로 하든 b로
+     * 하든 반올림 결과가 같아서 드러나지 않는다(변이 E4가 살아남았다). 평균이
+     * 크게 다를 때로 못 박는다 — 20,000 대비 10,000은 5000bp, 10,000 대비면
+     * 10000bp다.
+     */
+    assert(eq_avg_diff_bp(2000000, 100, 1000000, 100) == 5000);
+    assert(eq_avg_diff_bp(1000000, 100, 2000000, 100) == -10000);
+
+    /*
+     * 원 단위 평균은 같은데 실제 평균이 다른 경우 — 옛 방식에서는 **항상 0**이었다.
+     * 10,014.99 vs 10,014.00: 0.99원 = 0.989bp -> 1bp
+     */
+    assert(eq_avg_price(1001499, 100) == eq_avg_price(1001400, 100));
+    assert(eq_avg_diff_bp(1001499, 100, 1001400, 100) == 1);
+}
+
+/* 체결이 없는 쪽이 있으면 비교할 가격이 없다 */
+static void test_avg_diff_no_fill(void)
+{
+    assert(eq_avg_diff_bp(0, 0, 1001400, 100) == 0);
+    assert(eq_avg_diff_bp(1001400, 100, 0, 0) == 0);
+    assert(eq_avg_diff_bp(1001400, 0, 1001400, 100) == 0);
+}
+
 /* 체결률의 반올림도 같은 규칙을 쓴다. */
 static void test_fill_rate_rounding(void)
 {
@@ -377,6 +428,8 @@ int main(void)
     test_favorable_is_negative();
     test_partial_fill();
     test_bp_not_derived_from_avg_price();
+    test_avg_diff_not_derived_from_rounded_avg();
+    test_avg_diff_no_fill();
     test_fill_rate_rounding();
     test_no_fill();
     test_measure_rejects();
