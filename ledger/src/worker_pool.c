@@ -23,6 +23,15 @@
  */
 #define WORKER_FAIL_LIMIT 16
 
+/*
+ * 멈춤 신호를 몇 번까지 되풀이할 것인가. 1ms 간격이므로 200이면 0.2초다.
+ *
+ * 한 번으로 부족한 이유는 `reap_worker`에 적었다 — 워커가 멈춤 확인과
+ * `accept()` 사이에 있으면 **첫 신호를 잃는다.** 그 뒤로는 플래그가 이미
+ * 서 있으므로 한 번만 더 보내면 깨어난다. 200은 넉넉한 여유다.
+ */
+#define POOL_STOP_TRIES 200
+
 /* 감시 루프가 자식을 거두러 도는 간격. */
 #define SUPERVISE_TICK_NS (20 * 1000 * 1000) /* 20ms */
 
@@ -33,6 +42,12 @@ typedef struct {
 } worker_t;
 
 struct worker_pool {
+    /*
+     * 유예 종료로 안 죽어 SIGKILL까지 간 워커 수. **0이 정상이다.**
+     * 0이 아니면 워커가 멈춤 신호에 제때 반응하지 못했다는 뜻이고,
+     * SIGKILL당한 워커는 방금 끝낸 접속의 집계 바이트를 잃을 수 있다(T3-04).
+     */
+    int32_t forced_kills;
     pool_config_t cfg;
     worker_t      w[POOL_WORKERS_MAX];
     int32_t       count;
@@ -261,6 +276,70 @@ int pool_supervise(worker_pool_t *pool)
     return pool->restarts;
 }
 
+/*
+ * 워커 하나를 멈추고 거둔다.
+ *
+ * ===========================================================================
+ * 시그널은 한 번 보내고 마는 것으로 부족하다
+ * ===========================================================================
+ *
+ * 워커는 `listener_stopping()`을 확인하고 나서 `accept()`에 들어간다.
+ * **그 사이에 SIGTERM이 도착하면** 핸들러가 플래그를 세우지만 워커는 곧바로
+ * `accept()`에 잠긴다. 더 들어올 접속이 없으면 영원히 깨어나지 못하고,
+ * 부모의 `waitpid`도 영원히 돌아오지 않는다.
+ *
+ * 실제로 `test_no_zombies`가 6번 중 2번 멈췄다. 처음에는 빌드 산출물이 섞인
+ * 줄 알았는데 아니었다 — **시그널 유실 경쟁**이다.
+ *
+ * ---------------------------------------------------------------------------
+ * 왜 `ppoll`로 바꾸지 않았나
+ * ---------------------------------------------------------------------------
+ *
+ * 이 경쟁의 교과서적 해법은 시그널을 막아 두고 `ppoll`로 기다리는 것이다.
+ * 그런데 그러려면 리스닝 소켓을 논블로킹으로 바꿔야 하고(여럿이 깨어나 하나만
+ * 이기므로 진 쪽의 `accept`가 막히면 안 된다), 그 순간 **T3-04가 일부러 얻은
+ * 성질이 사라진다** — 블로킹 `accept()`는 워커 하나만 깨운다.
+ *
+ * 고치려는 것은 종료 경로 하나인데 정상 동작의 구조를 바꾸는 것은 값이 맞지
+ * 않는다.
+ *
+ * ---------------------------------------------------------------------------
+ * 대신 **확인될 때까지 보낸다**
+ * ---------------------------------------------------------------------------
+ *
+ * 플래그는 이미 서 있으므로 **두 번째 SIGTERM이면 충분하다** — `accept()`가
+ * EINTR로 깨고, 워커가 플래그를 보고 나간다. 그래서 죽은 것이 확인될 때까지
+ * 되풀이해 보낸다.
+ *
+ * 그래도 안 죽으면 SIGKILL이다. 유예 없는 종료지만 **영원히 매달리는 것보다
+ * 낫다.** systemd가 TERM 뒤에 KILL을 쓰는 것과 같은 이유다.
+ */
+static bool reap_worker(pid_t pid)
+{
+    struct timespec nap = {.tv_sec = 0, .tv_nsec = 1000000}; /* 1ms */
+
+    for (int32_t tries = 0; tries < POOL_STOP_TRIES; tries++) {
+        int   status = 0;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) {
+            return false;
+        }
+        if (r < 0 && errno != EINTR) {
+            return false; /* ECHILD — 이미 거둬졌다 */
+        }
+        /* 아직 살아 있다. 앞의 신호가 유실됐을 수 있으니 다시 보낸다. */
+        kill(pid, SIGTERM);
+        nanosleep(&nap, NULL);
+    }
+
+    kill(pid, SIGKILL);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        /* 시그널에 깨어난 것뿐이다 */
+    }
+    return true;
+}
+
 void pool_stop(worker_pool_t *pool)
 {
     if (pool == NULL || pool->stopped) {
@@ -281,9 +360,8 @@ void pool_stop(worker_pool_t *pool)
      */
     for (int32_t i = 0; i < pool->count; i++) {
         if (pool->w[i].pid > 0) {
-            int status = 0;
-            while (waitpid(pool->w[i].pid, &status, 0) < 0 && errno == EINTR) {
-                /* 시그널에 깨어난 것뿐이다. 다시 기다린다 */
+            if (reap_worker(pool->w[i].pid)) {
+                pool->forced_kills++;
             }
             pool->w[i].pid = -1;
         }
@@ -343,4 +421,9 @@ pid_t pool_worker_pid(const worker_pool_t *pool, int32_t index)
         return -1;
     }
     return pool->w[index].pid;
+}
+
+int32_t pool_forced_kills(const worker_pool_t *pool)
+{
+    return (pool != NULL) ? pool->forced_kills : 0;
 }

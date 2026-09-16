@@ -118,4 +118,13 @@ int32_t pool_restarts(const worker_pool_t *pool);
 /* 그 워커의 pid. 테스트가 워커를 죽여 보기 위해 쓴다. 범위 밖이면 -1. */
 pid_t pool_worker_pid(const worker_pool_t *pool, int32_t index);
 
+/*
+ * 유예 종료(SIGTERM)로 안 죽어 SIGKILL까지 간 워커 수. **0이 정상이다.**
+ *
+ * 0이 아니면 워커가 멈춤 신호에 제때 반응하지 못했다는 뜻이고, SIGKILL당한
+ * 워커는 **방금 끝낸 접속의 집계 바이트를 잃을 수 있다.** 운영에서는 이 값이
+ * 오르는 것이 곧 "종료가 깨끗하지 않다"는 신호다.
+ */
+int32_t pool_forced_kills(const worker_pool_t *pool);
+
 #endif /* MINI_SOR_WORKER_POOL_H */

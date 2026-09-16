@@ -436,6 +436,65 @@ static void test_counts_survive_respawn(void)
  * `waitpid(-1, WNOHANG)`이 `ECHILD`를 주면 자식이 없다는 뜻이다. 좀비가 남아
  * 있으면 그 pid가 돌아온다 — 거두지 않은 자식이 있다는 증거다.
  */
+/*
+ * **멈춤 신호는 유실될 수 있다.**
+ *
+ * 워커는 `listener_stopping()`을 확인하고 나서 `accept()`에 들어간다.
+ * 그 사이에 SIGTERM이 도착하면 플래그만 서고 워커는 `accept()`에 잠긴다 —
+ * 더 들어올 접속이 없으면 영원히 깨어나지 못하고 부모도 영원히 기다린다.
+ *
+ * 이 창은 좁아서 한 번 돌려서는 잘 안 걸린다. 고치기 전에 `test_no_zombies`가
+ * **6번 중 2번** 멈췄다. 그래서 여기서는 시작과 정지를 스무 번 되풀이해
+ * 창을 스무 번 연다 — 고치기 전이라면 거의 반드시 걸린다.
+ *
+ * 확률에 기대는 테스트라 마음에 들지 않지만, 이 경쟁을 결정적으로 만들려면
+ * 워커 안에 시험용 지연을 심어야 한다. **시험을 위해 운영 코드에 구멍을
+ * 내는 것**보다는 여러 번 돌리는 편이 낫다고 판단했다.
+ *
+ * 횟수는 재서 정했다. 고친 코드에서 재전송을 빼고 돌려 보니
+ * **20회에서 8번 중 6번(75%)** 잡혔다 — 한 회당 약 6.7%다. 60회면 놓칠
+ * 확률이 2% 아래로 떨어진다. 그래도 0은 아니므로, 이 테스트가 한 번
+ * 통과했다고 경쟁이 없다고 말하면 안 된다.
+ */
+static void test_stop_is_not_racy(void)
+{
+    for (int32_t round = 0; round < 60; round++) {
+        listener_reset_stop();
+
+        listener_t *ln = listener_open(0, 64);
+        assert(ln != NULL);
+        uint16_t port = listener_port(ln);
+
+        pool_config_t cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.worker_count = 3;
+        cfg.ln = ln;
+        cfg.fn = on_frame;
+
+        worker_pool_t *pool = pool_start(&cfg);
+        assert(pool != NULL);
+
+        /*
+         * 접속을 하나 처리하게 한다. **방금 접속을 끝낸 워커**가 멈춤 확인과
+         * `accept()` 사이로 들어가는 바로 그 워커다.
+         */
+        assert(one_round_trip(port, 1));
+
+        pool_stop(pool); /* 여기서 매달리면 ctest 시간 제한에 걸린다 */
+
+        /*
+         * **유예 종료로 끝나야 한다.** 매달리지 않는 것만으로는 부족하다 —
+         * SIGKILL까지 가도 매달리지는 않기 때문이다. 그런데 SIGKILL당한 워커는
+         * 방금 끝낸 접속의 집계 바이트를 잃을 수 있다. "안 멈춘다"와
+         * "깨끗하게 멈춘다"는 다른 요구다.
+         */
+        assert(pool_forced_kills(pool) == 0);
+
+        pool_destroy(pool);
+        listener_close(ln);
+    }
+}
+
 static void test_no_zombies(void)
 {
     listener_reset_stop();
@@ -530,6 +589,7 @@ int main(void)
     STEP(test_respawn_after_kill);
     STEP(test_counts_survive_respawn);
     STEP(test_no_zombies);
+    STEP(test_stop_is_not_racy);
     STEP(test_args);
     return 0;
 }
