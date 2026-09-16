@@ -1,4 +1,5 @@
 import { won, qty as fq } from "../lib/format";
+import { SIDE_BUY } from "../lib/wire";
 import type { Fill } from "../lib/types";
 
 export function Fills({ fills }: { fills: Fill[] }) {
@@ -48,8 +49,8 @@ export function Fills({ fills }: { fills: Fill[] }) {
             <span style={{ color: f.market === "KRX" ? "var(--krx)" : "var(--nxt)", fontWeight: 700 }}>
               {f.market}
             </span>
-            <span style={{ color: f.side === 1 ? "var(--buy)" : "var(--sell)" }}>
-              {f.side === 1 ? "매수" : "매도"}
+            <span style={{ color: f.side === SIDE_BUY ? "var(--buy)" : "var(--sell)" }}>
+              {f.side === SIDE_BUY ? "매수" : "매도"}
             </span>
             <span style={{ flex: 1 }} />
             <span className="num">{won(f.price)}</span>

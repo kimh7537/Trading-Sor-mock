@@ -1,12 +1,13 @@
 import type { Book } from "../lib/types";
+import { SIDE_BUY, type Side } from "../lib/wire";
 import { won } from "../lib/format";
 
 /**
  * SOR가 왜 그렇게 나눴는지를 보여 준다.
  * 총점만 보이면 "가격 때문인가 수수료 때문인가"를 영원히 알 수 없다(T2-12).
  */
-export function SorPanel({ books, side }: { books: Book[]; side: 1 | 2 }) {
-  const isBuy = side === 1;
+export function SorPanel({ books, side }: { books: Book[]; side: Side }) {
+  const isBuy = side === SIDE_BUY;
 
   // 매수는 낮은 매도호가가, 매도는 높은 매수호가가 유리하다.
   const rows = books.map((b) => {

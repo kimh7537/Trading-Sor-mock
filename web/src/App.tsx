@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { SIDE_BUY } from "./lib/wire";
 import { Panel } from "./components/Panel";
 import { StatusBar } from "./components/StatusBar";
 import { OrderBook } from "./components/OrderBook";
@@ -42,7 +43,7 @@ export default function App() {
           {
             at: time(),
             market: p.market ?? "KRX",
-            side: p.side ?? 1,
+            side: p.side ?? SIDE_BUY,
             price: p.price ?? 0,
             qty: p.qty ?? 0,
             clOrdId: p.clOrdId ?? 0,
@@ -122,7 +123,7 @@ export default function App() {
               </div>
             </Panel>
             <Panel title="SOR 판단">
-              <SorPanel books={books} side={1} />
+              <SorPanel books={books} side={SIDE_BUY} />
             </Panel>
             <Panel title="주문">
               <OrderTicket price={price} onPriceChange={setPrice} />

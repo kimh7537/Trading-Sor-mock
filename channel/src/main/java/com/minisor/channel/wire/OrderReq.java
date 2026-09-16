@@ -7,6 +7,10 @@ import static com.minisor.channel.wire.WireType.*;
  *
  * <p>배치는 C의 {@code core/include/msg.h}와 같아야 한다.
  * 어긋남은 {@code WireLayoutTest}가 길이로 잡는다.
+ *
+ * <p>{@code side}·{@code type}·{@code market}의 <b>값</b>은 {@link WireEnums}를 따른다
+ * (매수=0, 지정가=0, KRX=0). 길이 대조만으로는 값의 뜻이 틀린 것을 못 잡는다 — 실제로
+ * 1부터 센 값이 한동안 그대로 실렸다(T6-01).
  */
 @WireMessage(type = 1, name = "ORDERREQ")
 public final class OrderReq {

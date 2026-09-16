@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SIDE_BUY, type Side } from "../lib/wire";
 import { won, qty as fq } from "../lib/format";
 
 export interface Leg {
@@ -13,7 +14,7 @@ export interface Leg {
 export interface LogicalOrder {
   clOrdId: number;
   symbol: string;
-  side: 1 | 2;
+  side: Side;
   price: number;
   qty: number;
   legs: Leg[];
@@ -65,8 +66,8 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: o.side === 1 ? "var(--buy)" : "var(--sell)", fontWeight: 700, fontSize: 12 }}>
-                  {o.side === 1 ? "매수" : "매도"}
+                <span style={{ color: o.side === SIDE_BUY ? "var(--buy)" : "var(--sell)", fontWeight: 700, fontSize: 12 }}>
+                  {o.side === SIDE_BUY ? "매수" : "매도"}
                 </span>
                 <span style={{ fontSize: 12 }}>{o.symbol}</span>
                 <span className="num" style={{ fontSize: 12, color: "var(--text-dim)" }}>
@@ -89,7 +90,7 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
                     width: `${ratio * 100}%`,
                     height: "100%",
                     borderRadius: 2,
-                    background: o.side === 1 ? "var(--buy)" : "var(--sell)",
+                    background: o.side === SIDE_BUY ? "var(--buy)" : "var(--sell)",
                   }}
                 />
               </div>

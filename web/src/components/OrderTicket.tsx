@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MARKET_KRX, MARKET_NXT, ORDER_LIMIT, SIDE_BUY, SIDE_SELL, type Side } from "../lib/wire";
 import { submitOrder, type OrderResponse } from "../lib/api";
 import { won } from "../lib/format";
 
@@ -19,13 +20,13 @@ export function OrderTicket({
   price: number;
   onPriceChange: (p: number) => void;
 }) {
-  const [side, setSide] = useState<1 | 2>(1);
+  const [side, setSide] = useState<Side>(SIDE_BUY);
   const [qty, setQty] = useState(10);
-  const [market, setMarket] = useState(1);
+  const [market, setMarket] = useState<number>(MARKET_KRX);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<OrderResponse | null>(null);
 
-  const isBuy = side === 1;
+  const isBuy = side === SIDE_BUY;
   const accent = isBuy ? "var(--buy)" : "var(--sell)";
   const notional = price * qty;
 
@@ -38,7 +39,7 @@ export function OrderTicket({
         symbol: "005930",
         clOrdId: Date.now() % 1_000_000_000,
         side,
-        type: 1,
+        type: ORDER_LIMIT,
         market,
         price,
         qty,
@@ -65,9 +66,9 @@ export function OrderTicket({
     <div style={{ display: "grid", gap: "var(--s-4)" }}>
       {/* 매수/매도. 가장 크게, 색으로 구분한다 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-2)" }}>
-        {([1, 2] as const).map((s) => {
+        {([SIDE_BUY, SIDE_SELL] as const).map((s) => {
           const on = side === s;
-          const c = s === 1 ? "var(--buy)" : "var(--sell)";
+          const c = s === SIDE_BUY ? "var(--buy)" : "var(--sell)";
           return (
             <button
               key={s}
@@ -80,7 +81,7 @@ export function OrderTicket({
                 borderColor: on ? c : "var(--line)",
               }}
             >
-              {s === 1 ? "매수" : "매도"}
+              {s === SIDE_BUY ? "매수" : "매도"}
             </button>
           );
         })}
@@ -90,15 +91,15 @@ export function OrderTicket({
         {label("시장")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--s-2)" }}>
           {[
-            { v: 0, t: "SOR" },
-            { v: 1, t: "KRX" },
-            { v: 2, t: "NXT" },
+            { v: -1, t: "SOR" },
+            { v: MARKET_KRX, t: "KRX" },
+            { v: MARKET_NXT, t: "NXT" },
           ].map((m) => (
             <button
               key={m.v}
               onClick={() => setMarket(m.v)}
-              disabled={m.v === 0}
-              title={m.v === 0 ? "자동 배분은 Phase 5에서 붙는다" : ""}
+              disabled={m.v === -1}
+              title={m.v === -1 ? "자동 배분은 Phase 5에서 붙는다" : ""}
               style={{
                 padding: "8px 0",
                 fontSize: 12,

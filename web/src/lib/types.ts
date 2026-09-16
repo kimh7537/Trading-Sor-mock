@@ -1,3 +1,5 @@
+import type { Side } from "./wire";
+
 export type Market = "KRX" | "NXT";
 
 export interface Level {
@@ -14,7 +16,7 @@ export interface Book {
 export interface Fill {
   at: string;
   market: Market;
-  side: 1 | 2;
+  side: Side;
   price: number;
   qty: number;
   clOrdId: number;

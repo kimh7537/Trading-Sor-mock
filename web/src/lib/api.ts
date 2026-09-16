@@ -6,9 +6,9 @@ export interface OrderRequest {
   account: string;
   symbol: string;
   clOrdId: number;
-  side: number;   // 1 매수, 2 매도
-  type: number;   // 1 지정가
-  market: number; // 1 KRX, 2 NXT
+  side: number;   // wire.ts — SIDE_BUY(0) / SIDE_SELL(1)
+  type: number;   // wire.ts — ORDER_LIMIT(0)
+  market: number; // wire.ts — MARKET_KRX(0) / MARKET_NXT(1)
   price: number;
   qty: number;
 }

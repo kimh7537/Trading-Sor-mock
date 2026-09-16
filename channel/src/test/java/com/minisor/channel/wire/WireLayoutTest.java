@@ -3,6 +3,8 @@ package com.minisor.channel.wire;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,6 +72,40 @@ class WireLayoutTest {
     void headerLengthMatches() {
         assertThat(WireHeader.LENGTH).isEqualTo(24);
         assertThat(WireHeader.MAGIC).isEqualTo(0x4D53);
+    }
+
+    /**
+     * <b>길이가 맞아도 값의 뜻이 틀리면 조용히 틀린다.</b>
+     *
+     * <p>위의 길이 대조만 있던 시절, 채널계는 매수를 1로 보냈고 C는 1을 매도로
+     * 읽었다(T6-01). 바이트 배치는 완벽했으므로 길이 대조는 통과했다. 그래서
+     * {@code types.h}의 열거값을 읽어 {@link WireEnums}와 <b>양쪽 방향으로</b>
+     * 대조한다 — 자바에만 있는 값도, C에 새로 생겼는데 자바가 모르는 값도 잡는다.
+     */
+    @Test
+    void javaEnumValuesMatchCHeader() throws IOException, IllegalAccessException {
+        Map<String, Integer> c = readCEnums();
+        assertThat(c).as("C 헤더에서 열거값을 읽지 못했다").isNotEmpty();
+
+        Map<String, Integer> java = new HashMap<>();
+        for (Field f : WireEnums.class.getDeclaredFields()) {
+            int mod = f.getModifiers();
+            if (Modifier.isStatic(mod) && Modifier.isPublic(mod) && f.getType() == int.class) {
+                java.put(f.getName(), f.getInt(null));
+            }
+        }
+        assertThat(java).as("WireEnums에 상수가 없다").isNotEmpty();
+
+        java.forEach(
+                (name, v) -> {
+                    assertThat(c).as("C 헤더에 %s가 없다", name).containsKey(name);
+                    assertThat(v).as("%s의 값이 C와 다르다", name).isEqualTo(c.get(name));
+                });
+        c.forEach(
+                (name, v) ->
+                        assertThat(java)
+                                .as("C에 있는 %s를 자바가 모른다", name)
+                                .containsKey(name));
     }
 
     /** 종별 코드가 겹치면 전문 하나를 둘로 해석하게 된다. */
@@ -141,11 +177,52 @@ class WireLayoutTest {
         return sum;
     }
 
+    private static final Pattern ENUM_BLOCK =
+            Pattern.compile("typedef\\s+enum\\s*\\{([^}]*)\\}", Pattern.DOTALL);
+    private static final Pattern COMMENT = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
+
+    /**
+     * {@code types.h}의 {@code typedef enum { ... }} 블록을 읽어 이름 → 값을 낸다.
+     *
+     * <p>C의 규칙대로 <b>값을 안 적은 항목은 앞 값 + 1</b>이다
+     * ({@code ORDER_LIMIT = 0, ORDER_MARKET, ...}). 이걸 빼먹으면 첫 항목만
+     * 맞고 나머지가 전부 0으로 읽혀, 틀린 자바 상수가 오히려 통과한다.
+     */
+    private static Map<String, Integer> readCEnums() throws IOException {
+        Path h = findRepoFile("core/include/types.h");
+        if (h == null) {
+            return Map.of();
+        }
+        String text = COMMENT.matcher(Files.readString(h, StandardCharsets.UTF_8)).replaceAll(" ");
+
+        Map<String, Integer> out = new HashMap<>();
+        Matcher blocks = ENUM_BLOCK.matcher(text);
+        while (blocks.find()) {
+            int next = 0;
+            for (String item : blocks.group(1).split(",")) {
+                String t = item.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                int eq = t.indexOf('=');
+                String name = (eq < 0 ? t : t.substring(0, eq)).trim();
+                int value = (eq < 0) ? next : Integer.parseInt(t.substring(eq + 1).trim());
+                out.put(name, value);
+                next = value + 1;
+            }
+        }
+        return out;
+    }
+
     /** 저장소 어디서 실행되든 헤더를 찾는다. */
     private static Path findHeader() {
+        return findRepoFile("core/include/msg.h");
+    }
+
+    private static Path findRepoFile(String rel) {
         Path p = Path.of("").toAbsolutePath();
         for (int i = 0; i < 5 && p != null; i++, p = p.getParent()) {
-            Path h = p.resolve("core/include/msg.h");
+            Path h = p.resolve(rel);
             if (Files.exists(h)) {
                 return h;
             }
