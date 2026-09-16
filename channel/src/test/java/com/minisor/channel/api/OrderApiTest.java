@@ -7,7 +7,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,10 +46,24 @@ class OrderApiTest {
 
     @Autowired private OrderService service; // 컨텍스트가 떴는지 확인용
 
+    @Autowired private com.minisor.channel.stream.StreamHub hub;
+
     @AfterEach
     void reset() {
         ledger.setSilent(false);
         ledger.setDelayMs(0);
+        ledger.setFillQty(0);
+    }
+
+    private HttpResponse<String> get(String path) throws Exception {
+        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpRequest r =
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://127.0.0.1:" + port + path))
+                        .timeout(Duration.ofSeconds(10))
+                        .GET()
+                        .build();
+        return c.send(r, HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> post(String json) throws Exception {
@@ -91,6 +110,89 @@ class OrderApiTest {
                 .isEqualTo(400);
 
         assertThat(ledger.requests()).isEqualTo(before);
+    }
+
+    /** 자동(SOR) 시장값 255는 받는다. 원장이 시장을 정한다(T6-03). */
+    @Test
+    void autoMarketIsAccepted() throws Exception {
+        HttpResponse<String> res = post(order(19).replace("\"market\":0", "\"market\":255"));
+        assertThat(res.statusCode()).isEqualTo(200);
+    }
+
+    /**
+     * T6-04 — <b>원장의 호가를 그대로 돌려준다.</b> 빈 단(가격 0)은 싣지 않고, 시장 값은
+     * 경계에서 거른다.
+     */
+    @Test
+    void bookComesFromLedger() throws Exception {
+        HttpResponse<String> res = get("/api/book?market=1");
+        assertThat(res.statusCode()).isEqualTo(200);
+        assertThat(res.body())
+                .contains("\"market\":1")
+                .contains("{\"price\":70000,\"qty\":110}")
+                .contains("{\"price\":69800,\"qty\":112}")
+                .contains("{\"price\":70200,\"qty\":21}")
+                .doesNotContain("\"price\":0");
+
+        int before = ledger.requests();
+        assertThat(get("/api/book?market=2").statusCode()).isEqualTo(400);
+        assertThat(get("/api/book?market=255").statusCode()).isEqualTo(400);
+        assertThat(ledger.requests()).isEqualTo(before);
+    }
+
+    /** 받은 것을 모으는 구독자. */
+    private static final class Sink implements WebSocket.Listener {
+        final List<String> got = new CopyOnWriteArrayList<>();
+
+        @Override
+        public CompletionStage<?> onText(WebSocket ws, CharSequence data, boolean last) {
+            got.add(data.toString());
+            ws.request(1);
+            return null;
+        }
+    }
+
+    private static void waitFor(List<String> got, int n) throws InterruptedException {
+        for (int i = 0; i < 250 && got.size() < n; i++) {
+            Thread.sleep(20);
+        }
+    }
+
+    /**
+     * T6-04 — <b>주문이 처리되면 결과와 체결을 방송한다.</b> 예전엔 {@code broadcast()}를
+     * 부르는 곳이 없었다.
+     */
+    @Test
+    void orderAndFillAreBroadcast() throws Exception {
+        Sink sink = new Sink();
+        WebSocket ws =
+                HttpClient.newHttpClient()
+                        .newWebSocketBuilder()
+                        .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
+                        .get(5, TimeUnit.SECONDS);
+        for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
+            Thread.sleep(20);
+        }
+
+        ledger.setFillQty(4);
+        assertThat(post(order(20)).statusCode()).isEqualTo(200);
+        waitFor(sink.got, 2);
+        assertThat(sink.got).hasSize(2);
+        assertThat(sink.got.get(0)).contains("\"kind\":\"order\"").contains("ACCEPTED");
+        assertThat(sink.got.get(1))
+                .contains("\"kind\":\"fill\"")
+                .contains("\"qty\":4")
+                .contains("\"price\":70000");
+
+        /* 체결이 없으면 결과만 간다 */
+        ledger.setFillQty(0);
+        assertThat(post(order(21)).statusCode()).isEqualTo(200);
+        waitFor(sink.got, 3);
+        Thread.sleep(100);
+        assertThat(sink.got).hasSize(3);
+        assertThat(sink.got.get(2)).contains("\"kind\":\"order\"");
+
+        ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
     }
 
     @Test

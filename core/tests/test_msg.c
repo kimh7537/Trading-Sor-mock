@@ -14,6 +14,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "errors.h"
@@ -36,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 14);
+    assert(TABLE_N == 16);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -68,6 +69,8 @@ static void test_type_table(void)
     assert(MSG_HEARTBEAT_LEN == 0);
     assert(MSG_RESEND_REQ_LEN == 8);
     assert(MSG_GAP_FILL_LEN == 8);
+    assert(MSG_BOOK_REQ_LEN == 9);
+    assert(MSG_BOOK_ACK_LEN == 169);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -107,6 +110,8 @@ static void test_reply_pairs(void)
     assert(msg_reply_type(MSG_CANCEL_REQ) == MSG_CANCEL_ACK);
     assert(msg_reply_type(MSG_MODIFY_REQ) == MSG_MODIFY_ACK);
     assert(msg_reply_type(MSG_QUERY_REQ) == MSG_QUERY_ACK);
+    assert(msg_reply_type(MSG_BOOK_REQ) == MSG_BOOK_ACK);
+    assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
 
     /* 체결 통보는 요청 없이 밀어 보내는 것이라 응답할 대상이 없다. */
     assert(msg_reply_type(MSG_FILL_NOTI) == MSG_UNKNOWN);
@@ -202,6 +207,37 @@ static void test_fill_noti_layout(void)
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* exec_id */
     };
     assert(memcmp(buf, WANT, sizeof(WANT)) == 0);
+}
+
+/*
+ * 호가 응답은 배열 넷이다. **각 배열의 첫 칸과 마지막 칸 위치를 바이트로 대조한다** —
+ * 배열 순서가 뒤바뀌거나 한 칸 밀리면 왕복은 통과해도 여기서 깨진다.
+ */
+static void test_book_ack_layout(void)
+{
+    msg_book_ack_t m;
+    memset(&m, 0, sizeof(m));
+    snprintf(m.symbol, sizeof(m.symbol), "%s", "005930");
+    m.market = 1;
+    for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+        m.bid_price[i] = 0x01000000 + i;
+        m.bid_qty[i] = 0x02000000 + i;
+        m.ask_price[i] = 0x03000000 + i;
+        m.ask_qty[i] = 0x04000000 + i;
+    }
+
+    uint8_t buf[MSG_BOOK_ACK_LEN];
+    assert(msg_encode_book_ack(&m, buf, sizeof(buf)) == MSG_BOOK_ACK_LEN);
+
+    static const uint8_t SYM[8] = {'0', '0', '5', '9', '3', '0', 0, 0};
+    assert(memcmp(buf, SYM, sizeof(SYM)) == 0);
+    assert(buf[8] == 1);
+    for (int arr = 0; arr < 4; arr++) {
+        size_t first = 9 + (size_t)arr * MSG_BOOK_DEPTH * 4;
+        size_t last = first + (MSG_BOOK_DEPTH - 1) * 4;
+        assert(buf[first] == arr + 1 && buf[first + 3] == 0);
+        assert(buf[last] == arr + 1 && buf[last + 3] == MSG_BOOK_DEPTH - 1);
+    }
 }
 
 /* --- 4. 왕복 --- */
@@ -327,6 +363,22 @@ static void test_roundtrip_all(void)
 
     ROUNDTRIP(msg_gap_fill_t, msg_encode_gap_fill, msg_decode_gap_fill,
               MSG_GAP_FILL_LEN, { in.next_seq = UINT64_MAX; });
+
+    ROUNDTRIP(msg_book_req_t, msg_encode_book_req, msg_decode_book_req,
+              MSG_BOOK_REQ_LEN, {
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "12345678");
+                  in.market = 255;
+              });
+
+    ROUNDTRIP(msg_book_ack_t, msg_encode_book_ack, msg_decode_book_ack,
+              MSG_BOOK_ACK_LEN, {
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "005930");
+                  in.market = 1;
+                  in.bid_price[0] = INT32_MAX;
+                  in.bid_qty[9] = INT32_MIN;
+                  in.ask_price[5] = 70100;
+                  in.ask_qty[0] = 1;
+              });
 }
 
 /* --- 5. 거절 --- */
@@ -416,6 +468,8 @@ static void test_decode_rejects_wrong_length(void)
     CHECK_LEN(msg_decode_query_req, msg_query_req_t, MSG_QUERY_REQ_LEN);
     CHECK_LEN(msg_decode_query_ack, msg_query_ack_t, MSG_QUERY_ACK_LEN);
     CHECK_LEN(msg_decode_fill_noti, msg_fill_noti_t, MSG_FILL_NOTI_LEN);
+    CHECK_LEN(msg_decode_book_req, msg_book_req_t, MSG_BOOK_REQ_LEN);
+    CHECK_LEN(msg_decode_book_ack, msg_book_ack_t, MSG_BOOK_ACK_LEN);
 
 #undef CHECK_LEN
 }
@@ -474,6 +528,7 @@ int main(void)
     test_reply_pairs();
     test_order_req_layout();
     test_fill_noti_layout();
+    test_book_ack_layout();
     test_roundtrip_all();
     test_encode_rejects();
     test_decode_rejects_wrong_length();

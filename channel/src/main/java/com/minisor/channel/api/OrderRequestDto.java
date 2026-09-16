@@ -2,6 +2,7 @@ package com.minisor.channel.api;
 
 import static com.minisor.channel.wire.WireEnums.*;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -23,6 +24,16 @@ public record OrderRequestDto(
         @Min(1) long clOrdId,
         @Min(SIDE_BUY) @Max(SIDE_SELL) int side,
         @Min(ORDER_LIMIT) @Max(ORDER_MIDPOINT) int type,
-        @Min(MARKET_KRX) @Max(MARKET_NXT) int market,
+        int market,
         @Min(1) int price,
-        @Min(1) int qty) {}
+        @Min(1) int qty) {
+
+    /**
+     * 시장은 KRX·NXT, 또는 원장이 정하는 자동(SOR, 255). 연속 구간이 아니라
+     * {@code @Min/@Max}로 적을 수 없다.
+     */
+    @AssertTrue(message = "market은 0(KRX), 1(NXT), 255(자동)만 된다")
+    public boolean isMarketKnown() {
+        return market == MARKET_KRX || market == MARKET_NXT || market == MSG_MARKET_AUTO;
+    }
+}

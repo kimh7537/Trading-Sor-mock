@@ -42,4 +42,11 @@ public final class WireEnums {
     /* market_t */
     public static final int MARKET_KRX = 0;
     public static final int MARKET_NXT = 1;
+
+    /**
+     * 주문의 시장을 원장이 SOR로 정한다(T6-03). C에서는 {@code market_t}가 아니라
+     * {@code msg.h}의 {@code #define MSG_MARKET_AUTO}다 — 열거형에 넣으면 시장마다 도는
+     * 반복문이 없는 시장까지 돈다. 이름을 C와 같게 둬서 대조 테스트가 찾게 한다.
+     */
+    public static final int MSG_MARKET_AUTO = 255;
 }

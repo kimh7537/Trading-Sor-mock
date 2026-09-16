@@ -44,7 +44,9 @@ class WireLayoutTest {
                     CancelReq.class, "MSG_CANCEL_REQ_LEN",
                     CancelAck.class, "MSG_CANCEL_ACK_LEN",
                     FillNoti.class, "MSG_FILL_NOTI_LEN",
-                    QueryAck.class, "MSG_QUERY_ACK_LEN");
+                    QueryAck.class, "MSG_QUERY_ACK_LEN",
+                    BookReq.class, "MSG_BOOK_REQ_LEN",
+                    BookAck.class, "MSG_BOOK_ACK_LEN");
 
     @Test
     void javaLayoutMatchesCHeader() throws IOException {
@@ -86,6 +88,13 @@ class WireLayoutTest {
     void javaEnumValuesMatchCHeader() throws IOException, IllegalAccessException {
         Map<String, Integer> c = readCEnums();
         assertThat(c).as("C 헤더에서 열거값을 읽지 못했다").isNotEmpty();
+        /*
+         * 자동 배분 시장값은 열거형이 아니라 msg.h의 #define이다(열거형에 넣으면 시장
+         * 반복문이 없는 시장까지 돈다). 전문에 실리는 값이므로 같이 대조한다.
+         */
+        Integer auto = readCLengths().get("MSG_MARKET_AUTO");
+        assertThat(auto).as("msg.h에 MSG_MARKET_AUTO가 없다").isNotNull();
+        c.put("MSG_MARKET_AUTO", auto);
 
         Map<String, Integer> java = new HashMap<>();
         for (Field f : WireEnums.class.getDeclaredFields()) {
@@ -157,22 +166,29 @@ class WireLayoutTest {
         return out;
     }
 
-    /** 숫자와 이미 아는 상수의 덧셈만 계산한다. 모르는 것이 섞이면 null. */
+    /**
+     * 숫자와 이미 아는 상수의 덧셈·곱셈만 계산한다(곱셈이 먼저). 모르는 것이 섞이면 null.
+     * 곱셈은 호가 10단 길이({@code MSG_BOOK_DEPTH * 4 * 4})에서 필요해졌다.
+     */
     private static Integer eval(String expr, Map<String, Integer> known) {
         String e = expr.replace("(", " ").replace(")", " ").trim();
         int sum = 0;
-        for (String tok : e.split("\\+")) {
-            String t = tok.trim();
-            if (t.isEmpty()) {
-                return null;
+        for (String term : e.split("\\+")) {
+            int product = 1;
+            for (String tok : term.split("\\*")) {
+                String t = tok.trim();
+                if (t.isEmpty()) {
+                    return null;
+                }
+                if (t.matches("\\d+")) {
+                    product *= Integer.parseInt(t);
+                } else if (known.containsKey(t)) {
+                    product *= known.get(t);
+                } else {
+                    return null;
+                }
             }
-            if (t.matches("\\d+")) {
-                sum += Integer.parseInt(t);
-            } else if (known.containsKey(t)) {
-                sum += known.get(t);
-            } else {
-                return null;
-            }
+            sum += product;
         }
         return sum;
     }

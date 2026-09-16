@@ -111,7 +111,8 @@ void           ledger_core_destroy(ledger_core_t *core);
  * 주문이 거부돼도 **음수가 아니라 거부 응답**이다. 거부는 정상적인 대답이다.
  * 취소·정정은 아직 연결하지 않았으므로 `ERR_NOT_SUPPORTED`로 답한다 — 예전처럼
  * 무조건 성공이라고 답하지 않는다. 조회는 주문번호 하나에 대해 지금 상태를 돌려준다
- * (호가창에 걸어 뒀다가 나중에 체결된 것까지 반영).
+ * (호가창에 걸어 뒀다가 나중에 체결된 것까지 반영). 호가 조회는 한 시장의 10단을
+ * 돌려준다.
  */
 int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
                        uint8_t *out, size_t out_cap, void *ctx);

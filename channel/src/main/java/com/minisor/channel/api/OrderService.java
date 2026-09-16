@@ -3,8 +3,11 @@ package com.minisor.channel.api;
 import com.minisor.channel.ledger.LedgerConnection;
 import com.minisor.channel.ledger.LedgerConnectionPool;
 import com.minisor.channel.ledger.LedgerException;
+import com.minisor.channel.stream.StreamEvent;
+import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.OrderAck;
 import com.minisor.channel.wire.OrderReq;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Service;
 
@@ -21,11 +24,21 @@ import org.springframework.stereotype.Service;
  * <p>그리고 <b>자동으로 다시 보내지 않는다.</b> 재전송은 중복 주문을 만들 수
  * 있고, 그것이 이 계층이 저지를 수 있는 가장 비싼 실수다 — T3-14가 FEP
  * 쪽에서 내린 것과 같은 판단이다.
+ *
+ * <h2>결과를 방송한다 (T6-04)</h2>
+ *
+ * 원장의 답을 받으면 <b>주문 결과</b>를, 체결이 있었으면 <b>체결</b>을 WebSocket 구독자
+ * 모두에게 보낸다. 주문을 낸 화면 말고 다른 화면도 같은 것을 보게 한다.
+ *
+ * <p>ponytail: 원장은 요청-응답만 한다. 예전에 걸어 둔 주문이 <b>나중에</b> 체결된 것은
+ * 여기서 방송하지 못한다 — 화면이 주문 조회로 확인한다. 원장이 체결 통보를 밀어
+ * 보내게 하려면 원장 쪽에 구독 접속이 따로 있어야 한다.
  */
 @Service
 public class OrderService {
 
     private final LedgerConnectionPool pool;
+    private final StreamHub hub;
 
     /**
      * 전문에 실을 논리 시각. <b>시스템 시각을 읽지 않는다</b>(CLAUDE.md).
@@ -33,11 +46,29 @@ public class OrderService {
      */
     private final AtomicLong logicalClock = new AtomicLong(1);
 
-    public OrderService(LedgerConnectionPool pool) {
+    public OrderService(LedgerConnectionPool pool, StreamHub hub) {
         this.pool = pool;
+        this.hub = hub;
     }
 
     public OrderResponseDto submit(OrderRequestDto req) {
+        OrderResponseDto res = send(req);
+        hub.broadcast(StreamEvent.order(Map.of("request", req, "result", res)));
+        if (res.filledQty() > 0) {
+            hub.broadcast(
+                    StreamEvent.fill(
+                            Map.of(
+                                    "clOrdId", res.clOrdId(),
+                                    "orderId", res.orderId(),
+                                    "side", req.side(),
+                                    "market", req.market(),
+                                    "price", res.avgPrice(),
+                                    "qty", res.filledQty())));
+        }
+        return res;
+    }
+
+    private OrderResponseDto send(OrderRequestDto req) {
         OrderReq m = new OrderReq();
         m.account = req.account();
         m.symbol = req.symbol();
@@ -67,7 +98,8 @@ public class OrderService {
                 return OrderResponseDto.rejected(
                         ack.clOrdId, ack.reason, "원장이 거절했다");
             }
-            return OrderResponseDto.accepted(ack.clOrdId, ack.orderId);
+            return OrderResponseDto.accepted(
+                    ack.clOrdId, ack.orderId, ack.status, ack.filledQty, ack.price);
 
         } catch (LedgerException e) {
             /*

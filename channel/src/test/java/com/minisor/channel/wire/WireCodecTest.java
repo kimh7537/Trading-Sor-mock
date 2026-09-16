@@ -94,6 +94,37 @@ class WireCodecTest {
         assertThat(out.symbol).isEqualTo("ABCDEFGH"); // 잘렸다
     }
 
+    /**
+     * 호가 응답의 배열(T6-04). 배열 넷이 선언 순서대로 이어지고, 비어 있으면 0으로 채운다.
+     * 첫 배열 첫 칸과 넷째 배열 마지막 칸 위치를 바이트로 본다.
+     */
+    @Test
+    void intArraysInOrder() {
+        BookAck in = new BookAck();
+        in.symbol = "005930";
+        in.market = 1;
+        in.bidPrice = new int[BookAck.DEPTH];
+        in.bidPrice[0] = 70000;
+        in.askQty = new int[BookAck.DEPTH];
+        in.askQty[BookAck.DEPTH - 1] = 0x01020304;
+        // bidQty, askPrice는 비워 둔다 — 0으로 나가야 한다
+
+        byte[] body = WireCodec.encodeBody(in);
+        assertThat(body).hasSize(169); // C의 MSG_BOOK_ACK_LEN
+        assertThat(body[8]).isEqualTo((byte) 1);
+        assertThat(java.nio.ByteBuffer.wrap(body, 9, 4).getInt()).isEqualTo(70000);
+        assertThat(body[165]).isEqualTo((byte) 0x01);
+        assertThat(body[168]).isEqualTo((byte) 0x04);
+
+        BookAck out = WireCodec.decodeBody(BookAck.class, body, 0, body.length);
+        assertThat(out.bidPrice[0]).isEqualTo(70000);
+        assertThat(out.bidQty).containsOnly(0);
+        assertThat(out.askQty[BookAck.DEPTH - 1]).isEqualTo(0x01020304);
+
+        in.bidQty = new int[3]; // 선언과 길이가 다르다
+        assertThatThrownBy(() -> WireCodec.encodeBody(in)).isInstanceOf(WireException.class);
+    }
+
     /** 길이가 규격과 다르면 해석하지 않는다(T3-02와 같은 판단). */
     @Test
     void rejectsWrongLength() {

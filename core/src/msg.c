@@ -53,6 +53,8 @@ msg_type_t msg_reply_type(uint8_t req_type)
         return MSG_MODIFY_ACK;
     case MSG_QUERY_REQ:
         return MSG_QUERY_ACK;
+    case MSG_BOOK_REQ:
+        return MSG_BOOK_ACK;
     default:
         /* 체결 통보와 응답 종별은 짝이 없다. 모르는 종별도 마찬가지다. */
         return MSG_UNKNOWN;
@@ -640,5 +642,93 @@ int msg_decode_gap_fill(const uint8_t *buf, size_t len, msg_gap_fill_t *out)
     out->next_seq = wire_get_u64(p);
     p += 8;
 
+    return (int)(p - buf);
+}
+
+/* --- 호가창 조회 --- */
+
+int msg_encode_book_req(const msg_book_req_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_BOOK_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_SYMBOL_LEN, m->symbol);
+    p += MSG_SYMBOL_LEN;
+    wire_put_u8(p++, m->market);
+    return (int)(p - buf);
+}
+
+int msg_decode_book_req(const uint8_t *buf, size_t len, msg_book_req_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_BOOK_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
+    p += MSG_SYMBOL_LEN;
+    out->market = wire_get_u8(p++);
+    return (int)(p - buf);
+}
+
+static uint8_t *put_i32s(uint8_t *p, const int32_t *v)
+{
+    for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+        wire_put_i32(p, v[i]);
+        p += 4;
+    }
+    return p;
+}
+
+static const uint8_t *get_i32s(const uint8_t *p, int32_t *v)
+{
+    for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+        v[i] = wire_get_i32(p);
+        p += 4;
+    }
+    return p;
+}
+
+int msg_encode_book_ack(const msg_book_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_BOOK_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_SYMBOL_LEN, m->symbol);
+    p += MSG_SYMBOL_LEN;
+    wire_put_u8(p++, m->market);
+    p = put_i32s(p, m->bid_price);
+    p = put_i32s(p, m->bid_qty);
+    p = put_i32s(p, m->ask_price);
+    p = put_i32s(p, m->ask_qty);
+    return (int)(p - buf);
+}
+
+int msg_decode_book_ack(const uint8_t *buf, size_t len, msg_book_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_BOOK_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
+    p += MSG_SYMBOL_LEN;
+    out->market = wire_get_u8(p++);
+    p = get_i32s(p, out->bid_price);
+    p = get_i32s(p, out->bid_qty);
+    p = get_i32s(p, out->ask_price);
+    p = get_i32s(p, out->ask_qty);
     return (int)(p - buf);
 }

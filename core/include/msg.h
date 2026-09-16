@@ -57,6 +57,9 @@
  * HEARTBEAT (0)    바디 없음 — 헤더의 seq와 ts가 전부다
  * RESEND_REQ (8)  from_seq:u64   (from_seq부터 지금까지 전부 다시)
  * GAP_FILL (8)     next_seq:u64   (그 앞은 더 없다. next_seq부터 이어라)
+ * BOOK_REQ (9)     symbol[8] market:u8
+ * BOOK_ACK (169)   symbol[8] market:u8 bid_price:i32[10] bid_qty:i32[10]
+ *                  ask_price:i32[10] ask_qty:i32[10]   (없는 단은 0)
  *
  * ===========================================================================
  * 요청과 응답
@@ -107,6 +110,17 @@
 #define MSG_GAP_FILL_LEN (8)
 
 /*
+ * 호가창 조회(T6-04). 화면이 원장 안의 실제 호가를 본다.
+ *
+ * 단 수는 시세 피드(T5-06)의 상한과 같게 10단이다. 가격과 수량을 **단마다 섞지 않고
+ * 배열 넷으로 나눈다** — 채널계 코덱이 "같은 타입 N개"만 알면 읽을 수 있게 한다.
+ * 섞어 두면 코덱이 구조체 배열까지 알아야 한다.
+ */
+#define MSG_BOOK_DEPTH 10
+#define MSG_BOOK_REQ_LEN (MSG_SYMBOL_LEN + 1)
+#define MSG_BOOK_ACK_LEN (MSG_SYMBOL_LEN + 1 + MSG_BOOK_DEPTH * 4 * 4)
+
+/*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
  *
  * 코드는 0을 쓰지 않는다 — 0으로 초기화된 버퍼가 유효한 종별로 보이면 안 된다.
@@ -125,7 +139,7 @@
     X(MSG_LOGIN_ACK, 11, MSG_LOGIN_ACK_LEN, "로그인 응답")                 \
     X(MSG_HEARTBEAT, 12, MSG_HEARTBEAT_LEN, "하트비트")                      \
     X(MSG_RESEND_REQ, 13, MSG_RESEND_REQ_LEN, "재전송 요청")                 \
-    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")
+    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")                      X(MSG_BOOK_REQ, 15, MSG_BOOK_REQ_LEN, "호가 조회 요청")                   X(MSG_BOOK_ACK, 16, MSG_BOOK_ACK_LEN, "호가 조회 응답")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -256,6 +270,21 @@ typedef struct {
     uint64_t next_seq;
 } msg_gap_fill_t;
 
+typedef struct {
+    char    symbol[MSG_SYMBOL_LEN + 1];
+    uint8_t market; /* market_t */
+} msg_book_req_t;
+
+/* 매수는 높은 가격부터, 매도는 낮은 가격부터. 없는 단은 가격·수량 모두 0. */
+typedef struct {
+    char    symbol[MSG_SYMBOL_LEN + 1];
+    uint8_t market;
+    price_t bid_price[MSG_BOOK_DEPTH];
+    qty_t   bid_qty[MSG_BOOK_DEPTH];
+    price_t ask_price[MSG_BOOK_DEPTH];
+    qty_t   ask_qty[MSG_BOOK_DEPTH];
+} msg_book_ack_t;
+
 /*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
@@ -276,6 +305,8 @@ int msg_encode_login_req(const msg_login_req_t *m, uint8_t *buf, size_t cap);
 int msg_encode_login_ack(const msg_login_ack_t *m, uint8_t *buf, size_t cap);
 int msg_encode_resend_req(const msg_resend_req_t *m, uint8_t *buf, size_t cap);
 int msg_encode_gap_fill(const msg_gap_fill_t *m, uint8_t *buf, size_t cap);
+int msg_encode_book_req(const msg_book_req_t *m, uint8_t *buf, size_t cap);
+int msg_encode_book_ack(const msg_book_ack_t *m, uint8_t *buf, size_t cap);
 
 /*
  * 디코딩 — 바디 길이가 규격과 **정확히 같아야** 한다. 짧으면 필드가 모자라고,
@@ -299,5 +330,7 @@ int msg_decode_login_ack(const uint8_t *buf, size_t len, msg_login_ack_t *out);
 int msg_decode_resend_req(const uint8_t *buf, size_t len,
                           msg_resend_req_t *out);
 int msg_decode_gap_fill(const uint8_t *buf, size_t len, msg_gap_fill_t *out);
+int msg_decode_book_req(const uint8_t *buf, size_t len, msg_book_req_t *out);
+int msg_decode_book_ack(const uint8_t *buf, size_t len, msg_book_ack_t *out);
 
 #endif /* MINI_SOR_MSG_H */

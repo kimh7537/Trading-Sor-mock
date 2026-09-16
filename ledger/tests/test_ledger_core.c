@@ -382,6 +382,108 @@ static void test_query_reflects_maker_fill(void)
     ledger_core_destroy(c);
 }
 
+/* 호가 조회 전문을 만들어 넣고 응답을 푼다 */
+static void book(ledger_core_t *c, const char *symbol, uint8_t market,
+                 msg_book_ack_t *ack)
+{
+    msg_book_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.symbol, sizeof(req.symbol), "%s", symbol);
+    req.market = market;
+
+    uint8_t body[MSG_BOOK_REQ_LEN];
+    assert(msg_encode_book_req(&req, body, sizeof(body)) ==
+           (int)MSG_BOOK_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_BOOK_REQ;
+    h.body_len = MSG_BOOK_REQ_LEN;
+    h.seq = 91;
+
+    uint8_t out[WIRE_HEADER_LEN + MSG_BOOK_ACK_LEN];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_BOOK_ACK_LEN));
+
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_BOOK_ACK && rh.seq == 91);
+    assert(msg_decode_book_ack(out + WIRE_HEADER_LEN, MSG_BOOK_ACK_LEN, ack) >=
+           0);
+    assert(ack->market == market);
+}
+
+/*
+ * T6-04 — **화면이 보는 호가가 원장 안의 호가창 그대로다.** 시장이 섞이지 않고,
+ * 체결되면 바로 줄어든다.
+ */
+static void test_book_query(void)
+{
+    ledger_core_t  *c = empty_core(64);
+    msg_order_ack_t ack;
+    msg_book_ack_t  b;
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 20, 600, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 69900, 5, 601, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70100, 7, 602, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_NXT, 69800, 3, 603, &ack) == ERR_OK);
+
+    book(c, "005930", MARKET_KRX, &b);
+    assert(strcmp(b.symbol, "005930") == 0);
+    assert(b.bid_price[0] == 70000 && b.bid_qty[0] == 20); /* 높은 가격부터 */
+    assert(b.bid_price[1] == 69900 && b.bid_qty[1] == 5);
+    assert(b.bid_price[2] == 0 && b.bid_qty[2] == 0); /* 없는 단은 0 */
+    assert(b.ask_price[0] == 70100 && b.ask_qty[0] == 7);
+    assert(b.ask_price[1] == 0);
+
+    book(c, "005930", MARKET_NXT, &b);
+    assert(b.bid_price[0] == 69800 && b.bid_qty[0] == 3);
+    assert(b.bid_price[1] == 0 && b.ask_price[0] == 0);
+
+    /* 체결되면 줄어든다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 12, 604, &ack) == ERR_OK);
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 70000 && b.bid_qty[0] == 8);
+
+    /* 다루지 않는 종목, 없는 시장은 빈 호가창 */
+    book(c, "000660", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 0 && b.ask_price[0] == 0);
+    book(c, "005930", 7, &b);
+    assert(b.bid_price[0] == 0 && b.ask_price[0] == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * 유동성이 있는 호가창을 **직접 읽은 것과 조회 응답이 같다.** 채워진 단 뒤는 0이다.
+ * (유동성 300건으로는 10단이 다 차지 않을 수 있어 단 수를 가정하지 않는다.)
+ */
+static void compare_side(const order_book_t *ob, side_t side,
+                         const price_t *price, const qty_t *qty)
+{
+    level_view_t view[MSG_BOOK_DEPTH];
+    int          n = book_snapshot(ob, side, MSG_BOOK_DEPTH, view);
+    assert(n > 0);
+    for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+        assert(price[i] == (i < n ? view[i].price : 0));
+        assert(qty[i] == (i < n ? view[i].total_qty : 0));
+    }
+}
+
+static void test_book_query_matches_book(void)
+{
+    ledger_core_t *c = liquid_core();
+    for (uint8_t m = 0; m < MARKET_COUNT; m++) {
+        msg_book_ack_t b;
+        book(c, "005930", m, &b);
+        const order_book_t *ob = ledger_core_book(c, (market_t)m);
+        compare_side(ob, SIDE_BUY, b.bid_price, b.bid_qty);
+        compare_side(ob, SIDE_SELL, b.ask_price, b.ask_qty);
+    }
+    ledger_core_destroy(c);
+}
+
 /* --- 3. SOR --- */
 
 /*
@@ -605,6 +707,8 @@ int main(void)
     STEP(test_ioc_remainder_released);
     STEP(test_explicit_nxt_goes_to_nxt);
     STEP(test_query_reflects_maker_fill);
+    STEP(test_book_query);
+    STEP(test_book_query_matches_book);
     STEP(test_auto_routes_to_cheaper_market);
     STEP(test_rejects_leave_money_alone);
     STEP(test_capacity);

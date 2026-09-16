@@ -7,6 +7,11 @@ public record StreamEvent(String kind, Object payload) {
         return new StreamEvent("fill", p);
     }
 
+    /** 주문 하나의 요청과 원장의 답. */
+    public static StreamEvent order(Object p) {
+        return new StreamEvent("order", p);
+    }
+
     public static StreamEvent book(Object p) {
         return new StreamEvent("book", p);
     }

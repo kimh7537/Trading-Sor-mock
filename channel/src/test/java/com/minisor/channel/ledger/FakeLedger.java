@@ -1,5 +1,7 @@
 package com.minisor.channel.ledger;
 
+import com.minisor.channel.wire.BookAck;
+import com.minisor.channel.wire.BookReq;
 import com.minisor.channel.wire.OrderAck;
 import com.minisor.channel.wire.OrderReq;
 import com.minisor.channel.wire.WireCodec;
@@ -59,6 +61,13 @@ public final class FakeLedger implements AutoCloseable {
         silent = v;
     }
 
+    /** 주문마다 이만큼 체결됐다고 답한다. 0이면 체결 없음. */
+    private volatile int fillQty;
+
+    public void setFillQty(int q) {
+        fillQty = q;
+    }
+
     private void acceptLoop() {
         while (!server.isClosed()) {
             try {
@@ -97,23 +106,16 @@ public final class FakeLedger implements AutoCloseable {
                     continue; // 받고 답하지 않는다
                 }
 
-                OrderReq req =
-                        WireCodec.decodeBody(OrderReq.class, body, 0, body.length);
+                Object reply =
+                        h.type() == WireCodec.typeCode(BookReq.class)
+                                ? book(WireCodec.decodeBody(BookReq.class, body, 0, body.length))
+                                : order(WireCodec.decodeBody(OrderReq.class, body, 0, body.length));
 
-                OrderAck ack = new OrderAck();
-                ack.clOrdId = req.clOrdId;
-                /* 어느 요청의 답인지 알아볼 수 있게 우리 번호를 실어 보낸다. */
-                ack.orderId = req.clOrdId + 100000;
-                ack.status = 0;
-                ack.reason = 0;
-                ack.filledQty = 0;
-                ack.price = req.price;
-
-                byte[] ab = WireCodec.encodeBody(ack);
+                byte[] ab = WireCodec.encodeBody(reply);
                 WireHeader rh =
                         new WireHeader(
                                 WireHeader.VERSION,
-                                WireCodec.typeCode(OrderAck.class),
+                                WireCodec.typeCode(reply.getClass()),
                                 ab.length,
                                 h.seq(),
                                 h.ts());
@@ -124,6 +126,38 @@ public final class FakeLedger implements AutoCloseable {
         } catch (IOException | InterruptedException e) {
             // 상대가 끊었거나 시험이 끝났다
         }
+    }
+
+    private OrderAck order(OrderReq req) {
+        OrderAck ack = new OrderAck();
+        ack.clOrdId = req.clOrdId;
+        /* 어느 요청의 답인지 알아볼 수 있게 우리 번호를 실어 보낸다. */
+        ack.orderId = req.clOrdId + 100000;
+        ack.status = fillQty > 0 ? 1 : 0;
+        ack.reason = 0;
+        ack.filledQty = fillQty;
+        ack.price = req.price;
+        return ack;
+    }
+
+    /** 매수 3단(70000부터 100원씩 아래), 매도 2단(70100부터 위). 매수 수량에 시장을 섞는다. */
+    private static BookAck book(BookReq req) {
+        BookAck ack = new BookAck();
+        ack.symbol = req.symbol;
+        ack.market = req.market;
+        ack.bidPrice = new int[BookAck.DEPTH];
+        ack.bidQty = new int[BookAck.DEPTH];
+        ack.askPrice = new int[BookAck.DEPTH];
+        ack.askQty = new int[BookAck.DEPTH];
+        for (int i = 0; i < 3; i++) {
+            ack.bidPrice[i] = 70000 - 100 * i;
+            ack.bidQty[i] = 10 + i + 100 * req.market;
+        }
+        for (int i = 0; i < 2; i++) {
+            ack.askPrice[i] = 70100 + 100 * i;
+            ack.askQty[i] = 20 + i;
+        }
+        return ack;
     }
 
     @Override

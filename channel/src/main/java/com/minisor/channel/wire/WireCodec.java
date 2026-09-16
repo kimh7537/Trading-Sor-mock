@@ -58,6 +58,13 @@ public final class WireCodec {
                 f.setAccessible(true);
 
                 int size = w.type() == WireType.STR ? w.length() : w.type().size();
+                if (w.count() != 1) {
+                    if (w.count() < 1 || w.type() != WireType.I32 || f.getType() != int[].class) {
+                        throw new WireException(
+                                "배열은 I32 int[]만 된다: " + c.getSimpleName() + "." + f.getName());
+                    }
+                    size *= w.count();
+                }
                 if (size <= 0) {
                     throw new WireException(
                             "길이가 잘못됐다: " + c.getSimpleName() + "." + f.getName());
@@ -112,6 +119,10 @@ public final class WireCodec {
         try {
             for (Slot s : slots) {
                 Object v = s.field().get(msg);
+                if (s.spec().count() != 1) {
+                    putInts(b, (int[]) v, s.spec().count());
+                    continue;
+                }
                 switch (s.spec().type()) {
                     case U8 -> b.put((byte) ((Number) v).intValue());
                     case I32 -> b.putInt(((Number) v).intValue());
@@ -143,6 +154,14 @@ public final class WireCodec {
             T out = cls.getDeclaredConstructor().newInstance();
             for (Slot s : layoutOf(cls)) {
                 Field f = s.field();
+                if (s.spec().count() != 1) {
+                    int[] arr = new int[s.spec().count()];
+                    for (int i = 0; i < arr.length; i++) {
+                        arr[i] = b.getInt();
+                    }
+                    f.set(out, arr);
+                    continue;
+                }
                 switch (s.spec().type()) {
                     case U8 -> setInt(f, out, Byte.toUnsignedInt(b.get()));
                     case I32 -> setInt(f, out, b.getInt());
@@ -162,6 +181,16 @@ public final class WireCodec {
             f.setInt(target, v);
         } else {
             f.setLong(target, v);
+        }
+    }
+
+    /** 비어 있으면 0으로 채운다. 길이가 선언과 다르면 규격이 틀린 것이다. */
+    private static void putInts(ByteBuffer b, int[] v, int count) {
+        if (v != null && v.length != count) {
+            throw new WireException("배열 길이가 " + count + "이어야 하는데 " + v.length);
+        }
+        for (int i = 0; i < count; i++) {
+            b.putInt(v == null ? 0 : v[i]);
         }
     }
 

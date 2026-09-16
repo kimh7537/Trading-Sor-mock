@@ -282,6 +282,41 @@ static void query_order(ledger_core_t *c, const msg_query_req_t *req,
     ack->filled_qty = omap_filled_qty(c->map, req->order_id);
 }
 
+/*
+ * 한 시장의 호가 10단(T6-04).
+ *
+ * 없는 시장이나 다루지 않는 종목이면 **빈 호가창**으로 답한다. 조회 응답에는 사유
+ * 필드가 없고, 화면 입장에서 "그 종목의 호가가 없다"와 뜻이 같다. 시장 값은 채널계가
+ * 경계에서 이미 거른다.
+ */
+static void query_book(ledger_core_t *c, const msg_book_req_t *req,
+                       msg_book_ack_t *ack)
+{
+    memset(ack, 0, sizeof(*ack));
+    memcpy(ack->symbol, req->symbol, sizeof(ack->symbol));
+    ack->market = req->market;
+
+    if (req->market >= MARKET_COUNT ||
+        strncmp(req->symbol, c->cfg.symbol, MSG_SYMBOL_LEN) != 0) {
+        return;
+    }
+    const order_book_t *book = match_book(c->eng[req->market]);
+
+    level_view_t view[MSG_BOOK_DEPTH];
+    int n = book_snapshot(book, SIDE_BUY, MSG_BOOK_DEPTH, view);
+    assert(n >= 0);
+    for (int i = 0; i < n; i++) {
+        ack->bid_price[i] = view[i].price;
+        ack->bid_qty[i] = view[i].total_qty;
+    }
+    n = book_snapshot(book, SIDE_SELL, MSG_BOOK_DEPTH, view);
+    assert(n >= 0);
+    for (int i = 0; i < n; i++) {
+        ack->ask_price[i] = view[i].price;
+        ack->ask_qty[i] = view[i].total_qty;
+    }
+}
+
 /* --- 전문 --- */
 
 int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
@@ -367,6 +402,16 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
         msg_query_ack_t ack;
         query_order(c, &req, &ack);
         m = msg_encode_query_ack(&ack, b, cap);
+        break;
+    }
+    case MSG_BOOK_REQ: {
+        msg_book_req_t req;
+        if (msg_decode_book_req(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+        msg_book_ack_t ack;
+        query_book(c, &req, &ack);
+        m = msg_encode_book_ack(&ack, b, cap);
         break;
     }
     default:
