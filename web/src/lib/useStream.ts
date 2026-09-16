@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080/ws/stream";
+// 기본은 같은 출처. 개발 서버가 /ws를 채널계로 넘긴다(vite.config.ts).
+const WS_URL =
+  import.meta.env.VITE_WS_URL ??
+  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/stream`;
 
 export type ConnState = "connecting" | "open" | "closed";
 
@@ -17,7 +20,9 @@ export function useStream(onEvent: (e: StreamEvent) => void) {
   const [state, setState] = useState<ConnState>("connecting");
   const [attempt, setAttempt] = useState(0);
   const cb = useRef(onEvent);
-  cb.current = onEvent;
+  useEffect(() => {
+    cb.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     let ws: WebSocket | null = null;

@@ -2,6 +2,8 @@ import { won, qty as fq } from "../lib/format";
 import { SIDE_BUY } from "../lib/wire";
 import type { Fill } from "../lib/types";
 
+const MARKET_COLOR = { KRX: "var(--krx)", NXT: "var(--nxt)", SOR: "var(--ok)" };
+
 export function Fills({ fills }: { fills: Fill[] }) {
   if (fills.length === 0) {
     return (
@@ -46,7 +48,7 @@ export function Fills({ fills }: { fills: Fill[] }) {
             }}
           >
             <span className="num" style={{ color: "var(--text-faint)" }}>{f.at}</span>
-            <span style={{ color: f.market === "KRX" ? "var(--krx)" : "var(--nxt)", fontWeight: 700 }}>
+            <span style={{ color: MARKET_COLOR[f.market], fontWeight: 700 }}>
               {f.market}
             </span>
             <span style={{ color: f.side === SIDE_BUY ? "var(--buy)" : "var(--sell)" }}>

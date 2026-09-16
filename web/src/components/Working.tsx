@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { SIDE_BUY, type Side } from "../lib/wire";
+import { SIDE_BUY, type MarketName, type Side } from "../lib/wire";
 import { won, qty as fq } from "../lib/format";
 
 export interface Leg {
-  market: "KRX" | "NXT";
+  market: MarketName;
   exchOrderId: number;
   price: number;
   qty: number;
   filled: number;
-  state: "PENDING" | "LIVE" | "DONE" | "IN_DOUBT";
+  state: "PENDING" | "LIVE" | "DONE" | "REJECTED" | "IN_DOUBT";
+  /** 거절 사유 등 덧붙일 말 */
+  note?: string;
 }
 
 export interface LogicalOrder {
@@ -23,13 +25,16 @@ export interface LogicalOrder {
 const STATE_STYLE: Record<Leg["state"], { c: string; t: string }> = {
   PENDING: { c: "var(--text-faint)", t: "응답 대기" },
   LIVE: { c: "var(--ok)", t: "접수" },
-  DONE: { c: "var(--text-dim)", t: "종료" },
+  DONE: { c: "var(--text-dim)", t: "전량 체결" },
+  REJECTED: { c: "var(--danger)", t: "거절" },
   IN_DOUBT: { c: "var(--warn)", t: "확인 필요" },
 };
 
 /**
- * 미체결 목록. 논리 주문 하나를 펼치면 시장별 물리 주문이 나온다 —
- * 사용자가 낸 것은 하나인데 실제로 나간 것은 여럿이라는 사실이 보여야 한다.
+ * 주문 내역. 펼치면 원장의 답(시장·주문번호·체결 수량·상태)이 나온다.
+ *
+ * ponytail: 원장 응답에는 시장별로 나뉜 물리 주문이 없어 한 줄만 보인다. SOR이 여러
+ * 시장으로 나눈 내역을 보이려면 응답 전문에 다리 목록을 실어야 한다.
  */
 export function Working({ orders }: { orders: LogicalOrder[] }) {
   const [open, setOpen] = useState<number | null>(orders[0]?.clOrdId ?? null);
@@ -37,7 +42,7 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
   if (orders.length === 0) {
     return (
       <div style={{ padding: "var(--s-5)", textAlign: "center", color: "var(--text-faint)", fontSize: 12 }}>
-        미체결 주문이 없다
+        주문이 없다
       </div>
     );
   }
@@ -113,7 +118,7 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
                       fontSize: 11,
                     }}
                   >
-                    <span style={{ color: l.market === "KRX" ? "var(--krx)" : "var(--nxt)", fontWeight: 700 }}>
+                    <span style={{ color: l.market === "KRX" ? "var(--krx)" : l.market === "NXT" ? "var(--nxt)" : "var(--ok)", fontWeight: 700 }}>
                       {l.market}
                     </span>
                     <span className="num" style={{ color: "var(--text-faint)" }}>
@@ -124,7 +129,10 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
                     </span>
                     <span style={{ flex: 1 }} />
                     <span className="num">{fq(l.filled)}</span>
-                    <span style={{ color: STATE_STYLE[l.state].c }}>{STATE_STYLE[l.state].t}</span>
+                    <span style={{ color: STATE_STYLE[l.state].c }} title={l.note}>
+                      {STATE_STYLE[l.state].t}
+                      {l.note && ` · ${l.note}`}
+                    </span>
                   </div>
                 ))}
               </div>

@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { MARKET_KRX, MARKET_NXT, ORDER_LIMIT, SIDE_BUY, SIDE_SELL, type Side } from "../lib/wire";
+import {
+  MARKET_AUTO,
+  MARKET_KRX,
+  MARKET_NXT,
+  ORDER_LIMIT,
+  SIDE_BUY,
+  SIDE_SELL,
+  STATUS_FILLED,
+  reasonText,
+  type Side,
+} from "../lib/wire";
 import { submitOrder, type OrderResponse } from "../lib/api";
 import { won } from "../lib/format";
 
@@ -22,7 +32,7 @@ export function OrderTicket({
 }) {
   const [side, setSide] = useState<Side>(SIDE_BUY);
   const [qty, setQty] = useState(10);
-  const [market, setMarket] = useState<number>(MARKET_KRX);
+  const [market, setMarket] = useState<number>(MARKET_AUTO);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<OrderResponse | null>(null);
 
@@ -52,6 +62,9 @@ export function OrderTicket({
         orderId: 0,
         reason: -16,
         message: "채널계에 붙지 못했다",
+        status: 0,
+        filledQty: 0,
+        avgPrice: 0,
       });
     } finally {
       setBusy(false);
@@ -91,15 +104,14 @@ export function OrderTicket({
         {label("시장")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--s-2)" }}>
           {[
-            { v: -1, t: "SOR" },
+            { v: MARKET_AUTO, t: "SOR 자동" },
             { v: MARKET_KRX, t: "KRX" },
             { v: MARKET_NXT, t: "NXT" },
           ].map((m) => (
             <button
               key={m.v}
               onClick={() => setMarket(m.v)}
-              disabled={m.v === -1}
-              title={m.v === -1 ? "자동 배분은 Phase 5에서 붙는다" : ""}
+              title={m.v === MARKET_AUTO ? "원장이 두 시장 호가를 보고 유리한 쪽으로 보낸다" : ""}
               style={{
                 padding: "8px 0",
                 fontSize: 12,
@@ -194,7 +206,16 @@ export function OrderTicket({
           <strong style={{ color: OUTCOME_STYLE[result.outcome].color }}>
             {OUTCOME_STYLE[result.outcome].label}
           </strong>
-          <span style={{ color: "var(--text-dim)" }}>{result.message}</span>
+          <span style={{ color: "var(--text-dim)" }}>
+            {result.outcome === "ACCEPTED"
+              ? result.filledQty > 0
+                ? `${result.filledQty.toLocaleString("ko-KR")}주 체결 · 평균 ${won(result.avgPrice)}원` +
+                  (result.status === STATUS_FILLED ? " · 전량" : " · 나머지는 호가창에 대기")
+                : "체결 없음 · 호가창에 대기"
+              : result.outcome === "REJECTED"
+                ? reasonText(result.reason)
+                : result.message}
+          </span>
           {OUTCOME_STYLE[result.outcome].hint && (
             <span style={{ color: "var(--text-faint)", lineHeight: 1.5 }}>
               {OUTCOME_STYLE[result.outcome].hint}
