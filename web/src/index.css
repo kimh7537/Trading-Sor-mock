@@ -1,0 +1,90 @@
+:root {
+  /* 색은 여기서만 정한다. 화면마다 새로 고르지 않는다. */
+  --bg:        #0b0e14;
+  --bg-panel:  #12161f;
+  --bg-raised: #1a1f2b;
+  --line:      #232a38;
+  --line-soft: #1b212c;
+
+  --text:      #e6e9ef;
+  --text-dim:  #9aa4b8;
+  --text-faint:#5f6b80;
+
+  /* 국내 관행: 매수(사자) 빨강, 매도(팔자) 파랑 */
+  --buy:       #ff5a5f;
+  --buy-bg:    rgba(255, 90, 95, 0.14);
+  --sell:      #4d8bff;
+  --sell-bg:   rgba(77, 139, 255, 0.14);
+
+  --krx:       #f5a524;
+  --nxt:       #17c964;
+  --warn:      #f5a524;
+  --danger:    #ff4d4f;
+  --ok:        #17c964;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+
+  --mono: "SF Mono", "JetBrains Mono", "D2Coding", Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 숫자는 자리가 흔들리면 읽기 어렵다. 폭을 고정한다. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--text);
+  border-radius: var(--r-sm);
+  padding: var(--s-2) var(--s-3);
+  transition: background 120ms, border-color 120ms;
+}
+button:hover:not(:disabled) { background: #222838; border-color: #2e3646; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+input, select {
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--s-2) var(--s-3);
+  width: 100%;
+}
+input:focus, select:focus {
+  outline: none;
+
+}
+input:focus, select:focus { border-color: #3d4a63; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #2a3140; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
