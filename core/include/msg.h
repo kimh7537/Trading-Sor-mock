@@ -55,6 +55,8 @@
  * LOGIN_REQ (16)  session_id[16]
  * LOGIN_ACK (4)    result:i32
  * HEARTBEAT (0)    바디 없음 — 헤더의 seq와 ts가 전부다
+ * RESEND_REQ (8)  from_seq:u64   (from_seq부터 지금까지 전부 다시)
+ * GAP_FILL (8)     next_seq:u64   (그 앞은 더 없다. next_seq부터 이어라)
  *
  * ===========================================================================
  * 요청과 응답
@@ -85,6 +87,8 @@
 #define MSG_LOGIN_ACK_LEN (4)
 /* 하트비트는 바디가 없다. 0은 유효한 길이다 — 헤더만으로 뜻이 완성된다. */
 #define MSG_HEARTBEAT_LEN (0)
+#define MSG_RESEND_REQ_LEN (8)
+#define MSG_GAP_FILL_LEN (8)
 
 /*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
@@ -103,7 +107,9 @@
     X(MSG_FILL_NOTI, 9, MSG_FILL_NOTI_LEN, "체결 통보")                    \
     X(MSG_LOGIN_REQ, 10, MSG_LOGIN_REQ_LEN, "로그인 요청")                 \
     X(MSG_LOGIN_ACK, 11, MSG_LOGIN_ACK_LEN, "로그인 응답")                 \
-    X(MSG_HEARTBEAT, 12, MSG_HEARTBEAT_LEN, "하트비트")
+    X(MSG_HEARTBEAT, 12, MSG_HEARTBEAT_LEN, "하트비트")                      \
+    X(MSG_RESEND_REQ, 13, MSG_RESEND_REQ_LEN, "재전송 요청")                 \
+    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -221,6 +227,14 @@ typedef struct {
     int32_t result; /* 성공이면 ERR_OK, 아니면 거부 사유 */
 } msg_login_ack_t;
 
+typedef struct {
+    uint64_t from_seq;
+} msg_resend_req_t;
+
+typedef struct {
+    uint64_t next_seq;
+} msg_gap_fill_t;
+
 /*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
@@ -239,6 +253,8 @@ int msg_encode_query_ack(const msg_query_ack_t *m, uint8_t *buf, size_t cap);
 int msg_encode_fill_noti(const msg_fill_noti_t *m, uint8_t *buf, size_t cap);
 int msg_encode_login_req(const msg_login_req_t *m, uint8_t *buf, size_t cap);
 int msg_encode_login_ack(const msg_login_ack_t *m, uint8_t *buf, size_t cap);
+int msg_encode_resend_req(const msg_resend_req_t *m, uint8_t *buf, size_t cap);
+int msg_encode_gap_fill(const msg_gap_fill_t *m, uint8_t *buf, size_t cap);
 
 /*
  * 디코딩 — 바디 길이가 규격과 **정확히 같아야** 한다. 짧으면 필드가 모자라고,
@@ -259,5 +275,8 @@ int msg_decode_query_ack(const uint8_t *buf, size_t len, msg_query_ack_t *out);
 int msg_decode_fill_noti(const uint8_t *buf, size_t len, msg_fill_noti_t *out);
 int msg_decode_login_req(const uint8_t *buf, size_t len, msg_login_req_t *out);
 int msg_decode_login_ack(const uint8_t *buf, size_t len, msg_login_ack_t *out);
+int msg_decode_resend_req(const uint8_t *buf, size_t len,
+                          msg_resend_req_t *out);
+int msg_decode_gap_fill(const uint8_t *buf, size_t len, msg_gap_fill_t *out);
 
 #endif /* MINI_SOR_MSG_H */

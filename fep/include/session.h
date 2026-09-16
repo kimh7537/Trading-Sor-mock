@@ -8,6 +8,7 @@
 #include "framer.h"
 #include "msg.h"
 #include "sendq.h"
+#include "seqtrack.h"
 #include "wire.h"
 
 /*
@@ -123,6 +124,14 @@ typedef struct {
     char     session_id[SESSION_ID_LEN + 1];
     uint64_t out_seq; /* 다음에 보낼 시퀀스. 접속이 바뀌어도 이어진다 */
 
+    /*
+     * T3-12. 보낸 것은 다시 보낼 수 있게 보관하고, 받은 것은 번호를 대조한다.
+     * **둘 다 접속을 넘어 살아남는다** — 갭은 접속과 접속 사이에 생기므로
+     * 재접속 때 비우면 감지할 방법이 사라진다.
+     */
+    seqstore_t store;
+    seqtrack_t track;
+
     int64_t last_tx_ms; /* 마지막으로 무언가 **보낸** 시각 */
     int64_t last_rx_ms; /* 마지막으로 무언가 **받은** 시각 */
     int64_t login_at_ms;
@@ -205,5 +214,19 @@ bool session_want_write(const session_t *s);
 
 /* 다음 재접속까지 남은 시간. DOWN이 아니면 -1. */
 int64_t session_retry_in(const session_t *s, int64_t now_ms);
+
+/* --- 시퀀스 (T3-12) --- */
+
+/*
+ * 다음에 받을 것으로 기대하는 번호. 갭을 메우는 중이면 빠진 첫 번호다.
+ */
+uint64_t session_expected_seq(const session_t *s);
+
+/* 갭을 메우는 중인가. 이때 도착하는 전문은 위로 올라가지 않는다. */
+bool session_recovering(const session_t *s);
+
+/* 만난 갭의 수와 버린 중복의 수. 운영 지표다. */
+int64_t session_gaps(const session_t *s);
+int64_t session_dups(const session_t *s);
 
 #endif /* MINI_SOR_SESSION_H */

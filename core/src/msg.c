@@ -579,3 +579,64 @@ int msg_decode_login_ack(const uint8_t *buf, size_t len, msg_login_ack_t *out)
 
     return (int)(p - buf);
 }
+
+int msg_encode_resend_req(const msg_resend_req_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_RESEND_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_u64(p, m->from_seq);
+    p += 8;
+
+    return (int)(p - buf);
+}
+
+int msg_decode_resend_req(const uint8_t *buf, size_t len,
+                          msg_resend_req_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_RESEND_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    out->from_seq = wire_get_u64(p);
+    p += 8;
+
+    return (int)(p - buf);
+}
+
+int msg_encode_gap_fill(const msg_gap_fill_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_GAP_FILL_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_u64(p, m->next_seq);
+    p += 8;
+
+    return (int)(p - buf);
+}
+
+int msg_decode_gap_fill(const uint8_t *buf, size_t len, msg_gap_fill_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_GAP_FILL_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    out->next_seq = wire_get_u64(p);
+    p += 8;
+
+    return (int)(p - buf);
+}

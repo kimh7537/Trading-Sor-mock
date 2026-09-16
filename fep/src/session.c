@@ -54,6 +54,14 @@ int session_init(session_t *s, const session_config_t *cfg,
     s->session_id[SESSION_ID_LEN] = '\0';
 
     s->out_seq = 1; /* 0은 "아직 아무것도 안 보냈다"와 헷갈린다 */
+
+    seqstore_init(&s->store);
+    /*
+     * 상대도 1부터 센다고 본다 — 이 규격을 쓰는 양쪽이 같은 코드를 쓴다.
+     * 틀려도 스스로 맞춰진다: 상대가 5부터 시작하면 첫 전문이 갭으로 잡히고,
+     * 상대가 `GAP_FILL(5)`로 답해 기대값이 5로 옮겨진다.
+     */
+    seqtrack_init(&s->track, 1);
     s->backoff_ms = s->cfg.backoff_min_ms;
 
     /*
@@ -131,8 +139,99 @@ static int enqueue(session_t *s, uint8_t type, const uint8_t *body,
         return rc; /* 큐가 찼다. 아무것도 넣지 않았다 */
     }
 
+    /*
+     * **큐에 넣은 뒤에 보관한다.** 순서가 반대면 큐가 차서 거절된 전문까지
+     * 보관하게 되고, 그러면 보낸 적 없는 번호를 재전송해 주게 된다.
+     *
+     * 보관에 실패해도(너무 큰 전문) 전송은 그대로 둔다. 재전송해 줄 수 없을
+     * 뿐이고, 그때는 `GAP_FILL`로 "없다"고 답한다 — 조용히 빠뜨리지 않는다.
+     */
+    (void)seqstore_put(&s->store, s->out_seq, frame,
+                       WIRE_HEADER_LEN + body_len);
+
     s->out_seq++;
     s->last_tx_ms = now_ms;
+
+    return ERR_OK;
+}
+
+/*
+ * 이미 보낸 전문을 그대로 다시 큐에 넣는다.
+ *
+ * `enqueue`를 쓰지 않는다 — 그쪽은 새 번호를 매기지만, 재전송은 **원래 번호
+ * 그대로** 나가야 한다. 번호를 새로 매기면 받는 쪽이 갭을 영영 못 메운다.
+ */
+static int requeue(session_t *s, uint64_t seq, int64_t now_ms)
+{
+    uint8_t frame[SEQSTORE_FRAME_MAX];
+
+    int n = seqstore_get(&s->store, seq, frame, sizeof(frame));
+    if (n < 0) {
+        return n; /* 밀려 나갔다 */
+    }
+
+    int rc = sendq_push(&s->tx, frame, (size_t)n);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    s->last_tx_ms = now_ms;
+    return ERR_OK;
+}
+
+/*
+ * 상대가 요청한 구간을 다시 보낸다.
+ *
+ * 요청 시작점이 이미 밀려 나갔으면 **먼저 `GAP_FILL`로 "그 앞은 없다"고
+ * 말한다.** 말해 주지 않으면 상대는 오지 않을 번호를 영원히 기다리며 그 뒤의
+ * 전문을 전부 버린다 — 양쪽 다 살아 있는데 아무것도 흐르지 않는 접속이 된다.
+ */
+static int resend_from(session_t *s, uint64_t from_seq, int64_t now_ms)
+{
+    if (from_seq == 0) {
+        return ERR_INVALID_ARG;
+    }
+
+    uint64_t oldest = seqstore_oldest(&s->store);
+
+    if (oldest == 0 || from_seq < oldest) {
+        /*
+         * 들고 있는 것이 없거나, 요청이 우리가 가진 것보다 앞이다.
+         * 어디서부터 이어야 하는지 알려 준다. 보관이 비었으면 **다음에 보낼
+         * 번호**가 이을 자리다.
+         */
+        uint64_t next = (oldest == 0) ? s->out_seq : oldest;
+
+        msg_gap_fill_t gf;
+        memset(&gf, 0, sizeof(gf));
+        gf.next_seq = next;
+
+        uint8_t body[MSG_GAP_FILL_LEN];
+        int     n = msg_encode_gap_fill(&gf, body, sizeof(body));
+        if (n < 0) {
+            return n;
+        }
+        int rc = enqueue(s, MSG_GAP_FILL, body, (size_t)n, now_ms);
+        if (rc != ERR_OK) {
+            return rc;
+        }
+
+        from_seq = next;
+    }
+
+    /* 있는 것을 순서대로 다시 보낸다. */
+    for (uint64_t seq = from_seq; seq < s->out_seq; seq++) {
+        int rc = requeue(s, seq, now_ms);
+        if (rc == ERR_NOT_FOUND) {
+            continue; /* 그 번호는 보관하지 않은 전문이다 */
+        }
+        if (rc != ERR_OK) {
+            /*
+             * 큐가 찼다. 여기서 멈추면 상대는 반쯤 채워진 채 기다리게 되므로
+             * **끊는다** — 다시 붙으면 상대가 갭을 새로 감지해 다시 요청한다.
+             */
+            return rc;
+        }
+    }
 
     return ERR_OK;
 }
@@ -227,6 +326,21 @@ void session_drop(session_t *s, int64_t now_ms)
     sendq_init(&s->tx);
 
     /*
+     * **"메우는 중"은 접속에 딸린 상태다.** 앞 접속에서 보낸 재전송 요청은
+     * 그 접속과 함께 사라졌으므로, 여기서 풀지 않으면 다시 붙어 갭을 봐도
+     * `SEQ_WAIT`으로 삼켜 **다시는 요청하지 않으면서 영원히 기다린다.**
+     * 양쪽 다 살아 있는데 아무것도 흐르지 않는 접속이 된다.
+     *
+     * 반대로 **기대값과 보관은 지우지 않는다.** 기대값을 지우면 접속 사이에
+     * 놓친 전문을 영영 모르게 되는데, 갭이 생기는 자리가 바로 거기다
+     * (`seqtrack.h` 참조). 보관도 남겨야 상대가 재접속 뒤 요청했을 때 답한다.
+     *
+     * 프레이머·송신 큐를 여기서 비우는 것과 같은 이유다 — 접속과 함께 죽는
+     * 것은 접속과 함께 버린다.
+     */
+    s->track.recovering = false;
+
+    /*
      * **지수 백오프에 상한을 둔다.** 상한이 없으면 오래 끊겨 있던 세션이
      * 몇 시간 뒤에나 다시 붙는다 — 상대가 이미 돌아와 있어도.
      *
@@ -251,9 +365,52 @@ void session_drop(session_t *s, int64_t now_ms)
 
 /* --- 받기 --- */
 
-static int handle_frame(session_t *s, const wire_header_t *hdr,
-                        const uint8_t *body, session_frame_fn fn, void *ctx)
+static bool is_session_frame(uint8_t type)
 {
+    return type == MSG_HEARTBEAT || type == MSG_LOGIN_REQ ||
+           type == MSG_LOGIN_ACK || type == MSG_RESEND_REQ ||
+           type == MSG_GAP_FILL;
+}
+
+static int handle_frame(session_t *s, const wire_header_t *hdr,
+                        const uint8_t *body, session_frame_fn fn, void *ctx,
+                        int64_t now_ms)
+{
+    /*
+     * ======================================================================
+     * 번호는 **모든 전문**에 대해 본다. 그러나 막는 것은 업무 전문뿐이다
+     * ======================================================================
+     *
+     * 상대는 하트비트에도 번호를 매긴다(우리도 그렇다). 업무 전문만 세면
+     * 기대값이 금세 어긋나 멀쩡한 흐름이 갭으로 보인다. 그래서 세는 것은 전부다.
+     *
+     * 하지만 **세션 전문까지 갭에 막으면 빠져나올 수 없다.** 재접속한 뒤
+     * 상대의 `LOGIN_ACK`은 이미 갭 너머의 번호를 달고 온다 — 그것을 막으면
+     * 로그인이 끝나지 않고, 로그인이 안 끝나면 재전송도 못 받는다.
+     * `GAP_FILL`도 마찬가지다. 갭에서 빠져나오는 열쇠를 갭 안에 가두는 셈이다.
+     *
+     * 그래서 판정은 모두에게 하되, **버리는 것은 업무 전문뿐**이다.
+     * 세션 전문의 중복은 해가 없다 — 늦은 `LOGIN_ACK`은 상태 검사가 무시하고,
+     * 되돌리는 `GAP_FILL`은 `seqtrack_skip_to`가 거절한다.
+     */
+    seq_verdict_t verdict = seqtrack_on(&s->track, hdr->seq);
+
+    if (verdict == SEQ_GAP) {
+        msg_resend_req_t req;
+        memset(&req, 0, sizeof(req));
+        req.from_seq = seqtrack_expected(&s->track);
+
+        uint8_t rbody[MSG_RESEND_REQ_LEN];
+        int     n = msg_encode_resend_req(&req, rbody, sizeof(rbody));
+        if (n < 0) {
+            return n;
+        }
+        int rc = enqueue(s, MSG_RESEND_REQ, rbody, (size_t)n, now_ms);
+        if (rc != ERR_OK) {
+            return rc;
+        }
+    }
+
     switch (hdr->type) {
     case MSG_HEARTBEAT:
         /*
@@ -292,10 +449,43 @@ static int handle_frame(session_t *s, const wire_header_t *hdr,
          */
         return ERR_NOT_SUPPORTED;
 
+    case MSG_RESEND_REQ: {
+        /* 상대가 갭을 만났다. 보관하고 있는 것을 다시 보낸다. */
+        msg_resend_req_t req;
+        int              rc = msg_decode_resend_req(body, hdr->body_len, &req);
+        if (rc < 0) {
+            return rc;
+        }
+        return resend_from(s, req.from_seq, now_ms);
+    }
+
+    case MSG_GAP_FILL: {
+        /*
+         * 상대가 "그 앞은 더 없다"고 알려 왔다. 기다리기를 그만두고 그 번호로
+         * 건너뛴다. **이것이 없으면 우리는 오지 않을 번호를 영원히 기다린다.**
+         */
+        msg_gap_fill_t gf;
+        int            rc = msg_decode_gap_fill(body, hdr->body_len, &gf);
+        if (rc < 0) {
+            return rc;
+        }
+        /*
+         * 되돌리는 요청은 `seqtrack_skip_to`가 거절한다. 거절돼도 접속을
+         * 끊지는 않는다 — 늦게 도착한 `GAP_FILL`일 수 있고, 그때 이미
+         * 우리는 앞서 나가 있다.
+         */
+        (void)seqtrack_skip_to(&s->track, gf.next_seq);
+        return ERR_OK;
+    }
+
     default:
         break;
     }
 
+    /* 여기까지 왔다면 업무 전문이다. */
+    if (is_session_frame(hdr->type)) {
+        return ERR_NOT_SUPPORTED; /* 위 switch가 다 잡았어야 한다 */
+    }
     /* 업무 전문은 로그인 뒤에만 뜻이 있다. */
     if (s->state != SESSION_READY) {
         return ERR_NOT_LOGGED_IN;
@@ -309,6 +499,15 @@ static int handle_frame(session_t *s, const wire_header_t *hdr,
      */
     if (msg_body_len(hdr->type) != (int32_t)hdr->body_len) {
         return ERR_INVALID_ARG;
+    }
+
+    /*
+     * **순서가 맞는 것만 위로 올린다.** 중복(SEQ_DUP)은 두 번 처리되면
+     * 체결이 두 번 잡히고, 갭 뒤의 것(SEQ_WAIT/SEQ_GAP)은 순서가 뒤바뀐 채
+     * 올라간다. 둘 다 버린다 — 상대가 다시 보내 준다.
+     */
+    if (verdict != SEQ_OK) {
+        return ERR_OK;
     }
 
     if (fn != NULL) {
@@ -367,7 +566,7 @@ int session_on_readable(session_t *s, session_frame_fn fn, void *ctx,
             return got;
         }
 
-        int rc = handle_frame(s, &hdr, body, fn, ctx);
+        int rc = handle_frame(s, &hdr, body, fn, ctx, now_ms);
         if (rc != ERR_OK) {
             session_drop(s, now_ms);
             return rc;
@@ -445,4 +644,26 @@ int session_tick(session_t *s, int64_t now_ms)
     }
 
     return 0;
+}
+
+/* --- 시퀀스 지표 --- */
+
+uint64_t session_expected_seq(const session_t *s)
+{
+    return (s != NULL) ? seqtrack_expected(&s->track) : 0;
+}
+
+bool session_recovering(const session_t *s)
+{
+    return (s != NULL) && seqtrack_recovering(&s->track);
+}
+
+int64_t session_gaps(const session_t *s)
+{
+    return (s != NULL) ? s->track.gaps : 0;
+}
+
+int64_t session_dups(const session_t *s)
+{
+    return (s != NULL) ? s->track.dups : 0;
 }

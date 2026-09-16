@@ -36,7 +36,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 12);
+    assert(TABLE_N == 14);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -66,6 +66,8 @@ static void test_type_table(void)
      * 한다 — 조립기(T3-09)도 디코더도 0을 그대로 받아들인다.
      */
     assert(MSG_HEARTBEAT_LEN == 0);
+    assert(MSG_RESEND_REQ_LEN == 8);
+    assert(MSG_GAP_FILL_LEN == 8);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -318,6 +320,12 @@ static void test_roundtrip_all(void)
 
     ROUNDTRIP(msg_login_ack_t, msg_encode_login_ack, msg_decode_login_ack,
               MSG_LOGIN_ACK_LEN, { in.result = INT32_MIN; });
+
+    ROUNDTRIP(msg_resend_req_t, msg_encode_resend_req, msg_decode_resend_req,
+              MSG_RESEND_REQ_LEN, { in.from_seq = UINT64_MAX; });
+
+    ROUNDTRIP(msg_gap_fill_t, msg_encode_gap_fill, msg_decode_gap_fill,
+              MSG_GAP_FILL_LEN, { in.next_seq = UINT64_MAX; });
 }
 
 /* --- 5. 거절 --- */
