@@ -140,8 +140,8 @@ static void test_order_req_layout(void)
 {
     msg_order_req_t m;
     memset(&m, 0, sizeof(m));
-    strcpy(m.account, "ACC-001");
-    strcpy(m.symbol, "005930");
+    snprintf(m.account, sizeof(m.account), "%s", "ACC-001");
+    snprintf(m.symbol, sizeof(m.symbol), "%s", "005930");
     m.cl_ord_id = 0x0102030405060708ULL;
     m.side = 1;
     m.type = 2;
@@ -184,7 +184,7 @@ static void test_fill_noti_layout(void)
     memset(&m, 0, sizeof(m));
     m.order_id = 17;
     m.cl_ord_id = 99;
-    strcpy(m.symbol, "AB");
+    snprintf(m.symbol, sizeof(m.symbol), "%s", "AB");
     m.market = 1;
     m.side = 0;
     m.price = 256;
@@ -267,8 +267,8 @@ static void test_roundtrip_all(void)
 {
     ROUNDTRIP(msg_order_req_t, msg_encode_order_req, msg_decode_order_req,
               MSG_ORDER_REQ_LEN, {
-                  strcpy(in.account, "123456789012");
-                  strcpy(in.symbol, "12345678");
+                  snprintf(in.account, sizeof(in.account), "%s", "123456789012");
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "12345678");
                   in.cl_ord_id = UINT64_MAX;
                   in.side = 255;
                   in.type = 255;
@@ -289,7 +289,7 @@ static void test_roundtrip_all(void)
 
     ROUNDTRIP(msg_cancel_req_t, msg_encode_cancel_req, msg_decode_cancel_req,
               MSG_CANCEL_REQ_LEN, {
-                  strcpy(in.account, "A");
+                  snprintf(in.account, sizeof(in.account), "%s", "A");
                   in.order_id = UINT64_MAX;
                   in.cl_ord_id = 0;
               });
@@ -305,7 +305,7 @@ static void test_roundtrip_all(void)
 
     ROUNDTRIP(msg_modify_req_t, msg_encode_modify_req, msg_decode_modify_req,
               MSG_MODIFY_REQ_LEN, {
-                  strcpy(in.account, "ACC");
+                  snprintf(in.account, sizeof(in.account), "%s", "ACC");
                   in.order_id = 100;
                   in.cl_ord_id = 200;
                   in.new_price = 9999;
@@ -323,7 +323,7 @@ static void test_roundtrip_all(void)
 
     ROUNDTRIP(msg_query_req_t, msg_encode_query_req, msg_decode_query_req,
               MSG_QUERY_REQ_LEN, {
-                  strcpy(in.account, "Q");
+                  snprintf(in.account, sizeof(in.account), "%s", "Q");
                   in.order_id = 0; /* 전체 조회 */
               });
 
@@ -331,7 +331,7 @@ static void test_roundtrip_all(void)
               MSG_QUERY_ACK_LEN, {
                   in.order_id = 5;
                   in.cl_ord_id = 6;
-                  strcpy(in.symbol, "000660");
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "000660");
                   in.status = 1;
                   in.price = 70000;
                   in.qty = 10;
@@ -343,7 +343,7 @@ static void test_roundtrip_all(void)
               MSG_FILL_NOTI_LEN, {
                   in.order_id = 1;
                   in.cl_ord_id = 2;
-                  strcpy(in.symbol, "X");
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "X");
                   in.market = 1;
                   in.side = 1;
                   in.price = 1;
@@ -353,7 +353,7 @@ static void test_roundtrip_all(void)
               });
 
     ROUNDTRIP(msg_login_req_t, msg_encode_login_req, msg_decode_login_req,
-              MSG_LOGIN_REQ_LEN, { strcpy(in.session_id, "FEP-KRX-0000001"); });
+              MSG_LOGIN_REQ_LEN, { snprintf(in.session_id, sizeof(in.session_id), "%s", "FEP-KRX-0000001"); });
 
     ROUNDTRIP(msg_login_ack_t, msg_encode_login_ack, msg_decode_login_ack,
               MSG_LOGIN_ACK_LEN, { in.result = INT32_MIN; });
@@ -482,7 +482,7 @@ static void test_header_and_body_agree(void)
 {
     msg_order_req_t m;
     memset(&m, 0, sizeof(m));
-    strcpy(m.symbol, "005930");
+    snprintf(m.symbol, sizeof(m.symbol), "%s", "005930");
     m.price = 10000;
     m.qty = 10;
 

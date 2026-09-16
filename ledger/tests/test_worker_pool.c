@@ -112,8 +112,8 @@ static size_t build_order(uint8_t *buf, size_t cap, uint64_t cl_ord_id)
 
     msg_order_req_t req;
     memset(&req, 0, sizeof(req));
-    strcpy(req.account, "ACC-001");
-    strcpy(req.symbol, "005930");
+    snprintf(req.account, sizeof(req.account), "%s", "ACC-001");
+    snprintf(req.symbol, sizeof(req.symbol), "%s", "005930");
     req.cl_ord_id = cl_ord_id;
     req.side = SIDE_BUY;
     req.type = ORDER_LIMIT;

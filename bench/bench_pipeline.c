@@ -530,6 +530,10 @@ typedef struct {
     int64_t legs_total;
 } round_t;
 
+/*
+ * 전역 가변 상태 금지(CLAUDE.md)의 예외 — 측정 도구의 표본 버퍼다. 단계 x 측정 건수라
+ * 스택에 두기엔 크고, 엔진이 아니라 하네스라 결정성과 상관이 없다.
+ */
 static int64_t g_samp[STAGE_COUNT][MEASURED];
 static int64_t g_total[MEASURED];
 
