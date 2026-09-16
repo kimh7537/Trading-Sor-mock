@@ -48,7 +48,22 @@ export async function submitOrder(req: OrderRequest): Promise<OrderResponse> {
       avgPrice: 0,
     };
   }
-  return (await res.json()) as OrderResponse;
+  // 채널계가 정한 모양(200·202·422·503)이 아니면 — 예: 예상 못 한 500 — outcome이 없다.
+  // 그대로 넘기면 화면이 없는 스타일을 읽다 통째로 멈춘다.
+  const body = (await res.json().catch(() => null)) as Partial<OrderResponse> | null;
+  if (body?.outcome !== "ACCEPTED" && body?.outcome !== "REJECTED" && body?.outcome !== "IN_DOUBT") {
+    return {
+      outcome: "REJECTED",
+      clOrdId: req.clOrdId,
+      orderId: 0,
+      reason: 0,
+      message: `채널계 오류 (HTTP ${res.status})`,
+      status: 0,
+      filledQty: 0,
+      avgPrice: 0,
+    };
+  }
+  return body as OrderResponse;
 }
 
 /** 원장 안의 실제 호가창. 원장이 없으면 예외. */

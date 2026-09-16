@@ -119,6 +119,17 @@ class LedgerConnectionPoolTest {
         try (LedgerConnectionPool pool = new LedgerConnectionPool(cfg)) {
             assertThatThrownBy(pool::borrow).isInstanceOf(LedgerException.class);
             assertThat(pool.aliveCount()).isZero(); // 실패한 접속을 세지 않는다
+
+            /*
+             * T6-11 — **실패해도 자리를 돌려놓는다.** 안 돌려놓으면 원장이 한 번 죽었던 것만으로
+             * 크기 1 풀의 자리가 영영 사라져, 원장이 살아나도 계속 "모자라다"로 실패한다
+             * (변이 P3가 이 테스트 없이 살아남았다).
+             */
+            long t0 = System.nanoTime();
+            assertThatThrownBy(pool::borrow)
+                    .isInstanceOf(LedgerException.class)
+                    .hasMessageContaining("붙을 수 없다");
+            assertThat((System.nanoTime() - t0) / 1_000_000).isLessThan(1500);
         }
     }
 
@@ -156,6 +167,87 @@ class LedgerConnectionPoolTest {
             pool.release(a);
             pool.release(b);
             assertThat(pool.borrow()).isNotNull();
+        }
+    }
+
+    /**
+     * T6-11 — <b>빈 풀에 동시에 몰려도 상한을 넘겨 만들지 않는다.</b>
+     *
+     * <p>예전엔 "살아 있는 수 &lt; 상한"을 본 뒤에 수를 올려, 여러 스레드가 함께 검사를
+     * 통과했다. 원장은 접속을 한 번에 하나만 받으므로 <b>두 번째 접속의 주문은 원장의
+     * 접속 대기열에 갇혔다가</b>, 첫 접속이 닫히는 한참 뒤에 옛 가격으로 체결될 수 있었다.
+     * 화면은 호가창 두 개를 동시에 읽으므로 첫 화면을 열 때마다 이 경합이 난다.
+     */
+    @Test
+    void concurrentBorrowNeverExceedsLimit() throws Exception {
+        /*
+         * 경합 창이 나노초라 한 판으로는 잘 안 걸린다. 빈 풀을 새로 만들어 여러 판 몬다 —
+         * 경합이 나는 순간은 "풀이 비어 있을 때 동시에 빌릴 때"뿐이기 때문이다.
+         */
+        ExecutorService threads = Executors.newFixedThreadPool(16);
+        try {
+            for (int round = 0; round < 200; round++) {
+                try (LedgerConnectionPool pool =
+                        new LedgerConnectionPool(props(2000, 2000), 1, 5000)) {
+                    java.util.concurrent.CyclicBarrier go =
+                            new java.util.concurrent.CyclicBarrier(16);
+                    List<Future<LedgerConnection>> rs = new ArrayList<>();
+                    for (int i = 0; i < 16; i++) {
+                        rs.add(
+                                threads.submit(
+                                        () -> {
+                                            go.await();
+                                            LedgerConnection c = pool.borrow();
+                                            pool.release(c);
+                                            return c;
+                                        }));
+                    }
+                    /*
+                     * 판마다 건네진 접속 객체가 몇 개인지 센다. 버린 접속이 없으므로 상한 1이면
+                     * 하나여야 한다. (원장 쪽 접속 수는 수락 스레드가 늦게 세서 판을 넘어 섞인다.)
+                     */
+                    java.util.Set<LedgerConnection> distinct =
+                            java.util.Collections.newSetFromMap(
+                                    new java.util.IdentityHashMap<>());
+                    for (Future<LedgerConnection> f : rs) {
+                        distinct.add(f.get(30, TimeUnit.SECONDS));
+                    }
+                    assertThat(distinct)
+                            .as("%d번째 판에서 접속을 둘 이상 만들었다", round)
+                            .hasSize(1);
+                }
+            }
+        } finally {
+            threads.shutdownNow();
+        }
+    }
+
+    /**
+     * T6-11 — <b>기다리던 요청은 접속이 버려지는 순간 깬다.</b> 예전엔 버린 접속이 대기열에
+     * 돌아오지 않아, 새로 만들 수 있는데도 대기 시간을 다 채운 뒤 "모자라다"로 실패했다.
+     */
+    @Test
+    void waiterWakesWhenConnectionIsDiscarded() throws Exception {
+        ledger.setSilent(true);
+        ExecutorService threads = Executors.newSingleThreadExecutor();
+        try (LedgerConnectionPool pool = new LedgerConnectionPool(props(2000, 150), 1, 3000)) {
+            LedgerConnection a = pool.borrow();
+
+            long t0 = System.nanoTime();
+            Future<LedgerConnection> waiter = threads.submit(pool::borrow);
+            Thread.sleep(50); // 기다리는 중이게 한다
+
+            assertThatThrownBy(() -> a.call(order(1), OrderAck.class, 1L))
+                    .isInstanceOf(LedgerException.class);
+            pool.release(a); // 깨진 접속 — 버려진다
+
+            LedgerConnection b = waiter.get(5, TimeUnit.SECONDS);
+            long waitedMs = (System.nanoTime() - t0) / 1_000_000;
+            assertThat(b).isNotNull();
+            assertThat(waitedMs).isLessThan(2000); // 대기 3초를 다 채우지 않았다
+            pool.release(b);
+        } finally {
+            threads.shutdownNow();
         }
     }
 

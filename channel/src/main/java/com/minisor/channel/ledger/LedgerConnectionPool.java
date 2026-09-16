@@ -3,6 +3,7 @@ package com.minisor.channel.ledger;
 import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,8 +50,11 @@ public class LedgerConnectionPool implements AutoCloseable {
 
     private final BlockingQueue<LedgerConnection> idle;
 
-    /** 지금 살아 있는 접속 수(빌려 간 것 + 쉬는 것). 상한을 지키는 값이다. */
+    /** 지금 살아 있는 접속 수(빌려 간 것 + 쉬는 것). 보고용이다. */
     private final AtomicInteger alive = new AtomicInteger();
+
+    /** 빌려 갈 수 있는 자리. 상한은 이것이 지킨다(T6-11). */
+    private final Semaphore slots;
 
     private volatile boolean closed;
 
@@ -87,6 +91,7 @@ public class LedgerConnectionPool implements AutoCloseable {
         this.maxSize = maxSize;
         this.borrowTimeoutMs = borrowTimeoutMs;
         this.idle = new ArrayBlockingQueue<>(maxSize);
+        this.slots = new Semaphore(maxSize);
     }
 
     /** 쉬는 접속 수. */
@@ -117,39 +122,43 @@ public class LedgerConnectionPool implements AutoCloseable {
             throw new LedgerException("원장 접속 설정이 없다(minisor.ledger.port)");
         }
 
-        LedgerConnection c = idle.poll();
-        while (c != null) {
-            if (!c.isBroken()) {
-                return c;
-            }
-            /* 쉬는 동안 상대가 끊었다. 버리고 다음 것을 본다. */
-            discard(c);
-            c = idle.poll();
-        }
-
-        if (alive.get() < maxSize) {
-            return create();
-        }
-
+        /*
+         * **자리(허가)를 먼저 잡는다**(T6-11). 예전엔 "살아 있는 수 < 상한"을 본 뒤에 수를
+         * 올려, 여러 스레드가 함께 검사를 통과해 상한을 넘겨 만들 수 있었다. 원장은 접속을
+         * 하나씩만 받으므로 넘친 접속의 주문은 원장의 수락 대기열에 갇힌다.
+         *
+         * 자리는 접속을 돌려주든 버리든 `release()`에서 풀리므로, 기다리던 요청은 **버려진
+         * 순간에도 깬다.** 예전엔 버린 접속이 대기열로 돌아오지 않아 대기 시간을 다 채웠다.
+         */
         try {
-            c = idle.poll(borrowTimeoutMs, TimeUnit.MILLISECONDS);
+            if (!slots.tryAcquire(borrowTimeoutMs, TimeUnit.MILLISECONDS)) {
+                throw new LedgerException(
+                        "원장 접속이 모자라다(" + maxSize + "개가 모두 쓰이는 중)");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new LedgerException("접속을 기다리다 중단됐다");
         }
-        if (c == null) {
-            throw new LedgerException(
-                    "원장 접속이 모자라다(" + maxSize + "개가 모두 쓰이는 중)");
-        }
-        if (c.isBroken()) {
-            discard(c);
+
+        try {
+            LedgerConnection c = idle.poll();
+            while (c != null) {
+                if (!c.isBroken()) {
+                    return c;
+                }
+                /* 쉬는 동안 상대가 끊었다. 버리고 다음 것을 본다. */
+                discard(c);
+                c = idle.poll();
+            }
             return create();
+        } catch (RuntimeException e) {
+            slots.release(); // 접속을 못 건넸으니 자리를 돌려놓는다
+            throw e;
         }
-        return c;
     }
 
     /**
-     * 다 쓴 접속을 돌려준다.
+     * 다 쓴 접속을 돌려준다. <b>빌린 접속마다 정확히 한 번</b> 부른다 — 자리를 푸는 곳이다.
      *
      * <p><b>깨진 것은 받지 않는다.</b> 돌려놓으면 다음 요청이 그것을 집는다.
      */
@@ -160,6 +169,7 @@ public class LedgerConnectionPool implements AutoCloseable {
         if (closed || c.isBroken() || !idle.offer(c)) {
             discard(c);
         }
+        slots.release();
     }
 
     private LedgerConnection create() {
