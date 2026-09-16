@@ -16,9 +16,9 @@
 #define CAP 64
 
 /* 한 시각의 판정을 (구간, 열림) 쌍으로 확인한다 */
-static void at(ts_t ts, session_t want, bool want_open)
+static void at(ts_t ts, market_session_t want, bool want_open)
 {
-    session_t got = SESSION_CLOSED;
+    market_session_t got = SESSION_CLOSED;
     bool open = NXT_RULES.is_open(ts, &got);
     assert(got == want);
     assert(open == want_open);
@@ -87,7 +87,7 @@ static void test_order_types(void)
     }
 
     /* 프리·애프터마켓은 지정가만 */
-    const session_t limit_only[] = {SESSION_PRE, SESSION_AFTER};
+    const market_session_t limit_only[] = {SESSION_PRE, SESSION_AFTER};
     for (size_t s = 0; s < 2; s++) {
         assert(NXT_RULES.is_order_type_allowed(limit_only[s], ORDER_LIMIT));
         assert(!NXT_RULES.is_order_type_allowed(limit_only[s], ORDER_MARKET));
@@ -97,7 +97,7 @@ static void test_order_types(void)
     }
 
     /* 휴장·폐장 구간은 아무것도 */
-    const session_t closed[] = {SESSION_CLOSED, SESSION_PRE_BREAK,
+    const market_session_t closed[] = {SESSION_CLOSED, SESSION_PRE_BREAK,
                                 SESSION_POST_BREAK};
     for (size_t s = 0; s < 3; s++) {
         for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
@@ -138,7 +138,7 @@ static void test_allows_reprice(void)
 /* KRX와 NXT가 동시에 열려 있지 않은 구간이 실제로 있다 (SOR 테스트의 근거) */
 static void test_asymmetry_with_krx(void)
 {
-    session_t ns, ks;
+    market_session_t ns, ks;
 
     /* 08:30 — NXT만 */
     assert(NXT_RULES.is_open(TOD_NS(8, 30, 0), &ns));

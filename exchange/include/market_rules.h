@@ -32,7 +32,7 @@ typedef enum {
     SESSION_REGULAR,    /* 정규장 / 메인마켓 */
     SESSION_POST_BREAK, /* 오후 휴장 (NXT) */
     SESSION_AFTER       /* 애프터마켓 (NXT) */
-} session_t;
+} market_session_t;
 
 typedef struct market_rules {
     const char *name; /* 로그·테스트 식별용 */
@@ -41,16 +41,16 @@ typedef struct market_rules {
      * 논리 시각이 거래 가능한 구간인가. 어느 구간인지는 *out으로 준다.
      * 닫혀 있어도 out에는 판정된 구간을 채운다 — 휴장 구간은 "닫혔지만 취소는 된다".
      */
-    bool (*is_open)(ts_t ts, session_t *out);
+    bool (*is_open)(ts_t ts, market_session_t *out);
 
     /* 이 구간에서 이 주문 유형을 받는가. */
-    bool (*is_order_type_allowed)(session_t session, order_type_t type);
+    bool (*is_order_type_allowed)(market_session_t session, order_type_t type);
 
     /* 신규 주문을 받는가. 휴장 구간에서는 false. */
-    bool (*can_submit)(session_t session);
+    bool (*can_submit)(market_session_t session);
 
     /* 취소를 받는가. 휴장 구간에서도 true인 것이 KRX·NXT 공통이다. */
-    bool (*can_cancel)(session_t session);
+    bool (*can_cancel)(market_session_t session);
 
     /*
      * 이 주문이 실제로 쓸 가격을 정한다.
@@ -100,6 +100,6 @@ extern const market_rules_t KRX_RULES;
 extern const market_rules_t NXT_RULES;
 
 /* 세션 이름. 정의되지 않은 값에도 NULL을 반환하지 않는다. */
-const char *session_str(session_t session);
+const char *market_session_str(market_session_t session);
 
 #endif /* MINI_SOR_MARKET_RULES_H */

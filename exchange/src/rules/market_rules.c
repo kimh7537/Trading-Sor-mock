@@ -12,7 +12,7 @@
     X(SESSION_POST_BREAK, "오후 휴장") \
     X(SESSION_AFTER, "애프터마켓")
 
-const char *session_str(session_t session)
+const char *market_session_str(market_session_t session)
 {
 #define SESSION_NAME_CASE(name, text) \
     case name:                        \

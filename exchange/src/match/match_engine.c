@@ -269,7 +269,7 @@ int match_gate_submit(const match_engine_t *eng, ts_t ts, order_type_t type)
         return ERR_OK;
     }
 
-    session_t session = SESSION_CLOSED;
+    market_session_t session = SESSION_CLOSED;
     bool open = eng->rules->is_open(ts, &session);
 
     /*
@@ -291,7 +291,7 @@ int match_gate_cancel(const match_engine_t *eng, ts_t ts)
         return ERR_OK;
     }
 
-    session_t session = SESSION_CLOSED;
+    market_session_t session = SESSION_CLOSED;
     (void)eng->rules->is_open(ts, &session);
 
     return eng->rules->can_cancel(session) ? ERR_OK : ERR_MARKET_CLOSED;

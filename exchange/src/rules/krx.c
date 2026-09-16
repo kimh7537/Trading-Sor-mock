@@ -16,7 +16,7 @@
 #define KRX_OPEN TOD_NS(9, 0, 0)
 #define KRX_CLOSE TOD_NS(15, 30, 0)
 
-static bool krx_is_open(ts_t ts, session_t *out)
+static bool krx_is_open(ts_t ts, market_session_t *out)
 {
     int64_t tod = ts_time_of_day(ts);
 
@@ -29,7 +29,7 @@ static bool krx_is_open(ts_t ts, session_t *out)
     return false;
 }
 
-static bool krx_type_allowed(session_t session, order_type_t type)
+static bool krx_type_allowed(market_session_t session, order_type_t type)
 {
     if (session != SESSION_REGULAR) {
         return false;
@@ -38,12 +38,12 @@ static bool krx_type_allowed(session_t session, order_type_t type)
     return type != ORDER_MIDPOINT;
 }
 
-static bool krx_can_submit(session_t session)
+static bool krx_can_submit(market_session_t session)
 {
     return session == SESSION_REGULAR;
 }
 
-static bool krx_can_cancel(session_t session)
+static bool krx_can_cancel(market_session_t session)
 {
     /* 휴장 구간이 없으므로 장이 열려 있을 때만 취소도 받는다. */
     return session == SESSION_REGULAR;

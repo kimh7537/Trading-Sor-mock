@@ -40,7 +40,7 @@ bool cons_is_open(const cons_book_t *cons, market_t market, ts_t ts)
     if (cons->rules[market] == NULL) {
         return true; /* 규칙을 안 붙였으면 세션 판정을 하지 않는다 */
     }
-    session_t session = SESSION_CLOSED;
+    market_session_t session = SESSION_CLOSED;
     return cons->rules[market]->is_open(ts, &session);
 }
 

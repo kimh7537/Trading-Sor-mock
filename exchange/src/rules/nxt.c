@@ -20,7 +20,7 @@
 static const struct {
     int64_t   from;
     int64_t   to;
-    session_t session;
+    market_session_t session;
     bool      open;
 } NXT_SESSIONS[] = {
     {TOD_NS(8, 0, 0), TOD_NS(8, 50, 0), SESSION_PRE, true},
@@ -32,7 +32,7 @@ static const struct {
 
 #define NXT_SESSION_COUNT (sizeof(NXT_SESSIONS) / sizeof(NXT_SESSIONS[0]))
 
-static bool nxt_is_open(ts_t ts, session_t *out)
+static bool nxt_is_open(ts_t ts, market_session_t *out)
 {
     int64_t tod = ts_time_of_day(ts);
 
@@ -47,7 +47,7 @@ static bool nxt_is_open(ts_t ts, session_t *out)
     return false;
 }
 
-static bool nxt_type_allowed(session_t session, order_type_t type)
+static bool nxt_type_allowed(market_session_t session, order_type_t type)
 {
     switch (session) {
     case SESSION_REGULAR:
@@ -65,13 +65,13 @@ static bool nxt_type_allowed(session_t session, order_type_t type)
     return false;
 }
 
-static bool nxt_can_submit(session_t session)
+static bool nxt_can_submit(market_session_t session)
 {
     return session == SESSION_PRE || session == SESSION_REGULAR ||
            session == SESSION_AFTER;
 }
 
-static bool nxt_can_cancel(session_t session)
+static bool nxt_can_cancel(market_session_t session)
 {
     /* 휴장 구간에서도 취소는 받는다 — KRX와 갈리는 지점이다. */
     return session != SESSION_CLOSED;

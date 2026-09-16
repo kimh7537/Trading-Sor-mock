@@ -18,7 +18,7 @@
 /* 더미 규칙이 참조하는 상태. 규칙 함수 자체는 인자만 보므로 여기에 몰아 둔다. */
 static struct {
     bool      open;
-    session_t session;
+    market_session_t session;
     bool      allow_type;
     bool      allow_submit;
     bool      allow_cancel;
@@ -46,7 +46,7 @@ static void reset_rules(void)
     G.n_resolve = 0;
 }
 
-static bool dummy_is_open(ts_t ts, session_t *out)
+static bool dummy_is_open(ts_t ts, market_session_t *out)
 {
     (void)ts;
     G.n_is_open++;
@@ -54,7 +54,7 @@ static bool dummy_is_open(ts_t ts, session_t *out)
     return G.open;
 }
 
-static bool dummy_type_allowed(session_t session, order_type_t type)
+static bool dummy_type_allowed(market_session_t session, order_type_t type)
 {
     (void)type;
     G.n_allowed++;
@@ -62,14 +62,14 @@ static bool dummy_type_allowed(session_t session, order_type_t type)
     return G.allow_type;
 }
 
-static bool dummy_can_submit(session_t session)
+static bool dummy_can_submit(market_session_t session)
 {
     G.n_submit++;
     assert(session == G.session);
     return G.allow_submit;
 }
 
-static bool dummy_can_cancel(session_t session)
+static bool dummy_can_cancel(market_session_t session)
 {
     G.n_cancel++;
     assert(session == G.session);
@@ -279,13 +279,13 @@ static void test_unresolvable_price(void)
 /* 세션 이름표 */
 static void test_session_str(void)
 {
-    const session_t all[] = {SESSION_CLOSED,     SESSION_PRE,
+    const market_session_t all[] = {SESSION_CLOSED,     SESSION_PRE,
                              SESSION_PRE_BREAK,  SESSION_REGULAR,
                              SESSION_POST_BREAK, SESSION_AFTER};
     for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
-        assert(session_str(all[i]) != NULL);
+        assert(market_session_str(all[i]) != NULL);
     }
-    assert(session_str((session_t)99) != NULL); /* 미정의 값도 NULL 아님 */
+    assert(market_session_str((market_session_t)99) != NULL); /* 미정의 값도 NULL 아님 */
 }
 
 int main(void)

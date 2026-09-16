@@ -14,7 +14,7 @@
 #define BASE 10000
 #define CAP 64
 
-static bool open_at(ts_t ts, session_t *out)
+static bool open_at(ts_t ts, market_session_t *out)
 {
     return KRX_RULES.is_open(ts, out);
 }
@@ -22,7 +22,7 @@ static bool open_at(ts_t ts, session_t *out)
 /* 장 시작·마감 경계 */
 static void test_session_boundaries(void)
 {
-    session_t s;
+    market_session_t s;
 
     /* 09:00 직전은 닫혀 있다 */
     assert(!open_at(TOD_NS(8, 59, 59), &s) && s == SESSION_CLOSED);
