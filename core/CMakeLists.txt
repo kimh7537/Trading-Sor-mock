@@ -1,5 +1,6 @@
 add_library(core STATIC
     src/errors.c
+    src/kv_config.c
     src/tick_size.c
     src/order_pool.c
     src/order_index.c

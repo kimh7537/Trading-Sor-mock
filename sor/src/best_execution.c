@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "errors.h"
+#include "kv_config.h"
 
 /*
  * 가격 40 / 체결 가능성 30 / 비용 20 / 시장 상태 10.
@@ -214,109 +215,25 @@ int be_pick(const venue_score_t scores[MARKET_COUNT], market_t *out_market)
 
 /* --- 설정 파일 --- */
 
-/*
- * ponytail: key=value 파서가 divergent.c에도 있다. 지금은 60줄쯤 겹친다.
- * 세 번째 쓰임이 생기면 core로 뽑는다 — 지금 뽑으면 두 곳의 요구가 아직
- * 갈리는지 모르는 채로 인터페이스를 굳히게 된다. 별도 태스크로 제안해 뒀다.
- */
-
-static char *be_trim(char *s)
-{
-    while (*s == ' ' || *s == '\t') {
-        s++;
-    }
-    char *end = s + strlen(s);
-    while (end > s) {
-        char c = end[-1];
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
-            end--;
-        } else {
-            break;
-        }
-    }
-    *end = '\0';
-    return s;
-}
-
-/* 남는 글자가 있으면 실패다 — "40점" 같은 값을 걸러낸다. */
-static int be_parse_i32(const char *s, int32_t *out)
-{
-    char *end = NULL;
-    long v = strtol(s, &end, 10);
-
-    if (end == s || *end != '\0') {
-        return ERR_INVALID_ARG;
-    }
-    if (v < INT32_MIN || v > INT32_MAX) {
-        return ERR_INVALID_ARG;
-    }
-    *out = (int32_t)v;
-    return ERR_OK;
-}
-
 int be_load_config(const char *path, be_weights_t *w, be_config_t *cfg)
 {
     if (path == NULL) {
         return ERR_NULL_PTR;
     }
 
-    FILE *f = fopen(path, "r");
-    if (f == NULL) {
-        return ERR_NOT_FOUND;
-    }
-
     /* 적지 않은 키는 기본값을 쓴다. */
     be_weights_t weights = BE_WEIGHTS_DEFAULT;
     be_config_t  config = BE_CONFIG_DEFAULT;
 
-    char line[512];
-    int  rc = ERR_OK;
-
-    while (fgets(line, sizeof(line), f) != NULL) {
-        char *hash = strchr(line, '#');
-        if (hash != NULL) {
-            *hash = '\0';
-        }
-        char *body = be_trim(line);
-        if (*body == '\0') {
-            continue;
-        }
-
-        char *eq = strchr(body, '=');
-        if (eq == NULL) {
-            rc = ERR_INVALID_ARG;
-            break;
-        }
-        *eq = '\0';
-        char *key = be_trim(body);
-        char *val = be_trim(eq + 1);
-        if (*key == '\0' || *val == '\0') {
-            rc = ERR_INVALID_ARG;
-            break;
-        }
-
-        if (strcmp(key, "weight_price") == 0) {
-            rc = be_parse_i32(val, &weights.price);
-        } else if (strcmp(key, "weight_fill") == 0) {
-            rc = be_parse_i32(val, &weights.fill);
-        } else if (strcmp(key, "weight_cost") == 0) {
-            rc = be_parse_i32(val, &weights.cost);
-        } else if (strcmp(key, "weight_state") == 0) {
-            rc = be_parse_i32(val, &weights.state);
-        } else if (strcmp(key, "fee_krx_bp") == 0) {
-            rc = be_parse_i32(val, &config.fee_bp[MARKET_KRX]);
-        } else if (strcmp(key, "fee_nxt_bp") == 0) {
-            rc = be_parse_i32(val, &config.fee_bp[MARKET_NXT]);
-        } else {
-            rc = ERR_INVALID_ARG; /* 오타를 조용히 넘기지 않는다 */
-        }
-
-        if (rc != ERR_OK) {
-            break;
-        }
-    }
-
-    fclose(f);
+    const kv_entry_t table[] = {
+        {"weight_price", kv_parse_i32, &weights.price},
+        {"weight_fill", kv_parse_i32, &weights.fill},
+        {"weight_cost", kv_parse_i32, &weights.cost},
+        {"weight_state", kv_parse_i32, &weights.state},
+        {"fee_krx_bp", kv_parse_i32, &config.fee_bp[MARKET_KRX]},
+        {"fee_nxt_bp", kv_parse_i32, &config.fee_bp[MARKET_NXT]},
+    };
+    int rc = kv_config_load(path, table, sizeof(table) / sizeof(table[0]));
     if (rc != ERR_OK) {
         return rc;
     }

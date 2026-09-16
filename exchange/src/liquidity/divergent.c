@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "errors.h"
+#include "kv_config.h"
 #include "tick_size.h"
 
 /*
@@ -197,50 +198,10 @@ price_t divergent_ref_price(const divergent_t *div, market_t market)
 
 /* --- 설정 파일 --- */
 
-static char *trim(char *s)
+static int parse_scenario(const char *val, void *field)
 {
-    while (*s == ' ' || *s == '\t') {
-        s++;
-    }
-    char *end = s + strlen(s);
-    while (end > s) {
-        char c = end[-1];
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
-            end--;
-        } else {
-            break;
-        }
-    }
-    *end = '\0';
-    return s;
-}
-
-/* 정수 하나. 남는 글자가 있으면 실패다 — "10000원" 같은 값을 걸러낸다. */
-static int parse_i64(const char *s, int64_t *out)
-{
-    char *end = NULL;
-    long long v = strtoll(s, &end, 10);
-
-    if (end == s || *end != '\0') {
-        return ERR_INVALID_ARG;
-    }
-    *out = (int64_t)v;
-    return ERR_OK;
-}
-
-static int parse_u64(const char *s, uint64_t *out)
-{
-    char *end = NULL;
-
-    if (*s == '-') {
-        return ERR_INVALID_ARG;
-    }
-    unsigned long long v = strtoull(s, &end, 10);
-    if (end == s || *end != '\0') {
-        return ERR_INVALID_ARG;
-    }
-    *out = (uint64_t)v;
-    return ERR_OK;
+    int rc = scenario_from_str(val, (scenario_t *)field);
+    return rc == ERR_NOT_FOUND ? ERR_INVALID_ARG : rc;
 }
 
 int divergent_load(const char *path, divergent_config_t *out)
@@ -249,72 +210,19 @@ int divergent_load(const char *path, divergent_config_t *out)
         return ERR_NULL_PTR;
     }
 
-    FILE *f = fopen(path, "r");
-    if (f == NULL) {
-        return ERR_NOT_FOUND;
-    }
-
     divergent_config_t cfg = {0};
-    char line[512];
-    int rc = ERR_OK;
 
-    while (fgets(line, sizeof(line), f) != NULL) {
-        char *hash = strchr(line, '#');
-        if (hash != NULL) {
-            *hash = '\0';
-        }
-        char *body = trim(line);
-        if (*body == '\0') {
-            continue;
-        }
-
-        char *eq = strchr(body, '=');
-        if (eq == NULL) {
-            rc = ERR_INVALID_ARG;
-            break;
-        }
-        *eq = '\0';
-        char *key = trim(body);
-        char *val = trim(eq + 1);
-        if (*key == '\0' || *val == '\0') {
-            rc = ERR_INVALID_ARG;
-            break;
-        }
-
-        int64_t n = 0;
-        if (strcmp(key, "scenario") == 0) {
-            rc = scenario_from_str(val, &cfg.scenario);
-            if (rc == ERR_NOT_FOUND) {
-                rc = ERR_INVALID_ARG;
-            }
-        } else if (strcmp(key, "seed") == 0) {
-            rc = parse_u64(val, &cfg.seed);
-        } else if (strcmp(key, "ref_price") == 0) {
-            rc = parse_i64(val, &n);
-            cfg.ref_price = (price_t)n;
-        } else if (strcmp(key, "price_low") == 0) {
-            rc = parse_i64(val, &n);
-            cfg.price_low = (price_t)n;
-        } else if (strcmp(key, "price_high") == 0) {
-            rc = parse_i64(val, &n);
-            cfg.price_high = (price_t)n;
-        } else if (strcmp(key, "start_ts") == 0) {
-            rc = parse_i64(val, &n);
-            cfg.start_ts = (ts_t)n;
-        } else if (strcmp(key, "orders_per_market") == 0) {
-            rc = parse_i64(val, &n);
-            cfg.orders_per_market = (int32_t)n;
-        } else {
-            /* 오타 난 키를 조용히 넘기면 그 설정으로 돌린 실험을 해석할 수 없다. */
-            rc = ERR_INVALID_ARG;
-        }
-
-        if (rc != ERR_OK) {
-            break;
-        }
-    }
-
-    fclose(f);
+    /* price_t는 int32_t, ts_t는 int64_t다 (types.h). */
+    const kv_entry_t table[] = {
+        {"scenario", parse_scenario, &cfg.scenario},
+        {"seed", kv_parse_u64, &cfg.seed},
+        {"ref_price", kv_parse_i32, &cfg.ref_price},
+        {"price_low", kv_parse_i32, &cfg.price_low},
+        {"price_high", kv_parse_i32, &cfg.price_high},
+        {"start_ts", kv_parse_i64, &cfg.start_ts},
+        {"orders_per_market", kv_parse_i32, &cfg.orders_per_market},
+    };
+    int rc = kv_config_load(path, table, sizeof(table) / sizeof(table[0]));
 
     if (rc == ERR_OK) {
         *out = cfg;
