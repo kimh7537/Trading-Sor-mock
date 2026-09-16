@@ -1,0 +1,1 @@
+mini_sor_add_test(test_order_sdk order_sdk)
