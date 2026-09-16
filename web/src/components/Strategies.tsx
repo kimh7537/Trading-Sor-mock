@@ -1,6 +1,9 @@
 /**
  * Phase 2의 측정 결과. 이 프로젝트의 최종 산출물이다
- * (`bench/results/strategies-2026-09-16.md`).
+ * (`bench/results/strategies-2026-09-16.md`, 시드 20260916 한 장면).
+ *
+ * bp는 **슬리피지**(접수 시점 통합 최우선호가 대비)다. 라우팅 줄은 SPLIT 전략의 값이다 —
+ * 복수시장 전략 셋의 체결률은 같고 슬리피지만 0~2bp로 다르다.
  */
 const DATA = [
   { s: "BALANCED", krxBp: 11, krxFill: 53.46, sorBp: 1, sorFill: 100.0 },
@@ -65,7 +68,7 @@ export function Strategies() {
               +{d.krxBp}bp
             </span>
 
-            <span style={{ color: "var(--text-faint)" }}>라우팅</span>
+            <span style={{ color: "var(--text-faint)" }}>SPLIT</span>
             <Bar v={d.sorFill} max={100} color="var(--nxt)" />
             <span className="num" style={{ textAlign: "right", color: "var(--text-dim)" }}>
               +{d.sorBp}bp
@@ -88,8 +91,9 @@ export function Strategies() {
         <b>결론</b> — 복수시장 라우팅의 이득은 단가보다 <b>체결률</b>에서 먼저 온다.
         <br />
         <span style={{ color: "var(--text-dim)" }}>
-          NXT_THIN의 라우팅이 −1bp인 것은 전략이 나빠서가 아니라 <b>더 많이 채우느라</b>
-          비싼 호가까지 갔기 때문이다.
+          NXT_THIN에서 라우팅의 평균 단가가 KRX 단독보다 1bp 비싼 것은 전략이 나빠서가
+          아니라 <b>더 많이 채우느라</b>(체결률 53% → 59%) 비싼 호가까지 갔기 때문이다.
+          위 막대 옆 bp는 단가 차이가 아니라 슬리피지다.
         </span>
       </p>
     </div>
