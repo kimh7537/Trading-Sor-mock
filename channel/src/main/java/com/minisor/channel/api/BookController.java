@@ -3,15 +3,11 @@ package com.minisor.channel.api;
 import static com.minisor.channel.wire.WireEnums.MARKET_KRX;
 import static com.minisor.channel.wire.WireEnums.MARKET_NXT;
 
-import com.minisor.channel.ledger.LedgerConnection;
-import com.minisor.channel.ledger.LedgerConnectionPool;
 import com.minisor.channel.ledger.LedgerException;
-import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.BookAck;
 import com.minisor.channel.wire.BookReq;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,23 +19,30 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>조회는 아무것도 바꾸지 않으므로 답을 못 받아도 모호하지 않다 — 주문과 달리
  * 202가 아니라 503이다. 다시 불러도 된다.
+ *
+ * <p>호가 변화는 {@link LedgerPoller}가 읽어 밀어 보내기도 한다(T7-03). 이 API는 화면이 처음 뜰 때와
+ * 방송이 끊겼을 때 쓴다.
  */
 @RestController
 public class BookController {
 
     public record Level(int price, int qty) {}
 
-    public record BookDto(String symbol, int market, List<Level> bids, List<Level> asks) {}
+    public record BookDto(String symbol, int market, List<Level> bids, List<Level> asks) {
 
-    private final LedgerConnectionPool pool;
-    private final StreamHub hub;
+        static BookDto from(BookAck ack) {
+            return new BookDto(
+                    ack.symbol,
+                    ack.market,
+                    levels(ack.bidPrice, ack.bidQty),
+                    levels(ack.askPrice, ack.askQty));
+        }
+    }
 
-    /** 전문에 실을 논리 시각. 시스템 시각을 읽지 않는다(OrderService와 같다). */
-    private final AtomicLong logicalClock = new AtomicLong(1);
+    private final LedgerGateway gateway;
 
-    public BookController(LedgerConnectionPool pool, StreamHub hub) {
-        this.pool = pool;
-        this.hub = hub;
+    public BookController(LedgerGateway gateway) {
+        this.gateway = gateway;
     }
 
     @GetMapping("/api/book")
@@ -48,33 +51,19 @@ public class BookController {
         if ((market != MARKET_KRX && market != MARKET_NXT) || symbol.isEmpty() || symbol.length() > 8) {
             return ResponseEntity.badRequest().build();
         }
+        try {
+            return ResponseEntity.ok(BookDto.from(fetch(gateway, symbol, market)));
+        } catch (LedgerException e) {
+            /* 원장 끊김 알림은 게이트웨이가 했다 */
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+    }
 
+    static BookAck fetch(LedgerGateway gateway, String symbol, int market) {
         BookReq req = new BookReq();
         req.symbol = symbol;
         req.market = market;
-
-        BookAck ack;
-        LedgerConnection c = null;
-        try {
-            c = pool.borrow();
-            ack = c.call(req, BookAck.class, logicalClock.getAndIncrement());
-            hub.ledgerReachable(true, null);
-        } catch (LedgerException e) {
-            /* 화면이 1초마다 부르므로, 원장이 죽으면 여기서 가장 먼저 알게 된다 */
-            hub.ledgerReachable(false, e.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
-        } finally {
-            if (c != null) {
-                pool.release(c);
-            }
-        }
-
-        return ResponseEntity.ok(
-                new BookDto(
-                        ack.symbol,
-                        ack.market,
-                        levels(ack.bidPrice, ack.bidQty),
-                        levels(ack.askPrice, ack.askQty)));
+        return gateway.call(req, BookAck.class);
     }
 
     /** 없는 단(가격 0)은 싣지 않는다. 원장은 앞에서부터 채우므로 첫 0에서 끝난다. */

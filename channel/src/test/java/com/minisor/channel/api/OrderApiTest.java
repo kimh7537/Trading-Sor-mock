@@ -40,6 +40,8 @@ class OrderApiTest {
         ledger = new FakeLedger();
         reg.add("minisor.ledger.port", ledger::port);
         reg.add("minisor.ledger.read-timeout-ms", () -> 500);
+        /* 주기 작업이 끼어들면 방송 개수를 세는 시험이 흔들린다. 주기 작업은 LedgerPollerTest가 본다 */
+        reg.add("minisor.poller.enabled", () -> false);
     }
 
     @LocalServerPort private int port;
@@ -232,6 +234,134 @@ class OrderApiTest {
         assertThat(status).hasSize(2);
         assertThat(status.get(0)).contains("ledger-down");
         assertThat(status.get(1)).contains("ledger-up");
+
+        ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
+    }
+
+    /** T7-03 — 조회(게이트웨이 경유)가 원장 응답을 못 받아도 {@code ledger-down}을 방송한다. */
+    @Test
+    void readFailureIsBroadcast() throws Exception {
+        Sink sink = new Sink();
+        WebSocket ws =
+                HttpClient.newHttpClient()
+                        .newWebSocketBuilder()
+                        .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
+                        .get(5, TimeUnit.SECONDS);
+        for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
+            Thread.sleep(20);
+        }
+        assertThat(get("/api/book?market=0").statusCode()).isEqualTo(200);
+        Thread.sleep(200);
+        sink.got.clear();
+
+        ledger.setSilent(true);
+        try {
+            assertThat(get("/api/balance").statusCode()).isEqualTo(503);
+        } finally {
+            ledger.setSilent(false);
+        }
+        for (int i = 0; i < 100 && sink.got.stream().noneMatch(m -> m.contains("ledger-down")); i++) {
+            Thread.sleep(20);
+        }
+        assertThat(sink.got).anyMatch(m -> m.contains("\"kind\":\"ledger-down\""));
+
+        assertThat(get("/api/balance").statusCode()).isEqualTo(200);
+        ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
+    }
+
+    private HttpResponse<String> delete(String path) throws Exception {
+        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpRequest r =
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://127.0.0.1:" + port + path))
+                        .timeout(Duration.ofSeconds(10))
+                        .DELETE()
+                        .build();
+        return c.send(r, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * T7-03 — 접수된 주문은 <b>목록에 남고, 하나씩 원장에서 다시 읽힌다.</b> 시장별 몫(legs)이 실린다.
+     */
+    @Test
+    void ordersAreListedAndReadable() throws Exception {
+        assertThat(post(order(30)).statusCode()).isEqualTo(200);
+
+        HttpResponse<String> list = get("/api/orders");
+        assertThat(list.statusCode()).isEqualTo(200);
+        assertThat(list.body()).contains("\"orderId\":100030").contains("\"working\":10");
+
+        HttpResponse<String> one = get("/api/orders/100030");
+        assertThat(one.statusCode()).isEqualTo(200);
+        assertThat(one.body())
+                .contains("\"clOrdId\":30")
+                .contains("\"legs\":[{\"market\":0,\"sent\":10")
+                .contains("\"done\":false");
+
+        assertThat(get("/api/orders/424242").statusCode()).isEqualTo(404);
+    }
+
+    /**
+     * T7-03 — 취소: 잔량이 있으면 200, <b>같은 주문을 다시 취소하면 409</b>(끝났다), 모르는 주문은 404.
+     */
+    @Test
+    void cancelFlow() throws Exception {
+        assertThat(post(order(31)).statusCode()).isEqualTo(200);
+
+        HttpResponse<String> first = delete("/api/orders/100031");
+        assertThat(first.statusCode()).isEqualTo(200);
+        assertThat(first.body()).contains("\"canceledQty\":10").contains("\"done\":true");
+
+        assertThat(delete("/api/orders/100031").statusCode()).isEqualTo(409);
+        assertThat(delete("/api/orders/424243").statusCode()).isEqualTo(404);
+
+        /* 목록도 취소를 반영한다 — 주기 작업을 기다리지 않는다 */
+        assertThat(get("/api/orders").body())
+                .contains("\"orderId\":100031,\"clOrdId\":31")
+                .containsPattern("\"orderId\":100031,[^}]*\"canceled\":10,[^}]*\"done\":true");
+        assertThat(get("/api/orders/100031").body()).contains("\"canceled\":10");
+    }
+
+    /** T7-03 — 잔고: 예수금, 묶인 금액, 주문 가능 금액. */
+    @Test
+    void balanceComesFromLedger() throws Exception {
+        ledger.setBalance(100_000_000L, 700_000L);
+        HttpResponse<String> res = get("/api/balance");
+        assertThat(res.statusCode()).isEqualTo(200);
+        assertThat(res.body())
+                .contains("\"account\":\"123456789012\"")
+                .contains("\"cash\":100000000")
+                .contains("\"reserved\":700000")
+                .contains("\"available\":99300000");
+        ledger.setBalance(100_000_000L, 0);
+    }
+
+    /**
+     * T7-03 — SOR 자동 주문의 체결 알림에는 <b>실제로 체결된 시장</b>이 실린다(255가 아니라).
+     * 예전엔 고른 값(255)을 그대로 실어 화면이 "SOR"이라고만 보였다.
+     */
+    @Test
+    void sorFillCarriesActualMarket() throws Exception {
+        Sink sink = new Sink();
+        WebSocket ws =
+                HttpClient.newHttpClient()
+                        .newWebSocketBuilder()
+                        .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
+                        .get(5, TimeUnit.SECONDS);
+        for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
+            Thread.sleep(20);
+        }
+        assertThat(get("/api/book?market=0").statusCode()).isEqualTo(200);
+        Thread.sleep(200);
+        sink.got.clear();
+
+        ledger.setFillQty(3);
+        assertThat(post(order(32).replace("\"market\":0", "\"market\":255")).statusCode())
+                .isEqualTo(200);
+        waitFor(sink.got, 2);
+        List<String> fills = sink.got.stream().filter(m -> m.contains("\"kind\":\"fill\"")).toList();
+        assertThat(fills).hasSize(1);
+        assertThat(fills.get(0)).contains("\"market\":1").contains("\"qty\":3");
 
         ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
     }

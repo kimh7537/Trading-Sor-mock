@@ -12,6 +12,16 @@ public record StreamEvent(String kind, Object payload) {
         return new StreamEvent("order", p);
     }
 
+    /** 원장에서 다시 읽은 주문 상태가 바뀌었다(T7-03). payload는 주문 상세. */
+    public static StreamEvent orderUpdate(Object p) {
+        return new StreamEvent("order-update", p);
+    }
+
+    /** 잔고가 바뀌었다(T7-03). */
+    public static StreamEvent balance(Object p) {
+        return new StreamEvent("balance", p);
+    }
+
     public static StreamEvent book(Object p) {
         return new StreamEvent("book", p);
     }

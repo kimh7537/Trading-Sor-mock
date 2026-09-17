@@ -1341,7 +1341,7 @@ UI/UX를 최적화하고 더 잘 만들고 예쁘게."
 - 다른 계좌의 주문은 "없음"으로 답한다. 바이트 배치 테스트, 원장 코어 테스트, 채널계 `WireLayoutTest` 길이 대조
 
 ### T7-03 채널계: 취소·조회·잔고 API와 원장 상태 밀어 보내기
-- [ ] 의존: T7-02
+- [x] 의존: T7-02
 
 **완료 조건**
 - `GET /api/orders`(이 채널계가 낸 주문 목록과 최신 상태), `GET /api/orders/{orderId}`, `DELETE /api/orders/{orderId}`,

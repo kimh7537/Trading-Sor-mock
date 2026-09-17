@@ -38,15 +38,19 @@ class WireLayoutTest {
 
     /** 자바 선언 -> C의 길이 상수 이름. */
     private static final Map<Class<?>, String> EXPECT =
-            Map.of(
-                    OrderReq.class, "MSG_ORDER_REQ_LEN",
-                    OrderAck.class, "MSG_ORDER_ACK_LEN",
-                    CancelReq.class, "MSG_CANCEL_REQ_LEN",
-                    CancelAck.class, "MSG_CANCEL_ACK_LEN",
-                    FillNoti.class, "MSG_FILL_NOTI_LEN",
-                    QueryAck.class, "MSG_QUERY_ACK_LEN",
-                    BookReq.class, "MSG_BOOK_REQ_LEN",
-                    BookAck.class, "MSG_BOOK_ACK_LEN");
+            Map.ofEntries(
+                    Map.entry(OrderReq.class, "MSG_ORDER_REQ_LEN"),
+                    Map.entry(OrderAck.class, "MSG_ORDER_ACK_LEN"),
+                    Map.entry(CancelReq.class, "MSG_CANCEL_REQ_LEN"),
+                    Map.entry(CancelAck.class, "MSG_CANCEL_ACK_LEN"),
+                    Map.entry(FillNoti.class, "MSG_FILL_NOTI_LEN"),
+                    Map.entry(QueryAck.class, "MSG_QUERY_ACK_LEN"),
+                    Map.entry(BookReq.class, "MSG_BOOK_REQ_LEN"),
+                    Map.entry(BookAck.class, "MSG_BOOK_ACK_LEN"),
+                    Map.entry(DetailReq.class, "MSG_DETAIL_REQ_LEN"),
+                    Map.entry(DetailAck.class, "MSG_DETAIL_ACK_LEN"),
+                    Map.entry(BalanceReq.class, "MSG_BALANCE_REQ_LEN"),
+                    Map.entry(BalanceAck.class, "MSG_BALANCE_ACK_LEN"));
 
     @Test
     void javaLayoutMatchesCHeader() throws IOException {

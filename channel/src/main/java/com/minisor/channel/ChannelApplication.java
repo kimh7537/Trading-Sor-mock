@@ -3,6 +3,7 @@ package com.minisor.channel;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 채널계.
@@ -15,6 +16,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  */
 @SpringBootApplication
 @ConfigurationPropertiesScan
+@EnableScheduling // 원장 상태를 주기적으로 읽어 방송한다(LedgerPoller, T7-03)
 public class ChannelApplication {
 
 	public static void main(String[] args) {

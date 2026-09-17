@@ -59,9 +59,12 @@ public final class WireCodec {
 
                 int size = w.type() == WireType.STR ? w.length() : w.type().size();
                 if (w.count() != 1) {
-                    if (w.count() < 1 || w.type() != WireType.I32 || f.getType() != int[].class) {
+                    boolean ints = w.type() == WireType.I32 && f.getType() == int[].class;
+                    boolean longs = w.type() == WireType.I64 && f.getType() == long[].class;
+                    if (w.count() < 1 || !(ints || longs)) {
                         throw new WireException(
-                                "배열은 I32 int[]만 된다: " + c.getSimpleName() + "." + f.getName());
+                                "배열은 I32 int[] 또는 I64 long[]만 된다: "
+                                        + c.getSimpleName() + "." + f.getName());
                     }
                     size *= w.count();
                 }
@@ -120,7 +123,11 @@ public final class WireCodec {
             for (Slot s : slots) {
                 Object v = s.field().get(msg);
                 if (s.spec().count() != 1) {
-                    putInts(b, (int[]) v, s.spec().count());
+                    if (s.spec().type() == WireType.I64) {
+                        putLongs(b, (long[]) v, s.spec().count());
+                    } else {
+                        putInts(b, (int[]) v, s.spec().count());
+                    }
                     continue;
                 }
                 switch (s.spec().type()) {
@@ -155,11 +162,19 @@ public final class WireCodec {
             for (Slot s : layoutOf(cls)) {
                 Field f = s.field();
                 if (s.spec().count() != 1) {
-                    int[] arr = new int[s.spec().count()];
-                    for (int i = 0; i < arr.length; i++) {
-                        arr[i] = b.getInt();
+                    if (s.spec().type() == WireType.I64) {
+                        long[] arr = new long[s.spec().count()];
+                        for (int i = 0; i < arr.length; i++) {
+                            arr[i] = b.getLong();
+                        }
+                        f.set(out, arr);
+                    } else {
+                        int[] arr = new int[s.spec().count()];
+                        for (int i = 0; i < arr.length; i++) {
+                            arr[i] = b.getInt();
+                        }
+                        f.set(out, arr);
                     }
-                    f.set(out, arr);
                     continue;
                 }
                 switch (s.spec().type()) {
@@ -191,6 +206,15 @@ public final class WireCodec {
         }
         for (int i = 0; i < count; i++) {
             b.putInt(v == null ? 0 : v[i]);
+        }
+    }
+
+    private static void putLongs(ByteBuffer b, long[] v, int count) {
+        if (v != null && v.length != count) {
+            throw new WireException("배열 길이가 " + count + "이어야 하는데 " + v.length);
+        }
+        for (int i = 0; i < count; i++) {
+            b.putLong(v == null ? 0L : v[i]);
         }
     }
 

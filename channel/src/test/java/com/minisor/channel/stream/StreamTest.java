@@ -16,7 +16,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
 /** T4-05: 구독·전파, 이탈, 느린 구독자가 전체를 막지 않는 것. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "minisor.poller.enabled=false")
 class StreamTest {
 
     @LocalServerPort private int port;

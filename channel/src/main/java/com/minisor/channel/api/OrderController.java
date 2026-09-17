@@ -2,8 +2,12 @@ package com.minisor.channel.api;
 
 import com.minisor.channel.ledger.LedgerException;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +35,52 @@ public class OrderController {
 
     public OrderController(OrderService service) {
         this.service = service;
+    }
+
+    /** 이 채널계가 낸 주문과 마지막으로 본 상태, 최근 것부터(T7-03). */
+    @GetMapping
+    public List<OrderView> list() {
+        return service.orders();
+    }
+
+    /** 주문 하나의 지금 상태를 원장에서 읽는다. 없거나 남의 주문이면 404. */
+    @GetMapping("/{orderId}")
+    public ResponseEntity<OrderView> detail(@PathVariable long orderId) {
+        try {
+            OrderView v = service.detail(orderId);
+            return v == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(v);
+        } catch (LedgerException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+    }
+
+    /**
+     * 취소(T7-03).
+     *
+     * <ul>
+     *   <li>200 취소됐다 — {@code canceledQty}만큼
+     *   <li>409 이 채널계가 낸 주문인데 취소할 잔량이 없다(이미 체결·취소로 끝남)
+     *   <li>404 모르는 주문
+     *   <li>503 원장에 못 붙음. <b>취소는 다시 보내도 안전하다</b> — 두 번째는 "잔량 없음"일 뿐이다
+     * </ul>
+     */
+    @DeleteMapping("/{orderId}")
+    public ResponseEntity<OrderService.CancelResult> cancel(@PathVariable long orderId) {
+        OrderService.CancelResult r;
+        try {
+            r = service.cancel(orderId);
+        } catch (LedgerException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        if (r.reason() == 0) {
+            return ResponseEntity.ok(r);
+        }
+        if (r.reason() == OrderService.ERR_NOT_FOUND) {
+            return service.knows(orderId)
+                    ? ResponseEntity.status(HttpStatus.CONFLICT).body(r)
+                    : ResponseEntity.status(HttpStatus.NOT_FOUND).body(r);
+        }
+        return ResponseEntity.unprocessableEntity().body(r);
     }
 
     @PostMapping

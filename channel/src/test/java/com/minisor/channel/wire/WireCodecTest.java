@@ -125,6 +125,32 @@ class WireCodecTest {
         assertThatThrownBy(() -> WireCodec.encodeBody(in)).isInstanceOf(WireException.class);
     }
 
+    /**
+     * 주문 상세(T7-02)의 i64 배열. 시장별 체결 금액이 i32를 넘어도 그대로 오간다 —
+     * 70,000원 x 100,000주 = 70억 원.
+     */
+    @Test
+    void longArraysInOrder() {
+        DetailAck in = new DetailAck();
+        in.orderId = 200000001;
+        in.market = 255;
+        in.legSent = new int[] {0, 100000};
+        in.legFilled = new int[] {0, 100000};
+        in.legCanceled = new int[] {0, 0};
+        in.legNotional = new long[] {0x0102030405060708L, 7_000_000_000L};
+
+        byte[] body = WireCodec.encodeBody(in);
+        assertThat(body).hasSize(91); // C의 MSG_DETAIL_ACK_LEN
+        assertThat(body[22]).isEqualTo((byte) 255);
+        assertThat(body[75]).isEqualTo((byte) 0x01); // leg_notional[0]의 첫 바이트
+        assertThat(body[82]).isEqualTo((byte) 0x08);
+
+        DetailAck out = WireCodec.decodeBody(DetailAck.class, body, 0, body.length);
+        assertThat(out.market).isEqualTo(255);
+        assertThat(out.legNotional).containsExactly(0x0102030405060708L, 7_000_000_000L);
+        assertThat(out.legSent).containsExactly(0, 100000);
+    }
+
     /** 길이가 규격과 다르면 해석하지 않는다(T3-02와 같은 판단). */
     @Test
     void rejectsWrongLength() {

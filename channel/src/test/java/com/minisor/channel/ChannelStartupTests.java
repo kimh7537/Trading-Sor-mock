@@ -33,7 +33,7 @@ import org.springframework.test.context.TestPropertySource;
  * <b>스프링이 아니라 우리 설정</b>이다. 흔들리지 않는 도구를 쓴다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = "minisor.ledger.port=17001")
+@TestPropertySource(properties = {"minisor.ledger.port=17001", "minisor.poller.enabled=false"})
 class ChannelStartupTests {
 
     @LocalServerPort private int port;
