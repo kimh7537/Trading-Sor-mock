@@ -386,6 +386,40 @@ static void test_notional_is_exact_across_price_levels(void)
     fx_free(&fx);
 }
 
+/*
+ * T7-07 — 체결이 EXEC_FILLS_MAX 건을 넘어 목록이 잘려도 금액이 새지 않는다.
+ *
+ * 잘린 뒤의 몫(9주 = 6주 @10000 + 3주 @10010 = 90,030원)을 평균 하나로 넣으면
+ * 10,003 x 9 = 90,027원 — 3원이 사라진다. 화면에서 원장 접수 응답의 평균가와
+ * 주문 상세의 평균가가 1원 다르게 보여 드러났다.
+ */
+static void test_notional_is_exact_when_fill_list_truncated(void)
+{
+    fixture_t fx;
+    fx_init(&fx, false, T_BOTH);
+
+    const qty_t cheap = EXEC_FILLS_MAX + 6;
+    for (qty_t i = 0; i < cheap; i++) {
+        put(&fx, MARKET_KRX, SIDE_SELL, 10000, 1);
+    }
+    for (int32_t i = 0; i < 3; i++) {
+        put(&fx, MARKET_KRX, SIDE_SELL, 10010, 1);
+    }
+
+    order_t       req = logical_req(SIDE_BUY, 10010, cheap + 3, T_BOTH);
+    exec_plan_t   plan = manual_plan(&req, cheap + 3, 0, ORDER_LIMIT);
+    exec_report_t rep;
+
+    assert(exec_submit(fx.map, &fx.venues, &req, &plan, &rep) == ERR_OK);
+    assert(rep.filled_qty == cheap + 3);
+    int64_t want = (int64_t)cheap * 10000 + 3 * 10010;
+    assert(rep.notional == want);
+    assert(omap_notional(fx.map, req.id) == want);
+
+    check_invariant(&fx, &req, &rep);
+    fx_free(&fx);
+}
+
 /* --- 6. 인자 검사 --- */
 
 static void test_args(void)
@@ -468,6 +502,7 @@ int main(void)
     test_nothing_fills_but_rests();
     test_ioc_leftover_is_canceled();
     test_notional_is_exact_across_price_levels();
+    test_notional_is_exact_when_fill_list_truncated();
     test_args();
     test_invariant_exhaustive();
     return 0;

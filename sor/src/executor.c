@@ -54,8 +54,9 @@ static int send_leg(match_engine_t *eng, const order_t *req,
  * 나머지만큼 체결 금액이 샌다. 평균 체결 단가가 이 프로젝트의 최종 산출물이라
  * 그 오차를 여기서 만들면 안 된다.
  *
- * 목록이 잘린 경우(EXEC_FILLS_MAX 초과)에만 남은 몫을 평균으로 넣는다. 그때도
- * 집계값(filled_qty, notional)은 정확하므로 총량은 맞는다.
+ * 목록이 잘린 경우(EXEC_FILLS_MAX 초과)에만 남은 몫을 평균으로 넣는다. 집계값
+ * (filled_qty, notional)은 정확하지만 평균 하나로 넣으면 나눗셈 나머지가 샌다 —
+ * 그래서 "평균(버림) 가격 몫"과 "1원 높은 몫"으로 나눠 금액을 정확히 맞춘다(T7-07).
  */
 static void record_fills(order_map_t *map, order_id_t phys_id,
                          const exec_result_t *res)
@@ -75,9 +76,18 @@ static void record_fills(order_map_t *map, order_id_t phys_id,
     if (done < res->filled_qty) {
         qty_t   rest = res->filled_qty - done;
         int64_t rest_notional = res->notional - done_notional;
-        int     rc = omap_on_fill(map, phys_id, rest,
-                                  (price_t)(rest_notional / rest));
-        assert(rc == ERR_OK);
+        price_t avg = (price_t)(rest_notional / rest);
+        qty_t   up = (qty_t)(rest_notional % rest); /* avg + 1원에 넣을 수량 */
+        int     rc = ERR_OK;
+
+        if (rest > up) {
+            rc = omap_on_fill(map, phys_id, rest - up, avg);
+            assert(rc == ERR_OK);
+        }
+        if (up > 0) {
+            rc = omap_on_fill(map, phys_id, up, avg + 1);
+            assert(rc == ERR_OK);
+        }
         (void)rc;
     }
 }
