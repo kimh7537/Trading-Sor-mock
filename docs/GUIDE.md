@@ -24,6 +24,7 @@
 
 4장은 **아래층부터 위층으로** 읽는다: core → exchange → sor → bench/sdk → ledger/fep → channel/web.
 위층 코드는 아래층의 타입과 함수를 그대로 쓰기 때문이다.
+**실제로 파일을 하나씩 열어 가며 읽을 때는 바로 아래 0.1절 "코드 읽기 로드맵"을 따라간다.**
 
 **코드를 읽을 때의 요령**
 
@@ -36,6 +37,188 @@
 - 작업 순서와 그때그때의 판단은 `docs/TASKS.md`(할 일과 완료 조건)와 `docs/PROGRESS.md`
   (한 일, 발견, 판단)에 태스크 번호(`T1-05` 같은)로 남아 있다. 코드 주석의 태스크 번호로 찾아간다.
 - 오류를 어떻게 찾고 고쳤는지, 왜 그 방법을 골랐는지는 **문서 2 `docs/ENGINEERING-NOTES.md`** 에 모았다.
+
+---
+
+### 0.1 코드 읽기 로드맵 — 처음 보는 사람이 파일을 여는 순서
+
+이 절은 저장소 **전체**를 한 줄로 이어 놓은 순서다. 4장의 모듈별 "읽는 순서"는 모듈 안의 순서이고,
+여기서는 **모듈과 모듈 사이를 어떻게 건너가는지**까지 정한다.
+
+**원칙 세 가지**
+
+1. **작은 부품 → 부품을 조립한 것.** 타입 → 호가창 → 매칭 엔진 → SOR → 원장 → 채널계 → 화면.
+   앞 단계에서 본 이름이 뒤 단계에 그대로 나온다.
+2. **한 단계 = 헤더 → 소스 → 테스트.** 표의 "파일" 칸에 적힌 순서대로 열고, "확인" 칸의 테스트로 끝낸다.
+   소스가 어렵게 느껴지면 헤더 주석과 테스트만 읽고 넘어가도 된다. 테스트의 숫자가 곧 동작 설명이다.
+3. **단계 묶음 끝의 체크포인트 질문에 답할 수 있으면 다음으로 간다.** 답이 막히면 "안내서" 칸의 절을 읽는다.
+
+각 단계의 "안내서" 칸은 이 문서의 어디에 자세한 설명이 있는지 가리킨다.
+"(선택)"이 붙은 단계는 처음 읽을 때 건너뛰어도 전체 흐름을 이해하는 데 지장이 없다.
+
+#### 가. 코드를 열기 전 (약 1시간)
+
+| 단계 | 읽을 것 | 볼 것 | 안내서 |
+|---|---|---|---|
+| 0-1 | `README.md` | 무엇을 재려는 프로젝트인지, 결과 표 | 1장 |
+| 0-2 | 이 문서 2장 "주문 하나의 여행" | 주문 하나가 지나가는 **파일·함수 이름**을 눈에 익힌다. 아래 단계에서 그 이름들을 하나씩 연다 | 2장 |
+| 0-3 | `docs/SPEC.md` 1~4장 | 호가 단위, 가격 제한폭, 매칭 규칙(가격·시간 우선), KRX와 NXT의 거래 시간 차이 | 4.1절 "KRX와 NXT" |
+| 0-4 | `CLAUDE.md` "C 코딩 규약", "결정성" | 에러 코드 규약, 금지 사항, 왜 시스템 시각을 안 읽는지 | 3.1절, 3.10절 |
+
+#### 나. 공통 부품 — `core/` 기초 (약 1시간)
+
+| 단계 | 파일 (이 순서로 연다) | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 1 | `core/include/types.h` | `price_t`·`qty_t`·`order_id_t`, `side_t`(매수 0/매도 1), `order_type_t`, `market_t`(KRX 0/NXT 1) | `core/tests/test_types.c` | 4.1절 1 |
+| 2 | `core/include/errors.h` → `core/src/errors.c` | 음수 에러 코드 목록(X 매크로). 이후 모든 함수가 이 값을 돌려준다 | 같은 테스트 | 4.1절 1 |
+| 3 | `core/include/tick_size.h` → `core/src/tick_size.c` | 가격대별 호가 단위 표. 70,000원대는 100원 | `test_tick_size.c` | 4.1절 2 |
+| 4 | `core/include/order.h` → `core/src/order_pool.c` | 주문 구조체, 미리 만들어 둔 주문 풀에서 꺼내고 돌려주기 | `test_order_pool.c`, `test_order_pool_double_free.c` | 4.1절 3 |
+| 5 | `core/include/order_index.h` → `core/src/order_index.c` | 주문번호로 주문을 찾는 해시 테이블 | `test_order_index.c` | 4.1절 4 |
+
+> **체크포인트 나.** 함수가 실패하면 무엇을 돌려주고 결과는 어디에 쓰나? 주문마다 `malloc`하지 않는 이유는?
+
+#### 다. 매칭 엔진 — `exchange/` (약 3시간)
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 6 | `exchange/include/price_level.h` → `src/book/price_level.c` | 한 가격에 줄 선 주문들(먼저 온 순서) | `test_price_level.c` | 4.1절 "price_level" |
+| 7 | `exchange/include/order_book.h` → `src/book/order_book.c` | 가격 칸 배열로 만든 호가창, 최우선호가, `book_snapshot()`(N단 조회) | `test_order_book.c` | 4.1절 "order_book" |
+| 8 | `exchange/include/event.h` → `src/event.c` | 접수·체결·취소 이벤트와 싱크(콜백). **나중에 원장이 돈을 옮기는 곳이 이 콜백이다** | `test_event.c` | 4.1절 "event" |
+| 9 | `exchange/include/match.h` → `src/match/match_internal.h` → `match_engine.c` → `match_limit.c` | 지정가 주문이 반대편 호가를 먹고 남으면 걸리는 과정. **이 저장소에서 가장 중요한 함수 `match_limit()`** | `test_match_limit.c` | 4.1절 "매칭 엔진" |
+| 10 | `match_market.c` → `match_ioc_fok.c` → `match_cancel_modify.c` | 시장가, IOC/FOK, 취소·정정(정정 시 우선순위) | `test_match_market.c`, `test_match_ioc_fok.c`, `test_match_cancel_modify.c` | 같은 절 |
+| 11 | `exchange/include/market_rules.h` → `src/rules/market_rules.c` → `krx.c` → `nxt.c` | 두 시장의 차이는 "언제 무엇을 받아 주나"뿐이다. 체결 알고리즘은 같다 | `test_market_rules.c`, `test_krx_rules.c`, `test_nxt_rules.c`, `test_midpoint.c` | 4.1절 "market_rules" |
+| 12 | `exchange/include/synthetic.h` → `src/liquidity/synthetic.c` | 시드를 받는 난수로 가짜 참가자 주문 만들기 | `test_synthetic.c` | 4.1절 "synthetic" |
+| 13 | (선택) `core/include/kv_config.h` → `core/src/kv_config.c` | `key = value` 설정 읽기. 다음 단계 시나리오 설정에 쓰인다 | `core/tests/test_kv_config.c` | 4.1절 "kv_config" |
+| 14 | `exchange/include/divergent.h` → `src/liquidity/divergent.c` | 두 시장에 **다른** 유동성 넣기 — BALANCED / KRX_THIN / NXT_THIN / CROSSED 시나리오 | `test_divergent.c` | 4.1절 "divergent" |
+| 15 | `exchange/tests/test_determinism.c` | 같은 시드로 두 번 돌려 이벤트가 바이트까지 같은지 | (이 파일 자체) | 4.1절, 3.10절 |
+
+> **체크포인트 다.** 70,200원 매수 80주가 들어오면 어떤 순서로 누구와 얼마에 체결되나? 체결가는 누구의 가격인가?
+> KRX와 NXT 엔진은 코드 어디가 다른가? 전략 비교에 결정성이 왜 꼭 필요한가?
+
+#### 라. 주문 배분 — `sor/` (약 3시간)
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 16 | `sor/include/consolidated.h` → `src/consolidated.c` | KRX·NXT 호가창을 가격순으로 합쳐 보는 통합 호가창 | `test_consolidated.c`, `test_consolidated_update.c` | 4.2절 sor/ 3·4 |
+| 17 | `sor/include/best_execution.h` → `src/best_execution.c` | 가격·수량·수수료로 시장에 점수를 매기는 최선집행 평가와 가중치 | `test_best_execution.c`, `test_be_weights.c` | 같은 절 |
+| 18 | `sor/include/strategy.h` → `src/strategy.c` | 집행 계획(`exec_plan_t`)과 다리(leg), `plan_add_leg()` | — | 같은 절 |
+| 19 | `src/strategy_krx_only.c` → `strategy_best_price.c` → `strategy_split.c` → `strategy_sweep.c` | 같은 300주 매수를 네 전략이 어떻게 나누는지 (안내서의 손계산 예시를 옆에 두고 읽는다) | `test_strategy_*.c` 넷 | 같은 절 |
+| 20 | `sor/include/routing_log.h` → `src/routing_log.c` | `routing_plan()` — 전략을 부르고 판단 근거를 기록 | `test_routing_log.c` | 같은 절 |
+| 21 | `sor/include/order_map.h` → `src/order_map.c` | 논리 주문 ↔ 물리 주문 매핑, 체결 반영 | `test_order_map.c` | 같은 절 |
+| 22 | `sor/include/executor.h` → `src/executor.c` | `exec_submit()` — 계획의 다리마다 매칭 엔진에 넣고 보고서를 만든다 | `test_split_state.c`, `test_split_cancel.c` | 같은 절 |
+| 23 | `sor/include/execution_quality.h` → `src/execution_quality.c` | 슬리피지(bp), 체결률, 체결 금액에서 직접 계산하는 `eq_avg_diff_bp()` | `test_execution_quality.c`, (선택) `test_recon_live.c` | 같은 절, 3.11절 |
+
+> **체크포인트 라.** 논리 주문과 물리 주문은 무엇이 다른가? BEST_PRICE가 더 싼 시장을 **안** 고를 수 있는 경우는?
+> 평균 단가를 원 단위로 반올림한 뒤 빼면 왜 bp가 틀리나?
+
+#### 마. 전문과 내구성 — `core/` 나머지 (약 2시간)
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 24 | `core/include/wire.h` → `core/src/wire.c` | 24바이트 헤더, 빅엔디언으로 숫자 쓰고 읽기 | `test_wire.c` | 4.1절 "wire", 3.2절 |
+| 25 | `core/include/msg.h` → `core/src/msg.c` | 전문 종별 16개(주문·취소·조회·호가 조회…)와 바디 배치. **채널계 Java가 이 파일과 똑같아야 한다** | `test_msg.c` | 4.1절 "msg" |
+| 26 | (선택) `core/include/feed.h` → `src/feed.c` → `exchange/include/feed_source.h` → `exchange/src/feed_source.c` | 외부 전략 엔진용 시세 피드(스냅샷 방식) | `test_feed.c`, `test_feed_source.c` | 4.1절 "feed" |
+| 27 | `core/include/journal.h` → `src/journal.c` | 덧붙이기 전용 저널, CRC, 쓰다 만 마지막 레코드 버리기, `fsync` | `test_journal.c` | 4.1절 "journal", 3.9절 |
+| 28 | `core/include/snapshot.h` → `src/snapshot.c` | 임시 파일 → fsync → rename 스냅샷과 복구 | `test_snapshot.c` | 같은 절 |
+| 29 | `core/include/recon.h` → `src/recon.c` | 독립 재계산으로 대사 | `test_recon.c` | 같은 절 |
+| 30 | `core/tests/test_fault_inject.c` | 쓰는 도중 `SIGKILL`로 죽이고 복구 확인. SIGKILL이 전원 차단과 다른 이유 | (이 파일 자체) | 3.9절 |
+
+> **체크포인트 마.** TCP로 63바이트를 보냈는데 20바이트만 읽히면 받는 쪽은 어떻게 하나?
+> `fsync`를 빼도 장애 주입 테스트가 통과하는 이유는?
+
+#### 바. 측정 — `bench/` (약 1시간 30분)
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 31 | `bench/compare.c` → `bench/compare_strategies.c` | 전략마다 호가창을 새로 만들어 같은 시드로 채우고 비교 | `bench/tests/test_compare.c`, 결과 `bench/results/strategies-2026-09-16.md` | 4.2절 bench/, 6장 |
+| 32 | `bench/quality.c` → `bench/quality_report.c` | 시드 30개로 넓혀 승/패/무와 판정 | `bench/tests/test_quality.c`, 결과 `quality-2026-09-16.md` | 같은 절 |
+| 33 | `bench/bench_match.c` | 매칭 엔진만의 지연·TPS | 결과 `2026-09-15.md` | 같은 절 |
+| 34 | `bench/bench_pipeline.c` | 전문 해석 → 검증 → 저널 → SOR → 매칭 7단계를 나눠 잰다. 저널을 켜면 왜 376 TPS가 되나 | 결과 `pipeline-2026-09-16.md` | 같은 절 |
+
+> **체크포인트 바.** 이 프로젝트의 **최종 결론** 한 문장은? 단계별 p50을 더하면 전 구간 p50이 안 되는 이유는?
+
+#### 사. 원장 — `ledger/` (약 3시간)
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 35 | `ledger/include/listener.h` → `src/listener.c` | 소켓 열고 접속 받고 전문 조립해 처리 함수 부르기, 시그널로 멈추기 | `test_listener.c` | 4.3절 ledger/, 3.5·3.6절 |
+| 36 | `ledger/include/worker_pool.h` → `src/worker_pool.c` | `fork()`로 워커 여럿, `waitpid`로 거두기. **실제 `ledgerd`는 이것을 쓰지 않는다 — 왜인지가 핵심** | `test_worker_pool.c` | 같은 절, 3.3절 |
+| 37 | `ledger/include/shm_segment.h` → `src/shm_segment.c` | 여러 프로세스가 같이 보는 메모리 | `test_shm.c` | 같은 절, 3.4절 |
+| 38 | `ledger/include/account.h` → `src/account.c` | 예수금·묶인 금액, `acct_reserve` / `acct_release` / `acct_settle` / `acct_deposit` | `test_account.c` | 같은 절 |
+| 39 | `ledger/include/order_validate.h` → `src/order_validate.c` | 계좌·호가 단위·증거금 검증과 묶기 | `test_order_validate.c` | 같은 절 |
+| 40 | `ledger/include/ledger_core.h` → `src/ledger_core.c` | **지금까지의 부품이 모이는 곳.** `process_order()` → 검증 → `routing_plan`/`plan_add_leg` → `exec_submit` → 콜백 `on_event()`에서 정산 → 남은 묶음 풀기 | `test_ledger_core.c` (특히 `test_resting_then_maker_fill`의 금액을 손으로 따라가기) | 같은 절, 2.3절 |
+| 41 | `ledger/ledgerd.c` | 원장 코어를 만들고 리스너에 연결하는 70줄짜리 `main()` | 5장처럼 직접 띄워 본다 | 5장 |
+
+> **체크포인트 사.** 20주 70,000원 매수가 걸린 뒤 12주 매도에 체결되면 예수금과 묶인 금액은 각각 얼마가 되나?
+> 원장을 `fork()` 워커로 늘리면 무엇이 깨지나?
+
+#### 아. 거래소 게이트웨이 — `fep/` (선택, 약 3시간)
+
+화면에서 도는 구성에는 들어가지 않는다(원장이 매칭 엔진을 직접 품는다). **설계 그림의 다중 프로세스 구성과
+네트워크 기법을 공부하려면** 읽는다. 처음에는 건너뛰고 자·차 단계를 먼저 읽어도 된다.
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 42 | `fep/include/evloop.h` → `src/evloop.c` | epoll 이벤트 루프, 논블로킹 소켓 | `test_evloop.c` | 4.3절 fep/, 3.7절 |
+| 43 | `fep/include/framer.h` → `src/framer.c` | 바이트 흐름에서 전문 하나씩 잘라 내기 | `test_framer.c` | 같은 절 |
+| 44 | `fep/include/sendq.h` → `src/sendq.c` | 다 못 보낸 바이트를 모아 두는 송신 큐, 배압 | `test_sendq.c` | 같은 절 |
+| 45 | `fep/include/session.h` → `src/session.c` → `seqtrack.h` → `src/seqtrack.c` | 로그인·하트비트·재접속, 시퀀스 갭과 재전송 | `test_session.c`, `test_seqtrack.c` | 같은 절, 3.8절 |
+| 46 | `fep/include/ordmap.h` → `src/ordmap.c` | 우리 주문번호 ↔ 거래소 주문번호, 미응답 주문 판정 | `test_ordmap.c` | 같은 절 |
+| 47 | `fep/tests/test_integration.c` | 두 프로세스 + 진짜 매칭 엔진으로 주문 → 체결 → 끊김 → 정리 | (이 파일 자체) | 같은 절 |
+
+> **체크포인트 아.** 답이 끊긴 주문을 자동으로 다시 보내면 안 되는 이유는?
+
+#### 자. (선택) 전략 엔진 SDK — `sdk/` (약 30분)
+
+| 단계 | 파일 | 볼 것 | 확인 | 안내서 |
+|---|---|---|---|---|
+| 48 | `sdk/order_sdk.h` → `sdk/order_sdk.c` | 외부 전략 엔진이 주문 상태를 추적하는 상태 기계(NONE → PENDING → LIVE → DONE) | `sdk/tests/test_order_sdk.c` | 4.2절 sdk/ |
+
+#### 차. 채널계 — `channel/` (Java, 약 2시간)
+
+Spring을 처음 보면 4.4절의 "Spring Boot를 처음 보는 사람을 위한 기초"를 먼저 읽는다.
+경로는 모두 `channel/src/main/java/com/minisor/channel/` 아래다.
+
+| 단계 | 파일 | 볼 것 | 확인 (`channel/src/test/java/...`) | 안내서 |
+|---|---|---|---|---|
+| 49 | `wire/WireEnums.java` → `WireType.java` → `WireField.java` → `WireMessage.java` → `WireHeader.java` → `WireCodec.java` | 어노테이션 선언만 보고 바이트를 만들고 읽는 코덱. 25단계 `msg.h`와 나란히 놓고 본다 | `WireCodecTest`, **`WireLayoutTest`**(C 헤더를 직접 읽어 대조) | 4.4절 4 |
+| 50 | `wire/OrderReq.java` → `OrderAck.java` → `BookReq.java` → `BookAck.java` (나머지 전문 클래스는 같은 모양) | 전문 한 종별 = 클래스 하나 | 같은 테스트 | 같은 절 |
+| 51 | `ledger/LedgerProperties.java` → `LedgerConnection.java` → `LedgerConnectionPool.java` | 요청 하나에 응답 하나, 깨진 접속은 버리기, 세마포어로 접속 1개 지키기 | `LedgerConnectionPoolTest`, `FakeLedger`(시험용 원장) | 4.4절 5 |
+| 52 | `api/OrderRequestDto.java` → `OrderResponseDto.java` → `OrderService.java` → `OrderController.java` | 입력 검증, 상태 코드(200/400/422/503/202), 답을 못 받으면 "모른다"(IN_DOUBT) | `OrderApiTest` | 4.4절 7 |
+| 53 | `api/BookController.java` | `GET /api/book` — 원장의 호가 10단 | `OrderApiTest.bookComesFromLedger` | 같은 절 |
+| 54 | `stream/StreamEvent.java` → `StreamHub.java` → `StreamHandler.java` → `StreamConfig.java` | WebSocket 방송, 느린 구독자 끊기, 원장 끊김·회복 알림 | `StreamTest`, `ChannelStartupTests` | 4.4절 6 |
+
+> **체크포인트 차.** 응답이 200이 아니라 202인 경우는 언제이고, 그때 다시 보내면 안 되는 이유는?
+> `WireLayoutTest`가 잡는 것과 못 잡는 것은?
+
+#### 카. 화면 — `web/` (TypeScript + React, 약 1시간 30분)
+
+React를 처음 보면 4.4절의 "React를 처음 보는 사람을 위한 기초"를 먼저 읽는다.
+
+| 단계 | 파일 | 볼 것 | 안내서 |
+|---|---|---|---|
+| 55 | `web/vite.config.ts` → `web/src/lib/wire.ts` → `types.ts` → `api.ts` → `format.ts` | 프록시(CORS를 피하는 이유), C와 같은 열거값, REST 호출 | 4.4절 13 |
+| 56 | `web/src/lib/useStream.ts` | WebSocket 연결과 끊기면 간격을 늘리며 재접속 | 같은 절 |
+| 57 | `web/src/main.tsx` → `web/src/App.tsx` | 탭, 1초마다 호가 읽기, `order`·`fill`·`ledger-down` 이벤트 처리 | 같은 절 |
+| 58 | `components/OrderTicket.tsx` → `OrderBook.tsx` → `SorPanel.tsx` → `Working.tsx` → `Fills.tsx` → `Strategies.tsx` → `StatusBar.tsx` → `Ops.tsx` → `Panel.tsx` | 주문 칸, 호가창, SOR 판단, 주문·체결 내역, 전략 비교, 상태 표시 | 같은 절 |
+
+화면에는 자동 테스트가 없다. 확인은 `npm run build`(타입 검사 포함)와 5장처럼 직접 띄워서 한다.
+
+#### 타. 마무리 (약 1시간)
+
+| 단계 | 할 일 | 얻는 것 |
+|---|---|---|
+| 59 | 5장대로 원장·채널계·화면을 띄우고 5.3절 "해 볼 것"을 따라 한다 | 읽은 코드가 실제로 움직이는 모습 |
+| 60 | 2장 "주문 하나의 여행"을 **다시** 읽는다 | 처음에는 이름뿐이던 함수들이 이제 무엇을 하는지 연결된다 |
+| 61 | `docs/ENGINEERING-NOTES.md` 3장 | 이 코드들이 왜 지금 모양이 되었는지 — 오류와 판단의 역사 |
+
+#### 시간이 없을 때 — 최소 경로 (약 4시간)
+
+전체 흐름만 잡으려면 아래만 읽는다. 나머지는 필요할 때 로드맵의 해당 단계로 돌아온다.
+
+`README.md` → 이 문서 2장 → 1(`types.h`) → 7(`order_book.h`) → 9(`match_limit.c`와 `test_match_limit.c`)
+→ 11(`krx.c`·`nxt.c`) → 19(전략 넷, 손계산 예시) → 22(`executor.c`) → 25(`msg.h`)
+→ 40(`ledger_core.c`와 `test_ledger_core.c`) → 52(`OrderService.java`) → 57(`App.tsx`) → 59(직접 띄워 보기)
 
 ---
 
