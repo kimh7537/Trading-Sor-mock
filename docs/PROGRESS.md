@@ -25,6 +25,17 @@
 
 ## 2026-09-17
 
+- [T6-14] 실행·테스트 안내서
+  - 한 일: `docs/RUNNING.md`(문서 3), README·CLAUDE.md·GUIDE·ENGINEERING-NOTES에서 연결.
+  - 내용의 출처: ctest 목록(58), surefire 결과(40), `bench/*.c`의 상수·인자·기본 결과 경로, `bench/results/` 4개 파일,
+    T6-13 최종 점검에서 실제로 돌린 결과.
+  - **검증** — 문서의 curl 명령(호가 조회, SOR 주문, 입력 오류)과 동시 요청 스크립트를 문서에 적힌 그대로 다시 돌려
+    출력이 같음을 확인했다(`orderId 200000000`, `400 Bad Request`, `status 200: 60`). CLion·IntelliJ 화면 절차는 IDE의 표준
+    기능을 적은 것이라 따라 해 보지는 않았고, 문서 머리말에 그렇게 밝혔다.
+  - **발견** — CLion 기본 빌드 폴더 이름(`cmake-build-*`)은 `.gitignore`의 `build*/`에 걸리지 않는다. 문서에서
+    `build-clion-*`으로 바꾸도록 안내했다. `compare_strategies`·`quality_report`는 결과 파일을 안 주면 같은 날짜의 커밋된
+    결과를 덮어쓴다는 점도 적었다.
+
 - [T6-13] 최종 점검
   - 한 일: 전체 재검증, `web/src/components/Working.tsx`(접힌 줄에 거절 표시), 문서 최신화
     (`CLAUDE.md` 현재 상태, `docs/GUIDE.md`, `docs/ENGINEERING-NOTES.md` 6.6절).

@@ -6422,6 +6422,9 @@ props: `wsState`, `ledgerDown`, `events`. 세 줄을 초록/빨강 점과 함께
 
 ## 5. 직접 띄워 보기
 
+> IDE(CLion·IntelliJ)로 띄우는 방법, 테스트 전체 목록, 벤치마크의 데이터·건수·결과 파일은
+> **문서 3 `docs/RUNNING.md`** 에 자세히 있다. 여기서는 가장 짧은 경로만 적는다.
+
 C는 WSL(Ubuntu), Java와 화면은 Windows에서 돌린다. 터미널 셋을 연다.
 
 ### 5.1 빌드와 테스트

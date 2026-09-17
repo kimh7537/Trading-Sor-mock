@@ -128,6 +128,7 @@ cmake -B build-rel -DCMAKE_BUILD_TYPE=Release && cmake --build build-rel
 |---|---|
 | [`docs/GUIDE.md`](docs/GUIDE.md) | **처음 읽는 사람용 전체 안내서** — 읽는 순서, 기초 기술, 모듈별 코드 |
 | [`docs/ENGINEERING-NOTES.md`](docs/ENGINEERING-NOTES.md) | **오류·해결·설계 판단 기록** (기술 면접용) |
+| [`docs/RUNNING.md`](docs/RUNNING.md) | **실행·테스트 안내서** — CLion(WSL)·IntelliJ·명령줄 실행, 테스트 98개와 벤치마크의 데이터·방법·결과 |
 | [`docs/PLAN.md`](docs/PLAN.md) | 기획서. 왜 만드는가, 진행 경로 |
 | [`docs/SPEC.md`](docs/SPEC.md) | 시장 규칙 명세 (거래시간, 호가단위, 매칭규칙) |
 | [`docs/TASKS.md`](docs/TASKS.md) | 작업 목록 (Phase 1~6) |

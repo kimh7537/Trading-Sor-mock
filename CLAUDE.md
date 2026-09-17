@@ -37,7 +37,7 @@ Phase 6은 "조각은 각자 테스트를 통과하는데 이어 붙인 전체�
 - **SOR과 매칭 엔진은 원장 프로세스 안에서 돈다**(T6-03, "최소 연결"). FEP를 사이에 둔
   다중 프로세스 구성은 T3-15 통합 테스트로만 검증했다
 - 처음 읽는 사람용 안내서는 `docs/GUIDE.md`(0.1절에 코드 읽기 로드맵), 오류·판단 기록은
-  `docs/ENGINEERING-NOTES.md`
+  `docs/ENGINEERING-NOTES.md`, 실행·테스트 방법은 `docs/RUNNING.md`
 - 남은 사람 몫의 문서: `docs/decisions/`의 ADR, `docs/INTERVIEW.md`
 - **어디서 빌드하는지가 언어마다 다르다.**
 
@@ -86,6 +86,7 @@ mini-sor/
 │   ├── INTERVIEW.md       ← 설계 판단 정리 (직접 작성)
 │   ├── GUIDE.md           ← 처음 읽는 사람용 전체 안내서
 │   ├── ENGINEERING-NOTES.md ← 오류·해결·설계 판단 기록 (면접용)
+│   ├── RUNNING.md         ← 실행·테스트·벤치마크 안내서
 │   └── decisions/         ← 설계 결정 기록 (ADR)
 ├── core/                  ← C 공통 (타입, 유틸, 자료구조)
 │   ├── include/
