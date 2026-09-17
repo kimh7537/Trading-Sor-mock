@@ -55,6 +55,10 @@ msg_type_t msg_reply_type(uint8_t req_type)
         return MSG_QUERY_ACK;
     case MSG_BOOK_REQ:
         return MSG_BOOK_ACK;
+    case MSG_DETAIL_REQ:
+        return MSG_DETAIL_ACK;
+    case MSG_BALANCE_REQ:
+        return MSG_BALANCE_ACK;
     default:
         /* 체결 통보와 응답 종별은 짝이 없다. 모르는 종별도 마찬가지다. */
         return MSG_UNKNOWN;
@@ -732,3 +736,194 @@ int msg_decode_book_ack(const uint8_t *buf, size_t len, msg_book_ack_t *out)
     p = get_i32s(p, out->ask_qty);
     return (int)(p - buf);
 }
+
+/* --- 주문 상세·잔고 조회 (T7-02) --- */
+
+_Static_assert(MSG_LEG_SLOTS == MARKET_COUNT,
+               "MSG_LEG_SLOTS는 시장 수와 같아야 한다");
+
+int msg_encode_detail_req(const msg_detail_req_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_DETAIL_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_ACCOUNT_LEN, m->account);
+    p += MSG_ACCOUNT_LEN;
+    wire_put_u64(p, m->order_id);
+    p += 8;
+    return (int)(p - buf);
+}
+
+int msg_decode_detail_req(const uint8_t *buf, size_t len, msg_detail_req_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_DETAIL_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_ACCOUNT_LEN, out->account);
+    p += MSG_ACCOUNT_LEN;
+    out->order_id = wire_get_u64(p);
+    p += 8;
+    return (int)(p - buf);
+}
+
+int msg_encode_detail_ack(const msg_detail_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_DETAIL_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_u64(p, m->order_id);
+    p += 8;
+    wire_put_u64(p, m->cl_ord_id);
+    p += 8;
+    wire_put_i32(p, m->reason);
+    p += 4;
+    wire_put_u8(p++, m->side);
+    wire_put_u8(p++, m->status);
+    wire_put_u8(p++, m->market);
+    wire_put_i32(p, m->price);
+    p += 4;
+    wire_put_i32(p, m->qty);
+    p += 4;
+    wire_put_i32(p, m->filled);
+    p += 4;
+    wire_put_i32(p, m->canceled);
+    p += 4;
+    wire_put_i32(p, m->working);
+    p += 4;
+    wire_put_i64(p, m->notional);
+    p += 8;
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 4) {
+        wire_put_i32(p, m->leg_sent[i]);
+    }
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 4) {
+        wire_put_i32(p, m->leg_filled[i]);
+    }
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 4) {
+        wire_put_i32(p, m->leg_canceled[i]);
+    }
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 8) {
+        wire_put_i64(p, m->leg_notional[i]);
+    }
+    return (int)(p - buf);
+}
+
+int msg_decode_detail_ack(const uint8_t *buf, size_t len, msg_detail_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_DETAIL_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    out->order_id = wire_get_u64(p);
+    p += 8;
+    out->cl_ord_id = wire_get_u64(p);
+    p += 8;
+    out->reason = wire_get_i32(p);
+    p += 4;
+    out->side = wire_get_u8(p++);
+    out->status = wire_get_u8(p++);
+    out->market = wire_get_u8(p++);
+    out->price = wire_get_i32(p);
+    p += 4;
+    out->qty = wire_get_i32(p);
+    p += 4;
+    out->filled = wire_get_i32(p);
+    p += 4;
+    out->canceled = wire_get_i32(p);
+    p += 4;
+    out->working = wire_get_i32(p);
+    p += 4;
+    out->notional = wire_get_i64(p);
+    p += 8;
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 4) {
+        out->leg_sent[i] = wire_get_i32(p);
+    }
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 4) {
+        out->leg_filled[i] = wire_get_i32(p);
+    }
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 4) {
+        out->leg_canceled[i] = wire_get_i32(p);
+    }
+    for (int i = 0; i < MSG_LEG_SLOTS; i++, p += 8) {
+        out->leg_notional[i] = wire_get_i64(p);
+    }
+    return (int)(p - buf);
+}
+
+int msg_encode_balance_req(const msg_balance_req_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_BALANCE_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    wire_put_str(buf, MSG_ACCOUNT_LEN, m->account);
+    return MSG_BALANCE_REQ_LEN;
+}
+
+int msg_decode_balance_req(const uint8_t *buf, size_t len,
+                           msg_balance_req_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_BALANCE_REQ_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    memset(out, 0, sizeof(*out));
+    wire_get_str(buf, MSG_ACCOUNT_LEN, out->account);
+    return MSG_BALANCE_REQ_LEN;
+}
+
+int msg_encode_balance_ack(const msg_balance_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_BALANCE_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_ACCOUNT_LEN, m->account);
+    p += MSG_ACCOUNT_LEN;
+    wire_put_i32(p, m->reason);
+    p += 4;
+    wire_put_i64(p, m->cash);
+    p += 8;
+    wire_put_i64(p, m->reserved);
+    p += 8;
+    return (int)(p - buf);
+}
+
+int msg_decode_balance_ack(const uint8_t *buf, size_t len,
+                           msg_balance_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_BALANCE_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_ACCOUNT_LEN, out->account);
+    p += MSG_ACCOUNT_LEN;
+    out->reason = wire_get_i32(p);
+    p += 4;
+    out->cash = wire_get_i64(p);
+    p += 8;
+    out->reserved = wire_get_i64(p);
+    p += 8;
+    return (int)(p - buf);
+}
+

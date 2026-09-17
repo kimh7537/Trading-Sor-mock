@@ -56,6 +56,8 @@ struct ledger_core {
     int32_t *acct_of;
     /* 같은 자리 -> 주문을 낸 쪽이 붙인 번호. 조회 응답에 돌려준다 */
     uint64_t  *cl_of;
+    /* 같은 자리 -> 주문할 때 고른 시장(0, 1, MSG_MARKET_AUTO). 상세 응답에 돌려준다 */
+    uint8_t   *market_of;
     order_id_t next_logical;
 
     /*
@@ -212,6 +214,7 @@ static void process_order(ledger_core_t *c, const msg_order_req_t *req,
 
     c->acct_of[o.id - LEDGER_LOGICAL_BASE] = v.account_index;
     c->cl_of[o.id - LEDGER_LOGICAL_BASE] = req->cl_ord_id;
+    c->market_of[o.id - LEDGER_LOGICAL_BASE] = req->market;
 
     exec_report_t rep;
     c->submitting = o.id;
@@ -383,6 +386,62 @@ static void cancel_order(ledger_core_t *c, const msg_cancel_req_t *req,
     ack->canceled_qty = rep.canceled_qty;
 }
 
+/*
+ * 주문 하나의 상세(T7-02). 다리를 시장별로 더해 싣는다 — 화면의 "논리 → 물리"가 이것이다.
+ * 남의 주문·없는 주문은 취소와 같은 규칙으로 "없음"이다.
+ */
+static void detail_order(ledger_core_t *c, const msg_detail_req_t *req,
+                         msg_detail_ack_t *ack)
+{
+    memset(ack, 0, sizeof(*ack));
+    ack->order_id = req->order_id;
+    ack->status = STATUS_REJECTED;
+    ack->reason = ERR_NOT_FOUND;
+
+    const logical_order_t *lo = owned_order(c, req->account, req->order_id);
+    if (lo == NULL) {
+        return;
+    }
+    order_id_t     off = req->order_id - LEDGER_LOGICAL_BASE;
+    order_status_t st;
+    int            rc = exec_status(c->map, req->order_id, &st);
+    assert(rc == ERR_OK); /* owned_order가 찾은 주문이다 */
+    (void)rc;
+
+    ack->reason = ERR_OK;
+    ack->cl_ord_id = c->cl_of[off];
+    ack->side = (uint8_t)lo->side;
+    ack->status = (uint8_t)st;
+    ack->market = c->market_of[off];
+    ack->price = lo->limit_price;
+    ack->qty = lo->order_qty;
+    ack->filled = omap_filled_qty(c->map, req->order_id);
+    ack->canceled = omap_canceled_qty(c->map, req->order_id);
+    ack->working = omap_remaining(c->map, req->order_id);
+    ack->notional = omap_notional(c->map, req->order_id);
+
+    for (int32_t i = 0; i < lo->leg_count; i++) {
+        const phys_leg_t *leg = &lo->legs[i];
+        assert(leg->market >= 0 && leg->market < MSG_LEG_SLOTS);
+        ack->leg_sent[leg->market] += leg->sent_qty;
+        ack->leg_filled[leg->market] += leg->filled_qty;
+        ack->leg_canceled[leg->market] += leg->canceled_qty;
+        ack->leg_notional[leg->market] += leg->notional;
+    }
+}
+
+/*
+ * 계좌 잔고(T7-02). 없는 계좌면 ERR_NOT_FOUND와 금액 0 — `ledger_core_balance`는 없는 계좌에
+ * 출력을 건드리지 않으므로 앞의 memset이 0을 보장한다(따로 지우던 줄은 변이 검사로 중복임을 확인해 뺐다).
+ */
+static void balance_of(ledger_core_t *c, const msg_balance_req_t *req,
+                       msg_balance_ack_t *ack)
+{
+    memset(ack, 0, sizeof(*ack));
+    memcpy(ack->account, req->account, sizeof(ack->account));
+    ack->reason = ledger_core_balance(c, req->account, &ack->cash, &ack->reserved);
+}
+
 /* --- 전문 --- */
 
 int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
@@ -460,6 +519,26 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
         msg_query_ack_t ack;
         query_order(c, &req, &ack);
         m = msg_encode_query_ack(&ack, b, cap);
+        break;
+    }
+    case MSG_DETAIL_REQ: {
+        msg_detail_req_t req;
+        if (msg_decode_detail_req(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+        msg_detail_ack_t ack;
+        detail_order(c, &req, &ack);
+        m = msg_encode_detail_ack(&ack, b, cap);
+        break;
+    }
+    case MSG_BALANCE_REQ: {
+        msg_balance_req_t req;
+        if (msg_decode_balance_req(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+        msg_balance_ack_t ack;
+        balance_of(c, &req, &ack);
+        m = msg_encode_balance_ack(&ack, b, cap);
         break;
     }
     case MSG_BOOK_REQ: {
@@ -608,7 +687,8 @@ ledger_core_t *ledger_core_create(const ledger_core_config_t *cfg)
     c->map = omap_create(cfg->order_capacity);
     c->acct_of = calloc((size_t)cfg->order_capacity, sizeof(int32_t));
     c->cl_of = calloc((size_t)cfg->order_capacity, sizeof(uint64_t));
-    if (c->map == NULL || c->acct_of == NULL || c->cl_of == NULL ||
+    c->market_of = calloc((size_t)cfg->order_capacity, sizeof(uint8_t));
+    if (c->map == NULL || c->acct_of == NULL || c->cl_of == NULL || c->market_of == NULL ||
         seed_liquidity(c) != ERR_OK) {
         ledger_core_destroy(c);
         return NULL;
@@ -627,6 +707,7 @@ void ledger_core_destroy(ledger_core_t *c)
     omap_destroy(c->map);
     free(c->acct_of);
     free(c->cl_of);
+    free(c->market_of);
     if (c->seg != NULL) {
         acct_store_destroy(&c->store);
         shm_destroy(c->seg);

@@ -629,6 +629,194 @@ static int cancel(ledger_core_t *c, const char *account, order_id_t id,
     return ack->reason;
 }
 
+/* --- 5-1. 주문 상세·잔고 조회 (T7-02) --- */
+
+static int detail(ledger_core_t *c, const char *account, order_id_t id,
+                  msg_detail_ack_t *ack)
+{
+    msg_detail_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", account);
+    req.order_id = id;
+
+    uint8_t body[MSG_DETAIL_REQ_LEN];
+    assert(msg_encode_detail_req(&req, body, sizeof(body)) ==
+           (int)MSG_DETAIL_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_DETAIL_REQ;
+    h.body_len = MSG_DETAIL_REQ_LEN;
+    h.seq = 93;
+
+    uint8_t out[WIRE_HEADER_LEN + MSG_DETAIL_ACK_LEN];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_DETAIL_ACK_LEN));
+
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_DETAIL_ACK && rh.seq == 93);
+    assert(msg_decode_detail_ack(out + WIRE_HEADER_LEN, MSG_DETAIL_ACK_LEN, ack) >=
+           0);
+    assert(ack->order_id == id);
+    return ack->reason;
+}
+
+static int balance_msg(ledger_core_t *c, const char *account,
+                       msg_balance_ack_t *ack)
+{
+    msg_balance_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", account);
+
+    uint8_t body[MSG_BALANCE_REQ_LEN];
+    assert(msg_encode_balance_req(&req, body, sizeof(body)) ==
+           (int)MSG_BALANCE_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_BALANCE_REQ;
+    h.body_len = MSG_BALANCE_REQ_LEN;
+    h.seq = 94;
+
+    uint8_t out[WIRE_HEADER_LEN + MSG_BALANCE_ACK_LEN];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_BALANCE_ACK_LEN));
+
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_BALANCE_ACK && rh.seq == 94);
+    assert(msg_decode_balance_ack(out + WIRE_HEADER_LEN, MSG_BALANCE_ACK_LEN,
+                                  ack) >= 0);
+    assert(strcmp(ack->account, account) == 0);
+    return ack->reason;
+}
+
+/*
+ * **SOR이 어느 시장으로 보냈는지가 상세에 그대로 보인다(논리 → 물리).**
+ * 싼 쪽으로 간 매수의 다리는 그 시장에만 있고, 체결 금액이 시장별로 맞아떨어진다.
+ */
+static void test_detail_shows_legs(void)
+{
+    ledger_core_t      *c = liquid_core();
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+    const order_book_t *nxt = ledger_core_book(c, MARKET_NXT);
+
+    price_t  ak = book_best_ask(krx);
+    price_t  an = book_best_ask(nxt);
+    market_t cheap = (ak <= an) ? MARKET_KRX : MARKET_NXT;
+    market_t other = (cheap == MARKET_KRX) ? MARKET_NXT : MARKET_KRX;
+    price_t  best = (ak <= an) ? ak : an;
+    qty_t    level = book_qty_at(ledger_core_book(c, cheap), SIDE_SELL, best);
+    qty_t    qty = (level < 7) ? level : 7;
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MSG_MARKET_AUTO, best, qty, 800, &ack) == ERR_OK);
+    assert(ack.filled_qty == qty);
+
+    msg_detail_ack_t d;
+    assert(detail(c, ACCT, ack.order_id, &d) == ERR_OK);
+    assert(d.cl_ord_id == 800);
+    assert(d.side == SIDE_BUY);
+    assert(d.market == MSG_MARKET_AUTO); /* 사용자가 고른 것은 "자동" */
+    assert(d.status == STATUS_FILLED);
+    assert(d.price == best && d.qty == qty);
+    assert(d.filled == qty && d.canceled == 0 && d.working == 0);
+    assert(d.notional == (int64_t)best * qty);
+
+    assert(d.leg_sent[cheap] == qty && d.leg_filled[cheap] == qty);
+    assert(d.leg_notional[cheap] == (int64_t)best * qty);
+    assert(d.leg_sent[other] == 0 && d.leg_filled[other] == 0);
+    assert(d.leg_notional[other] == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **걸어 둔 주문의 나중 체결과 취소가 상세에 반영된다.** 화면의 미체결 목록이 이것을 읽는다.
+ */
+static void test_detail_tracks_later_events(void)
+{
+    ledger_core_t   *c = empty_core(16);
+    msg_order_ack_t  ack;
+    msg_detail_ack_t d;
+
+    assert(send_order(c, SIDE_BUY, MARKET_NXT, 70000, 20, 810, &ack) == ERR_OK);
+    order_id_t id = ack.order_id;
+
+    assert(detail(c, ACCT, id, &d) == ERR_OK);
+    assert(d.status == STATUS_NEW && d.working == 20 && d.market == MARKET_NXT);
+    assert(d.leg_sent[MARKET_NXT] == 20 && d.leg_sent[MARKET_KRX] == 0);
+
+    /* 12주가 maker로 체결 */
+    assert(send_order(c, SIDE_SELL, MARKET_NXT, 69900, 12, 811, &ack) == ERR_OK);
+    /* 매도 쪽 상세: 방향이 매도(1)로 실린다 — 매수는 0이라 방향을 안 실어도 매수 시험은 통과한다 */
+    msg_detail_ack_t sd;
+    assert(detail(c, ACCT, ack.order_id, &sd) == ERR_OK);
+    assert(sd.side == SIDE_SELL && sd.filled == 12 && sd.price == 69900);
+    assert(detail(c, ACCT, id, &d) == ERR_OK);
+    assert(d.status == STATUS_PARTIAL);
+    assert(d.filled == 12 && d.working == 8);
+    assert(d.notional == (int64_t)70000 * 12);
+    assert(d.leg_filled[MARKET_NXT] == 12);
+    assert(d.leg_notional[MARKET_NXT] == (int64_t)70000 * 12);
+
+    /* 나머지 취소 */
+    msg_cancel_ack_t ca;
+    assert(cancel(c, ACCT, id, 812, &ca) == ERR_OK);
+    assert(detail(c, ACCT, id, &d) == ERR_OK);
+    assert(d.canceled == 8 && d.working == 0);
+    assert(d.leg_canceled[MARKET_NXT] == 8);
+    assert(d.status == STATUS_PARTIAL);
+
+    ledger_core_destroy(c);
+}
+
+/* **남의 주문, 없는 주문은 "없음"** — 취소와 같은 규칙이다 */
+static void test_detail_rejections(void)
+{
+    ledger_core_t   *c = empty_core(16);
+    msg_order_ack_t  ack;
+    msg_detail_ack_t d;
+
+    assert(ledger_core_open_account(c, "210987654321", 1000000) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 3, 820, &ack) == ERR_OK);
+
+    assert(detail(c, "210987654321", ack.order_id, &d) == ERR_NOT_FOUND);
+    assert(d.status == STATUS_REJECTED && d.qty == 0 && d.leg_sent[MARKET_KRX] == 0);
+    assert(detail(c, ACCT, ack.order_id + 99, &d) == ERR_NOT_FOUND);
+    assert(detail(c, ACCT, 0, &d) == ERR_NOT_FOUND);
+    assert(detail(c, "999999999999", ack.order_id, &d) == ERR_NOT_FOUND);
+
+    ledger_core_destroy(c);
+}
+
+/* **잔고 조회 전문이 원장 장부와 같은 값을 준다.** 주문에 따라 움직인다 */
+static void test_balance_message(void)
+{
+    ledger_core_t    *c = empty_core(16);
+    msg_balance_ack_t b;
+    msg_order_ack_t   ack;
+
+    assert(balance_msg(c, ACCT, &b) == ERR_OK);
+    assert(b.cash == CASH && b.reserved == 0);
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 10, 830, &ack) == ERR_OK);
+    assert(balance_msg(c, ACCT, &b) == ERR_OK);
+    assert(b.cash == CASH && b.reserved == (int64_t)70000 * 10);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(b.cash == cash && b.reserved == reserved);
+
+    assert(balance_msg(c, "999999999999", &b) == ERR_NOT_FOUND);
+    assert(b.cash == 0 && b.reserved == 0);
+
+    ledger_core_destroy(c);
+}
+
 /*
  * T7-01 — **걸어 둔 매수를 취소하면 호가창에서 빠지고 묶인 돈이 전부 풀린다.**
  * 예수금은 그대로다(체결이 없었으므로).
@@ -877,6 +1065,10 @@ int main(void)
     STEP(test_cancel_sell_keeps_cash);
     STEP(test_cancel_rejections);
     STEP(test_modify_is_not_faked);
+    STEP(test_detail_shows_legs);
+    STEP(test_detail_tracks_later_events);
+    STEP(test_detail_rejections);
+    STEP(test_balance_message);
     STEP(test_bad_body_drops);
     STEP(test_deterministic);
     return 0;

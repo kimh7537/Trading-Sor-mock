@@ -37,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 16);
+    assert(TABLE_N == 20);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -71,6 +71,10 @@ static void test_type_table(void)
     assert(MSG_GAP_FILL_LEN == 8);
     assert(MSG_BOOK_REQ_LEN == 9);
     assert(MSG_BOOK_ACK_LEN == 169);
+    assert(MSG_DETAIL_REQ_LEN == 20);
+    assert(MSG_DETAIL_ACK_LEN == 91);
+    assert(MSG_BALANCE_REQ_LEN == 12);
+    assert(MSG_BALANCE_ACK_LEN == 32);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -112,6 +116,10 @@ static void test_reply_pairs(void)
     assert(msg_reply_type(MSG_QUERY_REQ) == MSG_QUERY_ACK);
     assert(msg_reply_type(MSG_BOOK_REQ) == MSG_BOOK_ACK);
     assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
+    assert(msg_reply_type(MSG_DETAIL_REQ) == MSG_DETAIL_ACK);
+    assert(msg_reply_type(MSG_BALANCE_REQ) == MSG_BALANCE_ACK);
+    assert(msg_reply_type(MSG_DETAIL_ACK) == MSG_UNKNOWN);
+    assert(msg_reply_type(MSG_BALANCE_ACK) == MSG_UNKNOWN);
 
     /* 체결 통보는 요청 없이 밀어 보내는 것이라 응답할 대상이 없다. */
     assert(msg_reply_type(MSG_FILL_NOTI) == MSG_UNKNOWN);
@@ -238,6 +246,74 @@ static void test_book_ack_layout(void)
         assert(buf[first] == arr + 1 && buf[first + 3] == 0);
         assert(buf[last] == arr + 1 && buf[last + 3] == MSG_BOOK_DEPTH - 1);
     }
+}
+
+/*
+ * 주문 상세 응답(T7-02). 앞쪽 고정 필드 뒤에 시장별 배열 넷이 온다 — 배열 원소가 KRX(0)·NXT(1)
+ * 순서인지, i64 배열이 8바이트씩 놓이는지를 바이트 위치로 대조한다.
+ */
+static void test_detail_ack_layout(void)
+{
+    msg_detail_ack_t m;
+    memset(&m, 0, sizeof(m));
+    m.order_id = 0x0102030405060708ULL;
+    m.cl_ord_id = 9;
+    m.reason = -9;
+    m.side = 1;
+    m.status = 2;
+    m.market = 255;
+    m.price = 70000;
+    m.qty = 100;
+    m.filled = 60;
+    m.canceled = 40;
+    m.working = 0;
+    m.notional = 0x0000000100000002LL;
+    m.leg_sent[MARKET_KRX] = 0x11;
+    m.leg_sent[MARKET_NXT] = 0x12;
+    m.leg_filled[MARKET_NXT] = 0x22;
+    m.leg_canceled[MARKET_KRX] = 0x31;
+    m.leg_notional[MARKET_KRX] = 0x0A0B0C0D0E0F1011LL;
+    m.leg_notional[MARKET_NXT] = 0x42;
+
+    uint8_t buf[MSG_DETAIL_ACK_LEN];
+    assert(msg_encode_detail_ack(&m, buf, sizeof(buf)) == MSG_DETAIL_ACK_LEN);
+
+    assert(buf[0] == 0x01 && buf[7] == 0x08);                     /* order_id */
+    assert(buf[15] == 9);                                         /* cl_ord_id */
+    assert(buf[16] == 0xFF && buf[19] == 0xF7);                   /* reason = -9 */
+    assert(buf[20] == 1 && buf[21] == 2 && buf[22] == 255);       /* side status market */
+    assert(buf[23] == 0x00 && buf[25] == 0x11 && buf[26] == 0x70); /* price 70000 */
+    assert(buf[42] == 0x00 && buf[46] == 0x01 && buf[50] == 0x02); /* notional i64 at 43 */
+    /* 51: leg_sent[2] */
+    assert(buf[54] == 0x11 && buf[58] == 0x12);
+    /* 59: leg_filled[2] */
+    assert(buf[62] == 0x00 && buf[66] == 0x22);
+    /* 67: leg_canceled[2] */
+    assert(buf[70] == 0x31 && buf[74] == 0x00);
+    /* 75: leg_notional i64[2] */
+    assert(buf[75] == 0x0A && buf[82] == 0x11);
+    assert(buf[90] == 0x42);
+}
+
+/*
+ * 잔고 응답 — 예수금과 묶인 금액이 같은 i64라 **자리를 바꿔 써도 왕복은 통과한다.**
+ * 그래서 두 값을 다르게 넣고 바이트 위치로 대조한다(변이 D15가 왕복만으로는 살아남았다).
+ */
+static void test_balance_ack_layout(void)
+{
+    msg_balance_ack_t m;
+    memset(&m, 0, sizeof(m));
+    snprintf(m.account, sizeof(m.account), "%s", "123456789012");
+    m.reason = -9;
+    m.cash = 0x0102030405060708LL;
+    m.reserved = 0x1112131415161718LL;
+
+    uint8_t buf[MSG_BALANCE_ACK_LEN];
+    assert(msg_encode_balance_ack(&m, buf, sizeof(buf)) == MSG_BALANCE_ACK_LEN);
+    assert(buf[0] == '1' && buf[11] == '2');         /* account[12] */
+    assert(buf[12] == 0xFF && buf[15] == 0xF7);      /* reason = -9 */
+    assert(buf[16] == 0x01 && buf[23] == 0x08);      /* cash */
+    assert(buf[24] == 0x11 && buf[31] == 0x18);      /* reserved */
 }
 
 /* --- 4. 왕복 --- */
@@ -379,6 +455,44 @@ static void test_roundtrip_all(void)
                   in.ask_price[5] = 70100;
                   in.ask_qty[0] = 1;
               });
+
+    ROUNDTRIP(msg_detail_req_t, msg_encode_detail_req, msg_decode_detail_req,
+              MSG_DETAIL_REQ_LEN, {
+                  snprintf(in.account, sizeof(in.account), "%s", "123456789012");
+                  in.order_id = UINT64_MAX;
+              });
+
+    ROUNDTRIP(msg_detail_ack_t, msg_encode_detail_ack, msg_decode_detail_ack,
+              MSG_DETAIL_ACK_LEN, {
+                  in.order_id = 200000001;
+                  in.cl_ord_id = UINT64_MAX;
+                  in.reason = INT32_MIN;
+                  in.side = 1;
+                  in.status = 4;
+                  in.market = 255;
+                  in.price = INT32_MAX;
+                  in.qty = 7;
+                  in.filled = 3;
+                  in.canceled = 2;
+                  in.working = 2;
+                  in.notional = INT64_MIN;
+                  in.leg_sent[1] = 7;
+                  in.leg_filled[0] = 3;
+                  in.leg_canceled[1] = 2;
+                  in.leg_notional[1] = INT64_MAX;
+              });
+
+    ROUNDTRIP(msg_balance_req_t, msg_encode_balance_req, msg_decode_balance_req,
+              MSG_BALANCE_REQ_LEN,
+              { snprintf(in.account, sizeof(in.account), "%s", "210987654321"); });
+
+    ROUNDTRIP(msg_balance_ack_t, msg_encode_balance_ack, msg_decode_balance_ack,
+              MSG_BALANCE_ACK_LEN, {
+                  snprintf(in.account, sizeof(in.account), "%s", "123456789012");
+                  in.reason = -9;
+                  in.cash = INT64_MAX;
+                  in.reserved = 1400000;
+              });
 }
 
 /* --- 5. 거절 --- */
@@ -470,6 +584,10 @@ static void test_decode_rejects_wrong_length(void)
     CHECK_LEN(msg_decode_fill_noti, msg_fill_noti_t, MSG_FILL_NOTI_LEN);
     CHECK_LEN(msg_decode_book_req, msg_book_req_t, MSG_BOOK_REQ_LEN);
     CHECK_LEN(msg_decode_book_ack, msg_book_ack_t, MSG_BOOK_ACK_LEN);
+    CHECK_LEN(msg_decode_detail_req, msg_detail_req_t, MSG_DETAIL_REQ_LEN);
+    CHECK_LEN(msg_decode_detail_ack, msg_detail_ack_t, MSG_DETAIL_ACK_LEN);
+    CHECK_LEN(msg_decode_balance_req, msg_balance_req_t, MSG_BALANCE_REQ_LEN);
+    CHECK_LEN(msg_decode_balance_ack, msg_balance_ack_t, MSG_BALANCE_ACK_LEN);
 
 #undef CHECK_LEN
 }
@@ -529,6 +647,8 @@ int main(void)
     test_order_req_layout();
     test_fill_noti_layout();
     test_book_ack_layout();
+    test_detail_ack_layout();
+    test_balance_ack_layout();
     test_roundtrip_all();
     test_encode_rejects();
     test_decode_rejects_wrong_length();

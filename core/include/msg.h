@@ -60,6 +60,13 @@
  * BOOK_REQ (9)     symbol[8] market:u8
  * BOOK_ACK (169)   symbol[8] market:u8 bid_price:i32[10] bid_qty:i32[10]
  *                  ask_price:i32[10] ask_qty:i32[10]   (없는 단은 0)
+ * DETAIL_REQ (20)  account[12] order_id:u64
+ * DETAIL_ACK (91)  order_id:u64 cl_ord_id:u64 reason:i32 side:u8 status:u8
+ *                  market:u8 price:i32 qty:i32 filled:i32 canceled:i32
+ *                  working:i32 notional:i64 leg_sent:i32[2] leg_filled:i32[2]
+ *                  leg_canceled:i32[2] leg_notional:i64[2]   (배열은 KRX, NXT 순)
+ * BALANCE_REQ (12) account[12]
+ * BALANCE_ACK (32) account[12] reason:i32 cash:i64 reserved:i64
  *
  * ===========================================================================
  * 요청과 응답
@@ -121,6 +128,24 @@
 #define MSG_BOOK_ACK_LEN (MSG_SYMBOL_LEN + 1 + MSG_BOOK_DEPTH * 4 * 4)
 
 /*
+ * 주문 상세와 잔고 조회(T7-02). 화면의 미체결 목록·잔고가 원장의 실제 상태를 따르게 한다.
+ *
+ * 시장별 값은 **시장 번호를 첨자로 쓰는 배열**이다(0=KRX, 1=NXT). 다리 목록을 가변 길이로
+ * 싣지 않는다 — 한 논리 주문이 한 시장에 다리를 여럿 둘 수도 있어(PLAN_LEGS_MAX) 시장별로
+ * 더해서 싣는다. 화면이 알고 싶은 것도 "어느 시장에 얼마"다.
+ *
+ * `MSG_LEG_SLOTS`는 `MARKET_COUNT`와 같아야 한다(msg.c가 컴파일할 때 확인한다). 열거형 값을
+ * 쓰지 않고 숫자로 두는 이유는 채널계 테스트가 이 헤더의 길이 식을 읽어 계산하기 때문이다.
+ */
+#define MSG_LEG_SLOTS 2
+#define MSG_DETAIL_REQ_LEN (MSG_ACCOUNT_LEN + 8)
+#define MSG_DETAIL_ACK_LEN                                                 \
+    (8 + 8 + 4 + 1 + 1 + 1 + 4 * 5 + 8 + MSG_LEG_SLOTS * 4 * 3 +             \
+     MSG_LEG_SLOTS * 8)
+#define MSG_BALANCE_REQ_LEN (MSG_ACCOUNT_LEN)
+#define MSG_BALANCE_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8)
+
+/*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
  *
  * 코드는 0을 쓰지 않는다 — 0으로 초기화된 버퍼가 유효한 종별로 보이면 안 된다.
@@ -139,7 +164,11 @@
     X(MSG_LOGIN_ACK, 11, MSG_LOGIN_ACK_LEN, "로그인 응답")                 \
     X(MSG_HEARTBEAT, 12, MSG_HEARTBEAT_LEN, "하트비트")                      \
     X(MSG_RESEND_REQ, 13, MSG_RESEND_REQ_LEN, "재전송 요청")                 \
-    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")                      X(MSG_BOOK_REQ, 15, MSG_BOOK_REQ_LEN, "호가 조회 요청")                   X(MSG_BOOK_ACK, 16, MSG_BOOK_ACK_LEN, "호가 조회 응답")
+    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")                      X(MSG_BOOK_REQ, 15, MSG_BOOK_REQ_LEN, "호가 조회 요청")                   X(MSG_BOOK_ACK, 16, MSG_BOOK_ACK_LEN, "호가 조회 응답")               \
+    X(MSG_DETAIL_REQ, 17, MSG_DETAIL_REQ_LEN, "주문 상세 요청")           \
+    X(MSG_DETAIL_ACK, 18, MSG_DETAIL_ACK_LEN, "주문 상세 응답")           \
+    X(MSG_BALANCE_REQ, 19, MSG_BALANCE_REQ_LEN, "잔고 조회 요청")         \
+    X(MSG_BALANCE_ACK, 20, MSG_BALANCE_ACK_LEN, "잔고 조회 응답")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -285,6 +314,42 @@ typedef struct {
     qty_t   ask_qty[MSG_BOOK_DEPTH];
 } msg_book_ack_t;
 
+typedef struct {
+    char       account[MSG_ACCOUNT_LEN + 1];
+    order_id_t order_id;
+} msg_detail_req_t;
+
+/* 없는 주문·남의 주문이면 reason = ERR_NOT_FOUND, status = 거부, 나머지 0. */
+typedef struct {
+    order_id_t order_id;
+    uint64_t   cl_ord_id;
+    int32_t    reason;
+    uint8_t    side;   /* side_t */
+    uint8_t    status; /* order_status_t */
+    uint8_t    market; /* 주문할 때 고른 시장. MSG_MARKET_AUTO면 SOR */
+    price_t    price;  /* 지정가 */
+    qty_t      qty;
+    qty_t      filled;
+    qty_t      canceled;
+    qty_t      working; /* 아직 호가창에 살아 있는 수량 */
+    int64_t    notional;
+    qty_t      leg_sent[MSG_LEG_SLOTS];
+    qty_t      leg_filled[MSG_LEG_SLOTS];
+    qty_t      leg_canceled[MSG_LEG_SLOTS];
+    int64_t    leg_notional[MSG_LEG_SLOTS];
+} msg_detail_ack_t;
+
+typedef struct {
+    char account[MSG_ACCOUNT_LEN + 1];
+} msg_balance_req_t;
+
+typedef struct {
+    char    account[MSG_ACCOUNT_LEN + 1];
+    int32_t reason; /* 없는 계좌면 ERR_NOT_FOUND, 금액 0 */
+    int64_t cash;
+    int64_t reserved;
+} msg_balance_ack_t;
+
 /*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
@@ -307,6 +372,12 @@ int msg_encode_resend_req(const msg_resend_req_t *m, uint8_t *buf, size_t cap);
 int msg_encode_gap_fill(const msg_gap_fill_t *m, uint8_t *buf, size_t cap);
 int msg_encode_book_req(const msg_book_req_t *m, uint8_t *buf, size_t cap);
 int msg_encode_book_ack(const msg_book_ack_t *m, uint8_t *buf, size_t cap);
+int msg_encode_detail_req(const msg_detail_req_t *m, uint8_t *buf, size_t cap);
+int msg_encode_detail_ack(const msg_detail_ack_t *m, uint8_t *buf, size_t cap);
+int msg_encode_balance_req(const msg_balance_req_t *m, uint8_t *buf,
+                           size_t cap);
+int msg_encode_balance_ack(const msg_balance_ack_t *m, uint8_t *buf,
+                           size_t cap);
 
 /*
  * 디코딩 — 바디 길이가 규격과 **정확히 같아야** 한다. 짧으면 필드가 모자라고,
@@ -332,5 +403,13 @@ int msg_decode_resend_req(const uint8_t *buf, size_t len,
 int msg_decode_gap_fill(const uint8_t *buf, size_t len, msg_gap_fill_t *out);
 int msg_decode_book_req(const uint8_t *buf, size_t len, msg_book_req_t *out);
 int msg_decode_book_ack(const uint8_t *buf, size_t len, msg_book_ack_t *out);
+int msg_decode_detail_req(const uint8_t *buf, size_t len,
+                          msg_detail_req_t *out);
+int msg_decode_detail_ack(const uint8_t *buf, size_t len,
+                          msg_detail_ack_t *out);
+int msg_decode_balance_req(const uint8_t *buf, size_t len,
+                           msg_balance_req_t *out);
+int msg_decode_balance_ack(const uint8_t *buf, size_t len,
+                           msg_balance_ack_t *out);
 
 #endif /* MINI_SOR_MSG_H */
