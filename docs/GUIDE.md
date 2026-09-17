@@ -4,8 +4,9 @@
 > 프로그래밍·운영체제 지식이 많지 않은 사람을 기준으로 썼다. 모르는 말이 나오면
 > 맨 끝의 **7장 용어집**을 먼저 본다.
 >
-> 작성 기준: 2026-09-17, 최종 점검(`[T6-13]`)을 마친 코드. 설명한 동작은 코드와 테스트를 읽고
-> 확인했고, 화면 흐름(2장)은 실제 브라우저로 주문을 내어 확인했다.
+> 작성 기준: 2026-09-17, Phase 7(`[T7-01]`~`[T7-07]` — 취소 연결, 주문 상세·잔고 전문, 채널계 조회·취소 API와
+> 원장 상태 밀어 보내기, 화면 개편)까지 마친 코드. 설명한 동작은 코드와 테스트를 읽고 확인했고, 화면 흐름(2장)은
+> 실제 브라우저로 주문을 내어 확인한 기록(`docs/PROGRESS.md`)을 따랐다.
 
 ---
 
@@ -105,7 +106,7 @@
 | 19 | `src/strategy_krx_only.c` → `strategy_best_price.c` → `strategy_split.c` → `strategy_sweep.c` | 같은 300주 매수를 네 전략이 어떻게 나누는지 (안내서의 손계산 예시를 옆에 두고 읽는다) | `test_strategy_*.c` 넷 | 같은 절 |
 | 20 | `sor/include/routing_log.h` → `src/routing_log.c` | `routing_plan()` — 전략을 부르고 판단 근거를 기록 | `test_routing_log.c` | 같은 절 |
 | 21 | `sor/include/order_map.h` → `src/order_map.c` | 논리 주문 ↔ 물리 주문 매핑, 체결 반영 | `test_order_map.c` | 같은 절 |
-| 22 | `sor/include/executor.h` → `src/executor.c` | `exec_submit()` — 계획의 다리마다 매칭 엔진에 넣고 보고서를 만든다 | `test_split_state.c`, `test_split_cancel.c` | 같은 절 |
+| 22 | `sor/include/executor.h` → `src/executor.c` | `exec_submit()` — 계획의 다리마다 매칭 엔진에 넣고 보고서를 만든다. `record_fills()`가 체결 금액을 1원도 잃지 않고 매핑에 옮기는 방법(T7-07) | `test_split_state.c`, `test_split_cancel.c` | 같은 절 |
 | 23 | `sor/include/execution_quality.h` → `src/execution_quality.c` | 슬리피지(bp), 체결률, 체결 금액에서 직접 계산하는 `eq_avg_diff_bp()` | `test_execution_quality.c`, (선택) `test_recon_live.c` | 같은 절, 3.11절 |
 
 > **체크포인트 라.** 논리 주문과 물리 주문은 무엇이 다른가? BEST_PRICE가 더 싼 시장을 **안** 고를 수 있는 경우는?
@@ -116,7 +117,7 @@
 | 단계 | 파일 | 볼 것 | 확인 | 안내서 |
 |---|---|---|---|---|
 | 24 | `core/include/wire.h` → `core/src/wire.c` | 24바이트 헤더, 빅엔디언으로 숫자 쓰고 읽기 | `test_wire.c` | 4.1절 "wire", 3.2절 |
-| 25 | `core/include/msg.h` → `core/src/msg.c` | 전문 종별 16개(주문·취소·조회·호가 조회…)와 바디 배치. **채널계 Java가 이 파일과 똑같아야 한다** | `test_msg.c` | 4.1절 "msg" |
+| 25 | `core/include/msg.h` → `core/src/msg.c` | 전문 종별 20개(주문·취소·조회·호가 조회·주문 상세·잔고 조회…)와 바디 배치. **채널계 Java가 이 파일과 똑같아야 한다** | `test_msg.c` | 4.1절 "msg" |
 | 26 | (선택) `core/include/feed.h` → `src/feed.c` → `exchange/include/feed_source.h` → `exchange/src/feed_source.c` | 외부 전략 엔진용 시세 피드(스냅샷 방식) | `test_feed.c`, `test_feed_source.c` | 4.1절 "feed" |
 | 27 | `core/include/journal.h` → `src/journal.c` | 덧붙이기 전용 저널, CRC, 쓰다 만 마지막 레코드 버리기, `fsync` | `test_journal.c` | 4.1절 "journal", 3.9절 |
 | 28 | `core/include/snapshot.h` → `src/snapshot.c` | 임시 파일 → fsync → rename 스냅샷과 복구 | `test_snapshot.c` | 같은 절 |
@@ -146,7 +147,7 @@
 | 37 | `ledger/include/shm_segment.h` → `src/shm_segment.c` | 여러 프로세스가 같이 보는 메모리 | `test_shm.c` | 같은 절, 3.4절 |
 | 38 | `ledger/include/account.h` → `src/account.c` | 예수금·묶인 금액, `acct_reserve` / `acct_release` / `acct_settle` / `acct_deposit` | `test_account.c` | 같은 절 |
 | 39 | `ledger/include/order_validate.h` → `src/order_validate.c` | 계좌·호가 단위·증거금 검증과 묶기 | `test_order_validate.c` | 같은 절 |
-| 40 | `ledger/include/ledger_core.h` → `src/ledger_core.c` | **지금까지의 부품이 모이는 곳.** `process_order()` → 검증 → `routing_plan`/`plan_add_leg` → `exec_submit` → 콜백 `on_event()`에서 정산 → 남은 묶음 풀기 | `test_ledger_core.c` (특히 `test_resting_then_maker_fill`의 금액을 손으로 따라가기) | 같은 절, 2.3절 |
+| 40 | `ledger/include/ledger_core.h` → `src/ledger_core.c` | **지금까지의 부품이 모이는 곳.** `process_order()` → 검증 → `routing_plan`/`plan_add_leg` → `exec_submit` → 콜백 `on_event()`에서 정산 → 남은 묶음 풀기. 그다음 `cancel_order()`(취소와 묶음 풀기), `detail_order()`·`balance_of()`(주문 상세·잔고) | `test_ledger_core.c` (특히 `test_resting_then_maker_fill`, `test_cancel_after_partial_fill`의 금액을 손으로 따라가기) | 같은 절, 2.3절 |
 | 41 | `ledger/ledgerd.c` | 원장 코어를 만들고 리스너에 연결하는 70줄짜리 `main()` | 5장처럼 직접 띄워 본다 | 5장 |
 
 > **체크포인트 사.** 20주 70,000원 매수가 걸린 뒤 12주 매도에 체결되면 예수금과 묶인 금액은 각각 얼마가 되나?
@@ -182,14 +183,14 @@ Spring을 처음 보면 4.4절의 "Spring Boot를 처음 보는 사람을 위한
 | 단계 | 파일 | 볼 것 | 확인 (`channel/src/test/java/...`) | 안내서 |
 |---|---|---|---|---|
 | 49 | `wire/WireEnums.java` → `WireType.java` → `WireField.java` → `WireMessage.java` → `WireHeader.java` → `WireCodec.java` | 어노테이션 선언만 보고 바이트를 만들고 읽는 코덱. 25단계 `msg.h`와 나란히 놓고 본다 | `WireCodecTest`, **`WireLayoutTest`**(C 헤더를 직접 읽어 대조) | 4.4절 4 |
-| 50 | `wire/OrderReq.java` → `OrderAck.java` → `BookReq.java` → `BookAck.java` (나머지 전문 클래스는 같은 모양) | 전문 한 종별 = 클래스 하나 | 같은 테스트 | 같은 절 |
+| 50 | `wire/OrderReq.java` → `OrderAck.java` → `BookReq.java` → `BookAck.java` → `DetailReq.java` → `DetailAck.java` → `BalanceReq.java` → `BalanceAck.java` (나머지 전문 클래스는 같은 모양) | 전문 한 종별 = 클래스 하나. `DetailAck`의 시장별 배열(`int[]`, `long[]`) | 같은 테스트 | 같은 절 |
 | 51 | `ledger/LedgerProperties.java` → `LedgerConnection.java` → `LedgerConnectionPool.java` | 요청 하나에 응답 하나, 깨진 접속은 버리기, 세마포어로 접속 1개 지키기 | `LedgerConnectionPoolTest`, `FakeLedger`(시험용 원장) | 4.4절 5 |
-| 52 | `api/OrderRequestDto.java` → `OrderResponseDto.java` → `OrderService.java` → `OrderController.java` | 입력 검증, 상태 코드(200/400/422/503/202), 답을 못 받으면 "모른다"(IN_DOUBT) | `OrderApiTest` | 4.4절 7 |
-| 53 | `api/BookController.java` | `GET /api/book` — 원장의 호가 10단 | `OrderApiTest.bookComesFromLedger` | 같은 절 |
-| 54 | `stream/StreamEvent.java` → `StreamHub.java` → `StreamHandler.java` → `StreamConfig.java` | WebSocket 방송, 느린 구독자 끊기, 원장 끊김·회복 알림 | `StreamTest`, `ChannelStartupTests` | 4.4절 6 |
+| 52 | `api/OrderRequestDto.java` → `OrderResponseDto.java` → `OrderView.java` → `OrderRegistry.java` → `LedgerGateway.java` → `OrderService.java` → `OrderController.java` | 입력 검증, 상태 코드(200/400/422/503/202), 답을 못 받으면 "모른다"(IN_DOUBT), 주문 목록·상세, 취소(200/409/404/503) | `OrderApiTest`, `OrderRegistryTest` | 4.4절 7 |
+| 53 | `api/BookController.java` → `BalanceController.java` | `GET /api/book` — 원장의 호가 10단, `GET /api/balance` — 예수금·묶인 금액·주문 가능 금액 | `OrderApiTest.bookComesFromLedger`, `balanceComesFromLedger` | 같은 절 |
+| 54 | `stream/StreamEvent.java` → `StreamHub.java` → `StreamHandler.java` → `StreamConfig.java` → `api/LedgerPoller.java` | WebSocket 방송, 느린 구독자 끊기, 원장 끊김·회복 알림, 1초마다 원장을 읽어 **바뀐 것만** 방송 | `StreamTest`, `ChannelStartupTests`, `LedgerPollerTest` | 4.4절 6, 7.7 |
 
 > **체크포인트 차.** 응답이 200이 아니라 202인 경우는 언제이고, 그때 다시 보내면 안 되는 이유는?
-> `WireLayoutTest`가 잡는 것과 못 잡는 것은?
+> `WireLayoutTest`가 잡는 것과 못 잡는 것은? 취소가 409와 404를 나누는 이유는?
 
 #### 카. 화면 — `web/` (TypeScript + React, 약 1시간 30분)
 
@@ -197,12 +198,12 @@ React를 처음 보면 4.4절의 "React를 처음 보는 사람을 위한 기초
 
 | 단계 | 파일 | 볼 것 | 안내서 |
 |---|---|---|---|
-| 55 | `web/vite.config.ts` → `web/src/lib/wire.ts` → `types.ts` → `api.ts` → `format.ts` | 프록시(CORS를 피하는 이유), C와 같은 열거값, REST 호출 | 4.4절 13 |
-| 56 | `web/src/lib/useStream.ts` | WebSocket 연결과 끊기면 간격을 늘리며 재접속 | 같은 절 |
-| 57 | `web/src/main.tsx` → `web/src/App.tsx` | 탭, 1초마다 호가 읽기, `order`·`fill`·`ledger-down` 이벤트 처리 | 같은 절 |
-| 58 | `components/OrderTicket.tsx` → `OrderBook.tsx` → `SorPanel.tsx` → `Working.tsx` → `Fills.tsx` → `Strategies.tsx` → `StatusBar.tsx` → `Ops.tsx` → `Panel.tsx` | 주문 칸, 호가창, SOR 판단, 주문·체결 내역, 전략 비교, 상태 표시 | 같은 절 |
+| 55 | `web/vite.config.ts` → `web/src/lib/wire.ts` → `types.ts` → `api.ts` → `format.ts` → `estimate.ts` | 프록시(CORS를 피하는 이유), C와 같은 열거값과 호가 단위 표, REST 호출, 보이는 호가로 계산하는 예상 체결 | 4.4절 13 |
+| 56 | `web/src/lib/useStream.ts` → `useTrading.ts` | WebSocket 재접속, 처음 한 번 읽고 그다음은 방송(`book`·`balance`·`order`·`order-update`·`fill`)으로 고치기, 끊기면 3초마다 읽기 | 같은 절 |
+| 57 | `web/src/main.tsx` → `web/src/App.tsx` → `lib/useToasts.ts` → `lib/useFlash.ts` | 거래 한 화면의 배치, 체결 알림, 바뀐 값 깜빡임 | 같은 절 |
+| 58 | `components/Header.tsx` → `OrderBook.tsx` → `MarketCompare.tsx` → `OrderTicket.tsx` → `Activity.tsx` → `Toasts.tsx` → `Panel.tsx` → `Strategies.tsx` → `Ops.tsx` | 잔고·연결 상태, 두 시장 호가, 시장 비교, 주문창(주문 전 확인·단축키), 미체결·주문 내역·체결, 전략 비교, 관제 | 같은 절 |
 
-화면에는 자동 테스트가 없다. 확인은 `npm run build`(타입 검사 포함)와 5장처럼 직접 띄워서 한다.
+화면에는 테스트 도구가 없다. 확인은 `npm run build`(타입 검사 포함), `npm run lint`, `npm run check`(예상 체결·호가 단위 계산 자체 점검, `web/scripts/estimate.check.ts`)와 5장처럼 직접 띄워서 한다.
 
 #### 타. 마무리 (약 1시간)
 
@@ -218,7 +219,7 @@ React를 처음 보면 4.4절의 "React를 처음 보는 사람을 위한 기초
 
 `README.md` → 이 문서 2장 → 1(`types.h`) → 7(`order_book.h`) → 9(`match_limit.c`와 `test_match_limit.c`)
 → 11(`krx.c`·`nxt.c`) → 19(전략 넷, 손계산 예시) → 22(`executor.c`) → 25(`msg.h`)
-→ 40(`ledger_core.c`와 `test_ledger_core.c`) → 52(`OrderService.java`) → 57(`App.tsx`) → 59(직접 띄워 보기)
+→ 40(`ledger_core.c`와 `test_ledger_core.c`) → 52(`OrderService.java`) → 56(`useTrading.ts`) → 59(직접 띄워 보기)
 
 ---
 
@@ -325,7 +326,8 @@ NXT에서 사는 편이 100원 싸다. 대신 NXT의 70,000원에는 2,257주밖
 
 ### 2.1 화면 → 채널계
 
-1. `web/src/components/OrderTicket.tsx`의 `send()`가 `submitOrder()`(`web/src/lib/api.ts`)를 부른다.
+1. `web/src/components/OrderTicket.tsx`의 `send()`(주문 버튼 또는 Ctrl+Enter)가 `useTrading()`(`web/src/lib/useTrading.ts`)의
+   `submit()`을 부르고, 그것이 계좌·종목·`clOrdId`를 붙여 `submitOrder()`(`web/src/lib/api.ts`)를 부른다.
 2. `submitOrder()`는 `POST /api/orders`로 JSON을 보낸다.
 
    ```json
@@ -378,16 +380,19 @@ NXT에서 사는 편이 100원 싸다. 대신 NXT의 70,000원에는 2,257주밖
 
 11. 채널계 `LedgerConnection.call()`이 응답을 `OrderAck`로 풀고, `OrderService`가
     `OrderResponseDto`(`ACCEPTED`, 체결 100주, 평균 70,000원)를 만든다.
-12. `OrderService`는 모든 WebSocket 구독자에게 **`order` 이벤트**와 **`fill` 이벤트**를 방송한다
-    (`channel/.../stream/StreamHub.java`).
-13. 화면은 두 경로로 결과를 받는다. HTTP 응답은 주문 칸 아래에 "100주 체결 · 평균 70,000원 · 전량"을
-    띄우고, WebSocket 이벤트는 `web/src/App.tsx`가 받아 "주문·체결" 탭의 목록을 채운다.
-    `order` 이벤트를 받으면 호가창을 곧바로 다시 읽어(`GET /api/book`) NXT 잔량이 줄어든 것을 보인다.
-    호가창은 그 밖에도 1초마다 다시 읽는다.
+12. `OrderService`는 모든 WebSocket 구독자에게 **`order` 이벤트**를 방송한다(`channel/.../stream/StreamHub.java`).
+    접수된 주문이면 곧바로 원장에 **주문 상세**(`DETAIL_REQ`, T7-02)를 물어 `OrderRegistry`에 적고, 상세의
+    **시장별 다리**마다 체결이 있으면 **`fill` 이벤트**를 보낸다. 그래서 SOR 자동 주문도 체결 시장이 "NXT"로 실린다(T7-03).
+13. 화면은 두 경로로 결과를 받는다. HTTP 응답으로는 주문창이 알림("주문 접수", "주문 거절" 등)을 띄우고
+    주문 상세를 읽어 미체결·주문 내역 목록에 넣는다. WebSocket 이벤트는 `useTrading.ts`가 받아 체결 목록을 채우고,
+    `App.tsx`가 새 체결마다 "체결 · NXT 매수" 알림을 띄운다(방송이 끊겨 있으면 주문창이 응답으로 대신 띄운다).
+14. 호가 변화는 화면이 끌어오지 않는다. 채널계의 `LedgerPoller`가 1초마다 원장의 호가·잔고·끝나지 않은 주문을 읽어
+    **바뀐 것만** `book`·`balance`·`order-update`·`fill`로 밀어 보내므로 NXT 잔량이 줄어든 것이 곧 보인다.
+    예전에 걸어 둔 주문이 **나중에** 체결돼도 같은 길로 화면에 온다.
 
-**원장이 죽으면.** 1초마다 호가를 읽던 `BookController`가 실패를 알아채고 `StreamHub.ledgerReachable(false)`가
-`ledger-down`을 방송한다. 화면 위쪽에 "원장 끊김"이 뜬다. 원장을 다시 띄우면 다음 호가 읽기가 성공하며
-`ledger-up`이 가고 표시가 사라진다(T6-10, 실제로 원장을 죽였다 살려 확인했다).
+**원장이 죽으면.** 1초마다 원장을 읽는 `LedgerPoller`(`LedgerGateway` 경유)나 주문이 실패를 알아채고
+`StreamHub.ledgerReachable(false)`가 `ledger-down`을 방송한다. 화면 위쪽에 "원장에 연결되지 않음" 띠가 뜬다.
+원장을 다시 띄우면 다음 읽기가 성공하며 `ledger-up`이 가고 띠가 사라진다(T6-10, T7-05에서 실제로 원장을 죽였다 살려 확인했다).
 
 **왜 SOR과 매칭 엔진이 원장 프로세스 안에 있나.** 원장을 여러 프로세스(`fork()`)로 늘리면
 프로세스마다 호가창이 따로 생긴다. 같은 시장인데 호가창이 워커 수만큼 생기는 셈이다(3.3절).
@@ -594,11 +599,12 @@ close()                                  close()
 
 - **HTTP REST**: `POST /api/orders`처럼 "동사 + 주소"로 요청하고 JSON으로 주고받는다. 응답 상태 코드
   (200 접수, 400 입력 오류, 422 원장이 거절, 503 원장에 못 붙음, 202 결과 모름)가 뜻을 전한다.
+  취소 `DELETE /api/orders/{id}`는 200 취소됨, 409 이미 끝난 주문, 404 모르는 주문으로 나눈다.
 - **WebSocket**: 한 번 연결해 두면 **서버가 먼저** 메시지를 밀어 보낼 수 있는 통로다. 체결·원장 상태 알림에 쓴다.
 - **Spring Boot**: `@RestController`(HTTP 입구), `@Service`(업무 로직), `@Component`(그 밖의 부품)를 붙이면
   스프링이 객체를 하나씩 만들어 **생성자 인자로 서로 연결**해 준다(의존성 주입).
 - **React**: 화면을 **컴포넌트**(함수)로 쪼갠다. `useState`는 값이 바뀌면 화면을 다시 그리는 변수,
-  `useEffect`는 "화면이 뜬 뒤 할 일"(예: 1초마다 호가 읽기)과 "사라질 때 정리할 일"을 적는 곳이다.
+  `useEffect`는 "화면이 뜬 뒤 할 일"(예: 방송이 끊겼을 때 3초마다 원장 상태 읽기)과 "사라질 때 정리할 일"을 적는 곳이다.
 - **CORS**: 브라우저는 `localhost:5173`에서 뜬 페이지가 `localhost:8080`에 JSON POST를 보내는 것을,
   8080이 허락하지 않으면 막는다. 그래서 개발 서버가 대신 전달하는 **프록시**를 쓴다(T6-05).
 
@@ -994,7 +1000,7 @@ struct order_index {
 
 ##### 1) 한 줄 역할과 필요성
 
-주문 요청·응답, 취소, 정정, 조회, 체결 통보, 로그인, 하트비트, 재전송, 호가 조회 등 **16가지 전문의 바디 배치와 인코딩/디코딩 함수**다. 채널계(Java) ↔ 원장(C) ↔ FEP 사이의 "말"을 정의한다.
+주문 요청·응답, 취소, 정정, 조회, 체결 통보, 로그인, 하트비트, 재전송, 호가 조회, 주문 상세, 잔고 조회 등 **20가지 전문의 바디 배치와 인코딩/디코딩 함수**다. 채널계(Java) ↔ 원장(C) ↔ FEP 사이의 "말"을 정의한다.
 
 ##### 2) 읽는 순서
 
@@ -1018,6 +1024,8 @@ struct order_index {
 | 13 | `MSG_RESEND_REQ` | 8 |
 | 14 | `MSG_GAP_FILL` | 8 |
 | 15 / 16 | `MSG_BOOK_REQ` / `MSG_BOOK_ACK` | 9 / 169 |
+| 17 / 18 | `MSG_DETAIL_REQ` / `MSG_DETAIL_ACK` (주문 상세, T7-02) | 20 / 91 |
+| 19 / 20 | `MSG_BALANCE_REQ` / `MSG_BALANCE_ACK` (잔고 조회, T7-02) | 12 / 32 |
 
 코드 0은 쓰지 않는다 — 0으로 초기화된 버퍼가 유효한 전문으로 보이면 안 되기 때문이다.
 
@@ -1034,6 +1042,8 @@ struct order_index {
 예: 계좌 "ACC001"이 삼성전자("005930")를 70,000원에 10주 매수 → `account="ACC001"`, `symbol="005930"`, `side=0`, `type=0`, `market=255`, `price=70000`, `qty=10`. 바이트로는 계좌 12바이트(뒤는 0), 종목 8바이트, …, 마지막 8바이트가 `00 01 11 70 00 00 00 0A`다.
 
 `msg_query_ack_t`의 `last`는 "이것이 마지막 응답"이라는 표시다. 한 건도 없어도 `last=1`인 빈 응답이 와야 "거래소에 없다"를 결론 낼 수 있다. `msg_book_ack_t`는 10단 호가를 가격·수량 배열 넷(`bid_price`, `bid_qty`, `ask_price`, `ask_qty`)으로 나눠 담는다.
+
+`msg_detail_ack_t`(91바이트)는 논리 주문 하나의 지금 상태다. 주문번호·방향·상태·**고른 시장**(255면 SOR)·지정가·수량·체결·취소·살아 있는 수량·체결 금액(i64) 뒤에, **시장 번호를 첨자로 쓰는 배열 넷**(`leg_sent`, `leg_filled`, `leg_canceled`는 i32, `leg_notional`은 i64, 원소는 KRX·NXT 순)이 온다. 한 시장에 다리가 여럿일 수 있어(PLAN_LEGS_MAX) 가변 목록이 아니라 시장별로 더해 싣는다. 크기 `MSG_LEG_SLOTS`(2)는 `msg.c`의 `_Static_assert`로 시장 수와 묶었다. 다리 체결 금액이 i64인 이유는 70,000원 × 100,000주가 i32를 넘기 때문이다. `msg_balance_ack_t`(32바이트)는 계좌·사유·예수금(i64)·묶인 금액(i64)이고, 없는 계좌면 사유 `ERR_NOT_FOUND`에 금액 0이다.
 
 ##### 4) 핵심 함수 흐름
 
@@ -1062,7 +1072,7 @@ struct order_index {
 
 - 종별 코드·이름·길이가 한 목록에서 나오고 헤더 표와 일치한다. 모르는 종별은 -1·`"알 수 없는 전문"`.
 - 요청마다 응답 종별이 짝지어져 있고 체결 통보는 짝이 없다.
-- ORDER_REQ, FILL_NOTI, BOOK_ACK의 **바이트 위치를 직접 대조**한다.
+- ORDER_REQ, FILL_NOTI, BOOK_ACK, DETAIL_ACK, BALANCE_ACK의 **바이트 위치를 직접 대조**한다. 잔고 응답은 예수금과 묶인 금액이 같은 i64라 자리를 바꿔 써도 왕복은 통과하므로 두 값을 다르게 넣고 위치로 본다(T7-02 변이 D15).
 - 모든 종별 왕복이 필드를 보존한다; 자리 부족 인코딩과 길이가 다른 디코딩을 거절한다; 헤더 body_len과 바디 길이가 맞는다.
 
 ---
@@ -2768,7 +2778,7 @@ int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
    1. 그 시장 엔진이 없으면 `rc = ERR_NULL_PTR`. 있으면 `send_leg()` — 물리 주문 구조체를 `memset`으로 민 뒤 채우고(`id = 물리 번호`, `client_order_id = 논리 번호`), 주문 유형에 따라 `match_market` / `match_ioc` / `match_fok` / `match_limit`(지정가·중간가·기타)을 부른다.
    2. **거부되면**: `rejected_count++`, 첫 거부 이유를 기억, `omap_on_cancel(phys, 보낸 수량)`으로 **그 수량을 취소로 기록**하고 다음 다리로. 다른 다리는 건드리지 않는다.
    3. **접수되면**: `omap_on_accept(phys)`로 `accepted = true`. 결과(체결 수량·금액·남은 수량·등록 여부)를 보고서에 옮긴다.
-   4. 체결이 있으면 `record_fills()` — **체결 건마다** `omap_on_fill(phys, 수량, 가격)`을 부른다. 평균 단가 하나로 뭉뚱그리면 나눗셈 나머지만큼 금액이 새기 때문이다. 체결 목록이 잘린 경우(엔진의 `EXEC_FILLS_MAX` 초과)에만 남은 몫을 평균 가격으로 한 번 넣는다. 그래도 합계 수량·금액은 정확하다.
+   4. 체결이 있으면 `record_fills()` — **체결 건마다** `omap_on_fill(phys, 수량, 가격)`을 부른다. 평균 단가 하나로 뭉뚱그리면 나눗셈 나머지만큼 금액이 새기 때문이다. 체결 목록이 잘린 경우(엔진의 `EXEC_FILLS_MAX` = 64건 초과)에만 남은 몫을 한꺼번에 넣는데, **평균(버림) 가격 몫과 1원 높은 몫 둘로 나눠** 넣는다. 남은 금액 ÷ 남은 수량의 나머지만큼을 1원 높은 쪽 수량으로 두면 합이 정확히 맞는다. 예전에는 평균 하나로 넣어 나머지만큼 금액이 샜다 — 화면에서 72,326주 매도의 접수 응답 평균가(69,728원)와 주문 상세 평균가(69,727원)가 1원 달라 드러났고, 상세의 체결 금액이 34,887원 모자랐다(T7-07). 예수금은 체결 사건마다 정산하므로 맞았다.
    5. 잔량이 호가창에 **등록되지 않았다면**(IOC·시장가) 남은 수량을 `omap_on_cancel`로 취소 기록한다. 지정가처럼 등록된 잔량은 살아 있으니 건드리지 않는다.
    6. 보고서 합계에 더한다.
 4. `unfilled_qty = order_qty − filled_qty`, `working_qty = omap_remaining()`, `status = exec_status()`.
@@ -2974,6 +2984,7 @@ return eq_to_bp(avg_a - avg_b, avg_a);
 - 초과 체결은 아무것도 바꾸지 않고 거절된다. 논리 잔량 = 원 수량 − 체결 합 − 취소 합이 많은 주문에서 성립한다.
 - 한쪽 거부/양쪽 부분 체결/한쪽만 체결/전부 거부/IOC 잔량 취소 각각에서 보고서와 매핑이 같은 숫자를 말한다(`check_invariant`).
 - 취소는 살아 있는 다리만 시도하고, 한쪽 실패 시 성공한 취소를 되돌리지 않으며, 재시도가 남은 다리만 취소한다.
+- 체결이 64건을 넘어 목록이 잘려도 매핑의 체결 금액이 결과 금액과 같다(`test_notional_is_exact_when_fill_list_truncated`: 잘린 뒤 몫 9주 = 6주 @10,000 + 3주 @10,010 = 90,030원을 평균 하나로 넣으면 90,027원). 고치기 전 실패를 확인했다(T7-07).
 
 **로그·품질·대사 (`test_routing_log.c`, `test_execution_quality.c`, `test_recon_live.c`)**
 
@@ -3825,6 +3836,7 @@ struct ledger_core {
     order_map_t     *map;            /* 논리 주문 ↔ 물리 주문 (sor/order_map, T2-09) */
     int32_t         *acct_of;        /* 논리 주문번호 → 계좌 자리 */
     uint64_t        *cl_of;          /* 논리 주문번호 → 요청자가 붙인 번호 */
+    uint8_t         *market_of;      /* 논리 주문번호 → 주문할 때 고른 시장(0, 1, 255). 상세 응답용(T7-02) */
     order_id_t       next_logical;   /* 다음 논리 주문번호. 200,000,000부터 */
     ts_t             clock;          /* 논리 시각. 전문마다 +1 */
     order_id_t       submitting;     /* 지금 집행 중인 논리 주문번호 */
@@ -3881,10 +3893,12 @@ ledger_core_handle(hdr, body, out, cap, core)
  │               seq=요청의 seq, ts=요청의 ts   ← 원장이 자기 시각을 만들지 않는다
  └ switch (hdr->type)
      ORDER_REQ  → 디코드 → process_order → 주문 응답 인코드
-     CANCEL_REQ → 디코드 → "REJECTED + ERR_NOT_SUPPORTED" 응답
-     MODIFY_REQ → 디코드 → "REJECTED + ERR_NOT_SUPPORTED" 응답
-     QUERY_REQ  → 디코드 → query_order → 조회 응답
-     BOOK_REQ   → 디코드 → query_book  → 호가 응답
+     CANCEL_REQ  → 디코드 → cancel_order → 취소 응답 (T7-01)
+     MODIFY_REQ  → 디코드 → "REJECTED + ERR_NOT_SUPPORTED" 응답
+     QUERY_REQ   → 디코드 → query_order  → 조회 응답
+     DETAIL_REQ  → 디코드 → detail_order → 주문 상세 응답 (T7-02)
+     BALANCE_REQ → 디코드 → balance_of   → 잔고 응답 (T7-02)
+     BOOK_REQ    → 디코드 → query_book   → 호가 응답
      그 밖      → return 0 (응답 없음)
    디코드 실패(바디가 규격과 다름) → return -1 → 리스너가 접속을 끊는다
 ```
@@ -4063,7 +4077,7 @@ KRX 호가창의 70,000원 매수 잔량이 20주가 된다.
 - 호가 단위의 예: 70,000원대는 100원 단위라 70,050원은 `ERR_INVALID_TICK`이다
   (`test_rejects_leave_money_alone`).
 
-###### 4.8 조회와 호가 조회
+###### 4.8 조회, 주문 상세·잔고, 호가 조회
 
 **주문 조회 `query_order`** — 주문번호 하나의 지금 상태를 돌려준다.
 
@@ -4097,15 +4111,59 @@ market >= 2 이거나 종목이 설정 종목과 다르면 → 빈 호가창(전
 매수 쪽은 높은 가격부터, 매도 쪽은 낮은 가격부터 담긴다. 화면이 보는 호가가 원장 안의
 호가창 그대로다(T6-04).
 
-###### 4.9 취소·정정이 NOT_SUPPORTED로 답하는 이유
+**주문 상세 `detail_order`** (T7-02) — 조회보다 자세한, 화면의 미체결·주문 내역이 읽는 응답.
 
-`CANCEL_REQ`, `MODIFY_REQ`는 바디를 디코드한 뒤 **`status = REJECTED`, `reason = ERR_NOT_SUPPORTED`**
-로 답한다. 원장 코어에 아직 연결하지 않았기 때문이다.
+```
+ack 기본값: order_id=요청 번호, status=REJECTED, reason=ERR_NOT_FOUND, 나머지 0
+owned_order(계좌, 번호)가 NULL이면   → 기본값 그대로 ("없음" — 없는 주문과 남의 주문을 구별하지 않는다)
+exec_status(map, id)                → status
+cl_ord_id, market = market_of[..], side·price·qty = 논리 주문,
+filled / canceled / working / notional = omap_filled_qty / omap_canceled_qty / omap_remaining / omap_notional
+다리마다: leg_sent[시장] += sent_qty, leg_filled[시장] += filled_qty,
+          leg_canceled[시장] += canceled_qty, leg_notional[시장] += notional
+```
+
+같은 시장의 다리는 더해서 싣는다. `market`은 **주문할 때 고른 값**이라 SOR 자동이면 255다 — 실제로 어느 시장에서
+체결됐는지는 `leg_*` 배열이 말한다.
+
+**잔고 `balance_of`** (T7-02) — `ledger_core_balance()`로 예수금·묶인 금액을 채운다. 없는 계좌면
+`ERR_NOT_FOUND`이고 금액은 앞의 `memset`이 0으로 둔다(따로 0을 넣던 줄은 변이 검사에서 중복임이 드러나 지웠다).
+
+###### 4.9 취소 — `cancel_order` (T7-01), 그리고 정정이 아직 NOT_SUPPORTED인 이유
+
+**취소**는 논리 주문의 살아 있는 물리 주문을 모두 취소하고, 매수라면 묶어 둔 돈을 푼다.
+
+```
+cancel_order(req)
+ ① ack 기본값: order_id·cl_ord_id = 요청 그대로, status=REJECTED, reason=ERR_NOT_FOUND
+ ② lo = owned_order(계좌, 번호)
+      번호가 [2억, next_logical) 밖이거나, 계좌가 없거나, 그 주문을 낸 계좌가 아니면 → NULL → ①로 답한다
+ ③ rc = exec_cancel(map, venues, 번호, ++clock, &rep)     살아 있는 다리마다 match_cancel
+ ④ rep.canceled_qty > 0 이고 매수면
+      acct_release(계좌, 지정가 × canceled_qty)            assert(성공) — 살아 있던 수량만큼은 반드시 묶여 있었다
+ ⑤ reason = rc
+      rc == ERR_NOT_FOUND 이고 취소된 수량이 0이면 → 여기서 끝 (이미 체결·취소로 끝난 주문)
+ ⑥ status = rep.status, canceled_qty = rep.canceled_qty
+```
+
+- **푸는 금액은 "취소된 수량 × 지정가"다.** 묶음 = 지정가 × 살아 있는 수량이라는 불변식(4.4)이 그대로 이어진다.
+  일부 체결 뒤 취소해도 같은 식이 맞는다 — 체결분은 콜백이 이미 풀었다. 20주 중 12주가 체결된 뒤 취소하면 8주분만 풀린다.
+  이때 상태는 체결이 있었으므로 `PARTIAL`로 남는다(화면은 끝난 주문이면 "부분 체결 후 취소"로 다시 적는다).
+- **남의 주문은 "없다"로 답한다.** "권한 없음"으로 구별해 답하면 주문번호를 하나씩 넣어 보며 남의 주문이 있는지
+  알아낼 수 있다. 그래서 소유 검사를 통과하지 못하면 없는 주문과 같은 `ERR_NOT_FOUND`다. 주문 상세도 같은 규칙이다.
+- 매도 취소는 돈을 건드리지 않는다. 매도는 증거금을 묶지 않았다.
+- 한쪽 다리만 취소되고 다른 쪽이 실패하면(집행기는 되돌리지 않는다) 취소된 수량과 상태를 그대로 알리고 사유 칸이
+  실패를 말한다. 한 프로세스 안에서는 매칭 엔진 취소가 실패할 경로가 없어 이 경로는 시험하지 못했다(`ponytail:` 주석).
+- 시험용으로 계좌를 하나 더 여는 `ledger_core_open_account()`가 생겼다. 이미 있는 계좌면 `ERR_DUPLICATE` —
+  `acct_open`은 있는 계좌면 그 자리를 돌려주므로 따로 검사해 "이미 있는 계좌에 몰래 입금하지 않는다".
+
+**정정**(`MODIFY_REQ`)은 여전히 바디를 디코드한 뒤 **`status = REJECTED`, `reason = ERR_NOT_SUPPORTED`** 로 답한다.
 
 이렇게 명시적으로 "안 된다"고 답하는 데는 이유가 있다. T3-03 때의 껍데기 `ledgerd`는
 취소 요청에 **무조건 성공**을 돌려줬다. 그러면 호가창에 그대로 남아 체결될 수 있는 주문을
 사용자는 취소됐다고 믿는다. 감사에서 이것을 찾았고, T6-03에서 "모르는 것은 성공이라 하지
-않고 지원 안 함이라 한다"로 바꿨다. `test_cancel_is_not_faked`가 이것을 고정한다.
+않고 지원 안 함이라 한다"로 바꿨다. 취소는 T7-01에서 실제로 연결됐고, 정정은 `test_modify_is_not_faked`가
+"지어낸 성공으로 돌아가지 않는다"를 고정한다.
 
 ###### 4.10 `ledgerd` 실행 흐름
 
@@ -4500,7 +4558,9 @@ pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);     /* 쥔 채 죽어�
 - 매수는 매도호가를 먹고 예수금이 정확히 체결 대금만큼 줄며, 지정한 시장만 건드린다(방향·시장 값 해석 고정).
 - 걸어 둔 매수가 나중에 체결되면 묶음이 줄고, 가격 개선분과 IOC 잔량의 증거금이 풀린다.
 - `market=255`면 더 싼 시장으로 가고, 조회·호가 조회가 원장 안의 실제 상태를 돌려준다.
-- 거부는 사유를 말하고 돈을 건드리지 않으며, 취소는 성공을 지어내지 않는다.
+- 거부는 사유를 말하고 돈을 건드리지 않는다.
+- 취소(T7-01): 걸어 둔 매수를 취소하면 호가창에서 빠지고 묶인 돈이 전부 풀리며 예수금은 그대로다. 20주 중 12주가 체결된 뒤 취소하면 8주분만 풀린다. 매도 취소는 돈을 건드리지 않는다. 남의 주문·없는 주문·이미 끝난 주문은 거절되고 호가창과 돈이 그대로다. 정정은 여전히 `ERR_NOT_SUPPORTED`다.
+- 주문 상세·잔고(T7-02): SOR로 싼 시장에 간 매수의 다리가 그 시장에만 있고 시장별 체결 금액이 맞는다. 걸어 둔 주문의 나중 체결과 취소가 상세에 반영된다. 남의 주문·없는 주문은 "없음"이다. 잔고 전문이 원장 장부와 같은 값을 준다.
 - 같은 전문 순서는 같은 응답 바이트를 만든다.
 
 ---
@@ -5248,7 +5308,7 @@ fork()
 
 이 장은 저장소의 두 "바깥 계층"을 다룬다. `channel/`은 Java 17과 Spring Boot 4로 만든 **채널계**이고, `web/`은 React와 TypeScript, Vite로 만든 **화면**이다. C로 짠 원장·매칭 엔진·SOR은 이 둘 뒤에 숨어 있다. 이 장만 읽어도 "화면에서 매수 버튼을 누르면 무엇이 어디로 가는가"를 끝까지 따라갈 수 있게 쓴다.
 
-설명은 모두 지금 디스크에 있는 파일을 기준으로 한다. 원장 끊김 방송(T6-10)은 커밋 `e14d692`에 들어갔고, 작업 트리에는 아직 커밋하지 않은 변경 셋이 더 있다. `LedgerConnectionPool.java`(세마포어로 상한 지키기, T6-11), `LedgerConnectionPoolTest.java`(그 테스트 둘), `web/src/lib/api.ts`(예상 못 한 응답 본문 막기)다. 이 글은 그 변경이 들어간 상태를 설명한다.
+설명은 모두 Phase 7까지 커밋된 파일(`[T7-05]`, 커밋 `6d57b3a`)을 기준으로 한다. Phase 7에서 채널계에는 주문 목록·상세·취소·잔고 API와 원장 상태를 주기적으로 읽어 밀어 보내는 `LedgerPoller`가 생겼고(T7-03), 화면은 탭 넷에서 **거래 한 화면**으로 바뀌었다(T7-04, T7-05).
 
 ---
 
@@ -5269,6 +5329,7 @@ Vite 개발 서버의 프록시  ── /api, /ws 를 8080으로 넘긴다
 
 - 화면은 JSON으로 말하고, 원장은 "24바이트 헤더 + 정해진 길이의 바디"라는 이진 전문으로 말한다. 둘은 서로의 말을 모른다. **채널계는 그 사이에서 통역한다.** 실제 증권사에서 고객 화면(HTS/MTS)과 계좌 원장 사이에 있는 계층을 "채널계"라고 부르는 것과 같은 자리다.
 - 채널계는 통역만 하지 않는다. 형식이 틀린 주문은 원장에 보내기 전에 막고(400), 원장의 답을 HTTP 상태 코드로 분명히 나누고(200/422/503/202), 결과를 WebSocket으로 모든 화면에 방송한다.
+- 원장은 요청-응답만 한다. 그래서 채널계가 1초마다 원장의 호가·잔고·끝나지 않은 주문을 읽어 **바뀐 것만** 밀어 보낸다(`LedgerPoller`, T7-03). 다른 주문 때문에 바뀐 호가와 걸어 둔 주문의 나중 체결이 이 길로 화면에 온다.
 
 실행 순서는 저장소 `README.md`의 "실행"에 있다. 원장(WSL, `./build/ledger/ledgerd`, 9100번) → 채널계(Windows, `channel/`에서 `./mvnw.cmd spring-boot:run`, 8080번) → 화면(Windows, `web/`에서 `npm install` 후 `npm run dev`, 5173번) 순서로 띄운다.
 
@@ -5281,13 +5342,13 @@ Vite 개발 서버의 프록시  ── /api, /ws 를 8080으로 넘긴다
 1. `channel/pom.xml` — 무엇에 의존하는가
 2. `channel/src/main/resources/application.properties` — 설정값
 3. `channel/src/main/java/com/minisor/channel/ChannelApplication.java` — 시작점
-4. `wire/` — 전문 규격. `WireType` → `WireField` → `WireMessage` → `WireHeader` → `WireEnums` → `WireCodec` → 메시지 클래스들(`OrderReq`, `OrderAck`, `BookReq`, `BookAck`, 그리고 아직 쓰이지 않는 `CancelReq`, `CancelAck`, `QueryAck`, `FillNoti`)
+4. `wire/` — 전문 규격. `WireType` → `WireField` → `WireMessage` → `WireHeader` → `WireEnums` → `WireCodec` → 메시지 클래스들(`OrderReq`, `OrderAck`, `CancelReq`, `CancelAck`, `BookReq`, `BookAck`, `DetailReq`, `DetailAck`, `BalanceReq`, `BalanceAck`, 그리고 아직 쓰이지 않는 `QueryAck`, `FillNoti`)
 5. `ledger/` — 원장과의 TCP. `LedgerProperties` → `LedgerException` → `LedgerConnection` → `LedgerConnectionPool`
 6. `stream/` — 화면으로 밀어 보내기. `StreamEvent` → `StreamHub` → `StreamHandler` → `StreamConfig`
-7. `api/` — REST 입구. `OrderRequestDto` → `OrderResponseDto` → `OrderService` → `OrderController` → `BookController`
-8. `src/test/...` — 각 약속을 확인하는 테스트. `wire/WireCodecTest` → `wire/WireLayoutTest` → `ledger/FakeLedger` → `ledger/LedgerConnectionPoolTest` → `stream/StreamTest` → `api/OrderApiTest` → `ChannelStartupTests` → `ChannelApplicationTests`
+7. `api/` — REST 입구. `OrderRequestDto` → `OrderResponseDto` → `LedgerGateway` → `OrderView` → `OrderRegistry` → `OrderService` → `OrderController` → `BookController` → `BalanceController` → `LedgerPoller`
+8. `src/test/...` — 각 약속을 확인하는 테스트. `wire/WireCodecTest` → `wire/WireLayoutTest` → `ledger/FakeLedger` → `ledger/LedgerConnectionPoolTest` → `stream/StreamTest` → `api/OrderRegistryTest` → `api/OrderApiTest` → `api/LedgerPollerTest` → `ChannelStartupTests` → `ChannelApplicationTests`
 
-`stream/`을 `api/`보다 먼저 읽는 이유는 `OrderService`와 `BookController`가 `StreamHub`를 부르기 때문이다.
+`stream/`을 `api/`보다 먼저 읽는 이유는 `LedgerGateway`, `OrderService`, `LedgerPoller`가 `StreamHub`를 부르기 때문이다.
 
 ---
 
@@ -5299,21 +5360,24 @@ Vite 개발 서버의 프록시  ── /api, /ws 를 8080으로 넘긴다
 
 보통 Java 프로그램은 `main`에서 필요한 객체를 전부 `new`로 만들고 서로 이어 붙인다. Spring은 그 일을 대신한다. 시작할 때 패키지를 훑어서 특정 어노테이션(`@Component`, `@Service`, `@RestController`, `@Configuration` 등)이 붙은 클래스를 찾고, 그 객체를 **하나씩만** 만들어 보관한다. 이렇게 Spring이 만들어 관리하는 객체를 **빈(bean)**이라고 부른다.
 
-`ChannelApplication.java`의 `@SpringBootApplication`이 "이 패키지(`com.minisor.channel`)와 그 아래를 훑어라"는 표시이고, `SpringApplication.run(...)`이 실제로 훑고, 빈을 만들고, 내장 웹 서버(기본 8080)를 띄운다. `@ConfigurationPropertiesScan`은 `@ConfigurationProperties`가 붙은 설정 클래스(여기서는 `LedgerProperties`)도 찾아서 빈으로 만들라는 뜻이다.
+`ChannelApplication.java`의 `@SpringBootApplication`이 "이 패키지(`com.minisor.channel`)와 그 아래를 훑어라"는 표시이고, `SpringApplication.run(...)`이 실제로 훑고, 빈을 만들고, 내장 웹 서버(기본 8080)를 띄운다. `@ConfigurationPropertiesScan`은 `@ConfigurationProperties`가 붙은 설정 클래스(여기서는 `LedgerProperties`)도 찾아서 빈으로 만들라는 뜻이다. `@EnableScheduling`(T7-03)은 `@Scheduled`가 붙은 메서드(`LedgerPoller.scheduled()`)를 정해진 간격으로 불러 주라는 뜻이다.
 
 ##### 3.2 어노테이션별 의미
 
 | 어노테이션 | 붙은 곳 | 뜻 |
 |---|---|---|
-| `@Component` | `LedgerConnectionPool`, `StreamHub` | "이 클래스로 빈을 하나 만들어라"의 가장 일반적인 표시 |
+| `@Component` | `LedgerConnectionPool`, `StreamHub`, `LedgerGateway`, `OrderRegistry`, `LedgerPoller` | "이 클래스로 빈을 하나 만들어라"의 가장 일반적인 표시 |
 | `@Service` | `OrderService` | `@Component`와 동작은 같고, "업무 로직"이라는 역할 이름표다 |
-| `@RestController` | `OrderController`, `BookController` | HTTP 요청을 받는 빈. 메서드가 돌려준 객체를 JSON으로 바꿔 응답 본문에 쓴다 |
+| `@RestController` | `OrderController`, `BookController`, `BalanceController` | HTTP 요청을 받는 빈. 메서드가 돌려준 객체를 JSON으로 바꿔 응답 본문에 쓴다 |
 | `@Configuration` | `StreamConfig` | 설정을 담는 빈. 여기서는 WebSocket 경로를 등록한다 |
 | `@RequestMapping("/api/orders")` | `OrderController` 클래스 | 이 클래스의 경로 앞부분 |
-| `@PostMapping` / `@GetMapping("/api/book")` | 메서드 | 어떤 HTTP 메서드·경로가 이 메서드로 오는가 |
+| `@PostMapping` / `@GetMapping("/api/book")` / `@DeleteMapping("/{orderId}")` | 메서드 | 어떤 HTTP 메서드·경로가 이 메서드로 오는가 |
+| `@PathVariable` | 파라미터 | `/api/orders/200000001`처럼 경로 안의 값을 읽어라 |
 | `@RequestBody` | 파라미터 | 요청 본문의 JSON을 이 타입으로 읽어라 |
 | `@RequestParam` | 파라미터 | `?market=0` 같은 쿼리 문자열 값을 읽어라 |
 | `@Valid` | 파라미터 | 읽은 객체의 검증 어노테이션을 확인하라. 어기면 400 |
+| `@Value("${minisor.account}")` | 생성자 파라미터 | 설정 파일의 값 하나를 넣어라. `${이름:기본값}`이면 없을 때 기본값 |
+| `@Scheduled(fixedDelayString = ...)` | `LedgerPoller.scheduled()` | 앞 실행이 끝난 뒤 이만큼 쉬고 다시 불러라 |
 
 ##### 3.3 생성자 주입
 
@@ -5327,7 +5391,7 @@ public OrderController(OrderService service) {
 }
 ```
 
-Spring은 `OrderController` 빈을 만들 때 생성자의 파라미터 타입을 보고, 이미 만들어 둔 `OrderService` 빈을 넣어 준다. 이것을 **생성자 주입**이라고 부른다. `OrderService`는 다시 `LedgerConnectionPool`과 `StreamHub`를 생성자로 받고, `LedgerConnectionPool`은 `LedgerProperties`를 받는다. 결국 Spring이 이 사슬을 거꾸로 따라가며 필요한 것부터 만든다.
+Spring은 `OrderController` 빈을 만들 때 생성자의 파라미터 타입을 보고, 이미 만들어 둔 `OrderService` 빈을 넣어 준다. 이것을 **생성자 주입**이라고 부른다. `OrderService`는 다시 `LedgerConnectionPool`, `LedgerGateway`, `OrderRegistry`, `StreamHub`와 설정값 `minisor.account`를 생성자로 받고, `LedgerGateway`는 `LedgerConnectionPool`과 `StreamHub`를, `LedgerConnectionPool`은 `LedgerProperties`를 받는다. 결국 Spring이 이 사슬을 거꾸로 따라가며 필요한 것부터 만든다.
 
 생성자가 하나면 Spring이 알아서 그것을 쓴다. **생성자가 둘 이상이면 어느 것을 쓸지 모른다.** `LedgerConnectionPool`에 공개 생성자와 패키지 전용 생성자가 둘 있고, 공개 생성자에 `@Autowired`를 붙여 "이것을 써라"고 알려 준다. 코드 주석에 따르면 처음에 둘 다 공개였을 때 컨텍스트가 뜨지 않았다.
 
@@ -5340,6 +5404,10 @@ minisor.ledger.host=127.0.0.1
 minisor.ledger.port=9100
 minisor.ledger.connect-timeout-ms=3000
 minisor.ledger.read-timeout-ms=5000
+minisor.account=123456789012
+minisor.symbol=005930
+minisor.poller.enabled=true
+minisor.poller.interval-ms=1000
 management.endpoints.web.exposure.include=health
 management.endpoint.health.probes.enabled=true
 ```
@@ -5348,6 +5416,8 @@ management.endpoint.health.probes.enabled=true
 
 - `record`는 Java 16부터 있는 "값만 담는 불변 클래스"다. 칸 이름과 같은 조회 메서드(`host()`, `port()`)가 자동으로 생긴다. 주석은 "뜬 뒤에 바뀌지 않는 값"이라서 record로 두었다고 설명한다.
 - 기본 포트가 9100인 이유도 주석에 있다. 처음엔 0이었는데, `isConfigured()`가 `port > 0`일 때만 참이라 그대로 띄우면 모든 주문이 503이었다.
+- `minisor.account`·`minisor.symbol`(T7-03)은 원장 데몬의 데모 계좌·종목과 같다. 조회·취소·잔고를 부를 때 쓴다. 이 값들은 `LedgerProperties`가 아니라 `@Value`로 한 칸씩 받는다.
+- `minisor.poller.*`(T7-03)는 원장을 읽어 방송하는 주기 작업을 켜고 끄는 스위치와 간격(ms)이다. 테스트는 끄고 `LedgerPoller.tick()`을 직접 부른다.
 - `management.*` 두 줄은 Spring Boot Actuator의 운영용 주소 중 `/actuator/health`만 연다. 전부 열면 환경 변수나 빈 목록이 밖으로 나간다.
 
 ##### 3.5 빈 검증(Bean Validation)
@@ -5371,7 +5441,7 @@ Spring Boot는 Jackson이라는 라이브러리로 Java 객체를 JSON으로 바
 - record의 칸 이름이 JSON 키가 된다. `OrderResponseDto(Outcome outcome, long clOrdId, ...)` → `{"outcome":..., "clOrdId":...}`
 - enum은 이름 문자열이 된다. `Outcome.IN_DOUBT` → `"IN_DOUBT"`
 - `Map`은 키-값 객체가 된다
-- **`isXxx()`/`getXxx()` 모양의 공개 메서드도 속성으로 본다.** 그래서 `OrderRequestDto`를 JSON으로 쓰면 칸에 없는 `"marketKnown":true`가 붙는다(`isMarketKnown()` 때문이다). 컴파일된 클래스로 직접 직렬화해서 확인한 결과다. 7장의 방송 JSON에서 다시 나온다.
+- **`isXxx()`/`getXxx()` 모양의 공개 메서드도 속성으로 본다.** 그래서 `OrderRequestDto`를 JSON으로 쓰면 칸에 없는 `"marketKnown":true`가 붙는다(`isMarketKnown()` 때문이다). 컴파일된 클래스로 직접 직렬화해서 확인한 결과다. 8.3절의 방송 JSON에서 다시 나온다.
 
 `@RestController`가 돌려준 객체는 Spring이 이 규칙으로 JSON 응답을 만든다. `StreamHub`는 Spring의 것을 받아 쓰지 않고 `new ObjectMapper()`로 자기 것을 만들어 쓴다.
 
@@ -5383,6 +5453,8 @@ Spring Boot는 Jackson이라는 라이브러리로 Java 객체를 JSON으로 바
 
 - `@TestPropertySource(properties = "minisor.ledger.port=17001")` — 고정 값으로 덮어쓴다
 - `@DynamicPropertySource` — 실행 중에 정해지는 값(가짜 원장이 받은 포트)으로 덮어쓴다
+
+T7-03부터 모든 `@SpringBootTest`는 `minisor.poller.enabled=false`를 준다. 주기 작업이 제멋대로 끼어들면 방송 개수를 세는 시험이 흔들리기 때문이다. 주기 작업은 `LedgerPollerTest`가 `tick()`을 직접 불러 본다.
 
 ---
 
@@ -5400,7 +5472,7 @@ Spring Boot는 Jackson이라는 라이브러리로 Java 객체를 JSON으로 바
 - `@WireField(order, type, length, count)` — 필드 하나의 규격
   - `order` — 바디 안의 차례. 1부터 빠짐없이. **Java 리플렉션이 돌려주는 필드 순서는 보장되지 않기 때문에** 순서를 선언 위치가 아니라 이 숫자로 정한다
   - `length` — `STR`일 때 바이트 길이
-  - `count` — 같은 타입이 몇 개 이어지는가. 1보다 크면 필드는 `int[]`이고 타입은 `I32`만 된다. 호가 10단을 필드 40개로 풀어 쓰지 않으려고 더한 기능이다
+  - `count` — 같은 타입이 몇 개 이어지는가. 1보다 크면 필드는 `I32`면 `int[]`, `I64`면 `long[]`이다. 호가 10단을 필드 40개로 풀어 쓰지 않으려고 더했고(T6-04), 시장별 체결 금액(T7-02, i64)을 위해 `long[]`을 더했다
 - `@WireMessage(type, name)` — 클래스에 붙이는 종별 코드와 이름. 코드는 C `msg.h`의 `MSG_TYPE_LIST`와 같아야 한다
 
 `@Retention(RUNTIME)`은 "실행 중에도 이 어노테이션을 읽을 수 있게 남겨라"는 뜻이다. 코덱이 실행 중에 읽어야 하므로 필요하다.
@@ -5426,16 +5498,22 @@ public final class OrderReq {
 |---|---|---|---|---|
 | `OrderReq` | 1 | 39 | account(12) symbol(8) clOrdId(u64) side(u8) type(u8) market(u8) price(i32) qty(i32) | `OrderService` |
 | `OrderAck` | 2 | 29 | clOrdId(u64) orderId(u64) status(u8) reason(i32) filledQty(i32) price(i32) | `OrderService` |
-| `CancelReq` | 3 | 28 | account(12) orderId(u64) clOrdId(u64) | 없음 |
-| `CancelAck` | 4 | 25 | orderId clOrdId status reason canceledQty | 없음 |
+| `CancelReq` | 3 | 28 | account(12) orderId(u64) clOrdId(u64) | `OrderService.cancel` |
+| `CancelAck` | 4 | 25 | orderId clOrdId status reason canceledQty | `OrderService.cancel` |
 | `QueryAck` | 8 | 38 | orderId clOrdId symbol(8) status price qty filledQty last(u8) | 없음 |
 | `FillNoti` | 9 | 46 | orderId clOrdId symbol(8) market side price qty remainingQty execId(u64) | 없음 |
 | `BookReq` | 15 | 9 | symbol(8) market(u8) | `BookController` |
 | `BookAck` | 16 | 169 | symbol(8) market(u8) bidPrice[10] bidQty[10] askPrice[10] askQty[10] | `BookController` |
+| `DetailReq` | 17 | 20 | account(12) orderId(u64) | `OrderService`, `LedgerPoller` |
+| `DetailAck` | 18 | 91 | orderId clOrdId reason(i32) side(u8) status(u8) market(u8) price qty filled canceled working(i32) notional(i64) legSent[2] legFilled[2] legCanceled[2](i32) legNotional[2](i64) | 같은 곳 |
+| `BalanceReq` | 19 | 12 | account(12) | `BalanceController`, `LedgerPoller` |
+| `BalanceAck` | 20 | 32 | account(12) reason(i32) cash(i64) reserved(i64) | 같은 곳 |
 
 - `BookAck`의 169는 8 + 1 + 10×4×4다. C 쪽도 "가격·수량 구조체 10개"가 아니라 "배열 넷"으로 나눠 이 모양에 맞췄다. 매수는 높은 가격부터, 매도는 낮은 가격부터 채우고, 없는 단은 가격·수량 모두 0이다.
 - `CancelReq`의 주석: `orderId`가 0이면 `clOrdId`로 찾으라는 뜻이다.
-- 취소·조회·체결 통보 클래스는 규격 대조(`WireLayoutTest`)에는 들어가지만, 지금 채널계에서 이것을 보내거나 받는 코드는 없다.
+- `DetailAck`의 배열은 시장 번호를 첨자로 쓴다(0 KRX, 1 NXT). `LEGS = 2`는 C의 `MSG_LEG_SLOTS`다. 91은 8+8+4+1+1+1+4×5+8+2×4×3+2×8이다.
+- `DetailAck.market`은 **주문할 때 고른 시장**이라 SOR 자동이면 255다. 실제로 어느 시장에 나갔는지는 `leg*` 배열이 말한다.
+- 조회(`QueryAck`)·체결 통보(`FillNoti`) 클래스는 규격 대조(`WireLayoutTest`)에는 들어가지만, 지금 채널계에서 이것을 보내거나 받는 코드는 없다. 조회는 더 자세한 주문 상세가 대신한다.
 
 `clOrdId`는 "주문을 낸 쪽이 매긴 번호"(client order id), `orderId`는 원장이 매긴 번호다.
 
@@ -5490,7 +5568,7 @@ public static final int MSG_MARKET_AUTO = 255;
 
 - `@WireMessage`가 없다
 - `@WireField`가 하나도 없다
-- 배열인데 `I32`가 아니거나 필드 타입이 `int[]`가 아니다
+- 배열인데 `I32` + `int[]`도, `I64` + `long[]`도 아니다
 - 크기가 0 이하다
 - `order`가 1, 2, 3, …으로 빠짐없이 이어지지 않는다(빠지거나 겹침)
 
@@ -5502,10 +5580,10 @@ public static final int MSG_MARKET_AUTO = 255;
 
 **(4) `encodeBody(Object)` — 객체 → 바이트**
 
-바디 길이만큼 빅엔디언 `ByteBuffer`를 잡고, 배치 순서대로 필드 값을 꺼내 넣는다. `U8`은 1바이트, `I32`는 `putInt`, `U64`/`I64`는 `putLong`, `STR`은 `putStr`, 배열은 `putInts`다.
+바디 길이만큼 빅엔디언 `ByteBuffer`를 잡고, 배치 순서대로 필드 값을 꺼내 넣는다. `U8`은 1바이트, `I32`는 `putInt`, `U64`/`I64`는 `putLong`, `STR`은 `putStr`, 배열은 `putInts`(i32)나 `putLongs`(i64)다.
 
 - `putStr` — US-ASCII 바이트로 바꿔 넣고, 짧으면 남는 자리를 0으로 채우고, 길면 자른다. C의 `wire_put_str`과 같은 규칙이다. "전문은 길이가 규격이다."
-- `putInts` — 배열이 `null`이면 전부 0으로 채운다. 길이가 선언과 다르면 예외다.
+- `putInts`, `putLongs` — 배열이 `null`이면 전부 0으로 채운다. 길이가 선언과 다르면 예외다.
 
 헤더는 만들지 않는다. `seq`와 `ts`는 "접속의 상태"라서 부르는 쪽(`LedgerConnection`)이 붙인다.
 
@@ -5588,7 +5666,7 @@ public static final int MSG_MARKET_AUTO = 255;
 
 크기와 대기 시간을 받는 두 번째 생성자는 패키지 전용이고, 테스트가 크기 2나 4로 바꿔 보는 데 쓴다.
 
-**밀려오는 전문은 다루지 않는다.** 체결 통보처럼 원장이 요청 없이 보내는 전문이 요청-응답 접속에 섞이면, 주문 응답을 기다리는 자리에 남의 체결이 온다. 그래서 이 풀은 요청-응답만 다룬다고 주석에 적혀 있다. 지금은 그런 구독 접속 자체가 채널계에 없다(8.3절의 ponytail 주석).
+**밀려오는 전문은 다루지 않는다.** 체결 통보처럼 원장이 요청 없이 보내는 전문이 요청-응답 접속에 섞이면, 주문 응답을 기다리는 자리에 남의 체결이 온다. 그래서 이 풀은 요청-응답만 다룬다고 주석에 적혀 있다. 지금은 그런 구독 접속 자체가 채널계에 없다. 나중 체결은 구독 접속 대신 `LedgerPoller`가 같은 풀로 원장을 **다시 읽어** 알아낸다(7.7절).
 
 ---
 
@@ -5602,15 +5680,17 @@ HTTP는 "화면이 묻고 서버가 답한다"가 기본이다. 서버가 먼저
 
 ```java
 public record StreamEvent(String kind, Object payload) {
-    public static StreamEvent fill(Object p)   { return new StreamEvent("fill", p); }
-    public static StreamEvent order(Object p)  { return new StreamEvent("order", p); }
-    public static StreamEvent book(Object p)   { return new StreamEvent("book", p); }
+    public static StreamEvent fill(Object p)        { return new StreamEvent("fill", p); }
+    public static StreamEvent order(Object p)       { return new StreamEvent("order", p); }
+    public static StreamEvent orderUpdate(Object p) { return new StreamEvent("order-update", p); }
+    public static StreamEvent balance(Object p)     { return new StreamEvent("balance", p); }
+    public static StreamEvent book(Object p)        { return new StreamEvent("book", p); }
     public static StreamEvent ledgerDown(String why) { return new StreamEvent("ledger-down", why); }
     public static StreamEvent ledgerUp()       { return new StreamEvent("ledger-up", "연결됨"); }
 }
 ```
 
-(실제 파일은 메서드마다 여러 줄로 적혀 있다. 위는 줄여 옮긴 것이다.) JSON으로는 `{"kind":"...","payload":...}`가 된다. `book`을 만드는 메서드는 있지만 **부르는 곳이 없다.** 호가는 화면이 1초마다 직접 읽는다(12.3절).
+(실제 파일은 메서드마다 여러 줄로 적혀 있다. 위는 줄여 옮긴 것이다.) JSON으로는 `{"kind":"...","payload":...}`가 된다. `order`와 접수 직후의 `fill`은 `OrderService`가, `book`·`balance`·`order-update`와 나중 체결의 `fill`은 `LedgerPoller`가 보낸다(T7-03). 취소 뒤의 `order-update`는 `OrderService.cancel`도 보낸다. 예전에는 `book`을 부르는 곳이 없어 화면이 1초마다 호가를 직접 읽었다.
 
 ##### 6.3 StreamHub — 구독자 목록과 방송
 
@@ -5630,7 +5710,7 @@ public record StreamEvent(String kind, Object payload) {
   - 세션이 이미 닫혔으면 목록에서 빼고 끝
   - `synchronized (s)` 안에서 보낸다. Spring의 WebSocket 세션은 여러 스레드가 동시에 `sendMessage`를 부르면 안 되므로 세션 단위로 잠근다
   - 보내다 `IOException`이나 `IllegalStateException`이 나면 **그 구독자만 목록에서 빼고 닫는다.** 나머지는 계속 받는다. 클래스 주석의 "느린 구독자 하나가 전체를 막지 않게"가 이것이다. 즉 이 코드의 느린/고장 난 구독자 처리는 "보내기가 실패하면 그 하나를 끊는다"이다. 따로 버퍼를 두거나 비동기로 보내지는 않는다
-- `ledgerReachable(up, why)` — 원장과 주고받은 결과를 알린다. `BookController`와 `OrderService`가 원장 호출 성공·실패 때마다 부른다
+- `ledgerReachable(up, why)` — 원장과 주고받은 결과를 알린다. `LedgerGateway`(호가·상세·잔고·취소)와 `OrderService.send`(주문)가 원장 호출 성공·실패 때마다 부른다
   - `up`이 참: `compareAndSet(false, true)` — **끊김 → 연결로 바뀌는 순간에만** `ledger-up`을 방송한다
   - `up`이 거짓: 사유를 저장하고, `compareAndSet(true, false)` — **연결 → 끊김으로 바뀌는 순간에만** `ledger-down`을 방송한다
 
@@ -5649,14 +5729,14 @@ public void ledgerReachable(boolean up, String why) {
 }
 ```
 
-`compareAndSet(기대값, 새값)`은 "지금 값이 기대값과 같으면 새값으로 바꾸고 참을 돌려준다"를 한 번에(다른 스레드가 끼어들 틈 없이) 한다. 그래서 두 스레드가 동시에 실패를 알려도 방송은 한 번만 나간다. **상태가 바뀔 때만 방송하는 이유**는 화면이 1초마다 호가를 읽기 때문이다. 원장이 죽어 있는 동안 실패할 때마다 보내면 같은 알림이 초마다 쌓인다. 사유 문구는 실패할 때마다 최신 것으로 바뀌므로, 끊긴 뒤에 새로 들어온 화면은 가장 최근 사유를 받는다.
+`compareAndSet(기대값, 새값)`은 "지금 값이 기대값과 같으면 새값으로 바꾸고 참을 돌려준다"를 한 번에(다른 스레드가 끼어들 틈 없이) 한다. 그래서 두 스레드가 동시에 실패를 알려도 방송은 한 번만 나간다. **상태가 바뀔 때만 방송하는 이유**는 `LedgerPoller`가 1초마다 원장을 읽기 때문이다(처음 만들 때는 화면이 1초마다 호가를 읽었다). 원장이 죽어 있는 동안 실패할 때마다 보내면 같은 알림이 초마다 쌓인다. 사유 문구는 실패할 때마다 최신 것으로 바뀌므로, 끊긴 뒤에 새로 들어온 화면은 가장 최근 사유를 받는다.
 
 클래스 주석에는 이 메서드가 생긴 이유도 있다. "원장이 끊기면 화면에 보인다"는 완료 조건은 예전부터 있었지만 `ledger-down`을 보내는 곳이 없어 화면의 "원장 끊김" 표시는 한 번도 켜진 적이 없었다. 테스트가 `broadcast`를 직접 불러서 통과했기 때문이다.
 
 ##### 6.4 StreamHandler, StreamConfig
 
 - `StreamHandler`는 Spring의 `TextWebSocketHandler`를 상속하고, 연결되면 `hub.add`, 끊기면 `hub.remove`만 한다. 화면이 보내는 메시지를 처리하는 메서드는 재정의하지 않았다.
-- `StreamConfig`는 `@Configuration` + `@EnableWebSocket`이고, `registerWebSocketHandlers`에서 `/ws/stream` 경로에 `StreamHandler`를 등록한다. `setAllowedOrigins("*")`로 어느 출처의 화면이든 WebSocket을 열 수 있게 했다. **이것은 WebSocket에만 해당하고, REST(`/api/...`)에는 CORS 설정이 없다.** 이 차이가 13.6절의 Vite 프록시가 필요한 이유다.
+- `StreamConfig`는 `@Configuration` + `@EnableWebSocket`이고, `registerWebSocketHandlers`에서 `/ws/stream` 경로에 `StreamHandler`를 등록한다. `setAllowedOrigins("*")`로 어느 출처의 화면이든 WebSocket을 열 수 있게 했다. **이것은 WebSocket에만 해당하고, REST(`/api/...`)에는 CORS 설정이 없다.** 이 차이가 13.7절의 Vite 프록시가 필요한 이유다.
 
 `StreamHandler`는 `@Component`가 아니라 `StreamConfig`가 `new`로 만들고 `StreamHub` 빈을 넘겨준다.
 
@@ -5704,11 +5784,13 @@ public record OrderResponseDto(
 
 `status`·`filledQty`·`avgPrice`는 원장이 돌려준 값 그대로다. `avgPrice`에는 `OrderAck.price`가 들어간다.
 
-##### 7.3 OrderService — 보내고, 판정하고, 방송한다
+##### 7.3 OrderService — 보내고, 판정하고, 방송하고, 취소한다
 
-`@Service`. 생성자로 `LedgerConnectionPool`과 `StreamHub`를 받는다. `logicalClock`(`AtomicLong`, 1부터)은 전문 헤더의 `ts`에 실을 논리 시각이다. 프로젝트 규약대로 **시스템 시각을 읽지 않고** 호출마다 1씩 늘린다.
+`@Service`. 생성자로 `LedgerConnectionPool`, `LedgerGateway`, `OrderRegistry`, `StreamHub`, 설정값 `minisor.account`를 받는다. `logicalClock`(`AtomicLong`, 1부터)은 주문 전문 헤더의 `ts`에 실을 논리 시각이다. 프로젝트 규약대로 **시스템 시각을 읽지 않고** 호출마다 1씩 늘린다.
 
 **`send(req)` — 원장과 한 번 왕복**
+
+주문 접수만은 `LedgerGateway`(7.6절)를 쓰지 않고 풀을 직접 다룬다. 주문은 "빌리기 전 실패"(확실히 안 나감)와 "보낸 뒤 실패"(모름)를 구별해 답해야 하는데, 게이트웨이는 둘을 같은 예외로 올리기 때문이다.
 
 1. `OrderRequestDto`의 값을 `OrderReq` 전문 객체에 옮긴다
 2. `pool.borrow()`
@@ -5719,29 +5801,55 @@ public record OrderResponseDto(
      - 아니면 `accepted(ack.clOrdId, ack.orderId, ack.status, ack.filledQty, ack.price)`
    - `LedgerException`이 나면: **보낸 뒤에 실패했다.** 원장에 닿았는지 모른다. `pool.release(c)`를 부르는데, `call`이 이미 `broken`으로 표시했으므로 풀은 이 접속을 버린다. `hub.ledgerReachable(false, 사유)`를 부르고 `inDoubt(req.clOrdId(), "원장 응답을 받지 못했다. 조회로 확인해야 한다")`를 돌려준다
 
-**왜 자동으로 다시 보내지 않는가.** 답을 못 받은 주문을 다시 보내면, 원장이 사실은 첫 주문을 처리했을 경우 **같은 주문이 두 번** 들어간다. 중복 주문은 이 계층이 저지를 수 있는 가장 비싼 실수다. 그래서 "모른다"고 정직하게 답하고 판단을 사람에게 넘긴다.
+**왜 자동으로 다시 보내지 않는가.** 답을 못 받은 주문을 다시 보내면, 원장이 사실은 첫 주문을 처리했을 경우 **같은 주문이 두 번** 들어간다. 중복 주문은 이 계층이 저지를 수 있는 가장 비싼 실수다. 그래서 "모른다"고 정직하게 답하고 판단을 사람에게 넘긴다. **취소는 다르다** — 두 번 보내도 두 번째는 "잔량 없음"일 뿐이라 안전하다(클래스 주석).
 
-다만 클래스 주석(ponytail 표시)이 스스로 밝히듯 "조회로 확인해야 한다"는 지금 **원칙**일 뿐 화면에서 할 수 있는 일이 아니다. 원장은 주문번호 조회에 답하지만 채널계에는 그것을 여는 API가 없고, 답을 못 받은 주문은 원장 주문번호도 모르므로 `clOrdId`로 찾는 조회가 전문에 먼저 생겨야 한다.
+클래스 주석이 스스로 밝히듯 "조회로 확인해야 한다"는 아직 **원칙**이다. 채널계에 주문 상세 API(`GET /api/orders/{id}`)는 생겼지만, 답을 못 받은 주문은 원장 주문번호를 모르므로 목록에도 넣지 못한다. 주문을 낸 쪽 번호(`clOrdId`)로 찾는 조회가 전문에 먼저 생겨야 한다.
 
 **`submit(req)` — 바깥에서 부르는 메서드**
 
 ```java
 OrderResponseDto res = send(req);
 hub.broadcast(StreamEvent.order(Map.of("request", req, "result", res)));
-if (res.filledQty() > 0) {
-    hub.broadcast(StreamEvent.fill(Map.of(
-            "clOrdId", res.clOrdId(), "orderId", res.orderId(),
-            "side", req.side(), "market", req.market(),
-            "price", res.avgPrice(), "qty", res.filledQty())));
+if (res.outcome() != OrderResponseDto.Outcome.ACCEPTED) {
+    return res;
+}
+OrderView view = readView(req.account(), res.orderId(), req.type());
+if (view == null) {
+    registry.put(OrderView.fromAccepted(req, res));
+    if (res.filledQty() > 0) {
+        broadcastFill(res.clOrdId(), res.orderId(), req.side(), req.market(),
+                res.avgPrice(), res.filledQty());
+    }
+    return res;
+}
+registry.put(view);
+for (OrderView.LegView leg : view.legs()) {
+    if (leg.filled() > 0) {
+        broadcastFill(view.clOrdId(), view.orderId(), view.side(), leg.market(),
+                leg.avgPrice(), leg.filled());
+    }
 }
 return res;
 ```
 
-(실제 파일은 줄바꿈이 더 많다.) `send`가 정상적으로 돌아오면(접수·거절·모름 모두) `order` 사건을 방송하고, 체결 수량이 있으면 `fill` 사건도 방송한다. 주문을 낸 화면뿐 아니라 **다른 화면도 같은 것을 보게** 하려는 것이다.
+1. `send`가 정상적으로 돌아오면(접수·거절·모름 모두) `order` 사건을 방송한다. 주문을 낸 화면뿐 아니라 **다른 화면도 같은 것을 보게** 하려는 것이다. `send`가 예외를 던지면(풀에서 못 빌림) 방송 없이 예외가 컨트롤러로 올라간다. 즉 **503인 주문은 방송되지 않는다.**
+2. 접수된 주문이면 원장에 **주문 상세**를 곧바로 한 번 읽어(`readView`) `OrderRegistry`에 적는다. 접수 응답에는 시장이 없고, 체결이 어느 시장에서 났는지는 상세의 다리에만 있기 때문이다.
+3. 상세의 **다리마다** 체결이 있으면 `fill`을 보낸다. 그래서 SOR 자동(255) 주문도 `fill`의 `market`이 실제 시장(0 또는 1)이다(T7-03 판단 "접수 직후 체결을 시장별로 나눠 방송"). 예전에는 요청의 시장 값 255를 그대로 실어 화면에 "SOR"로만 보였다.
+4. 상세를 못 읽으면(`readView`가 `null` — 원장 예외도 삼킨다) 접수 응답만으로 만든 `OrderView.fromAccepted`를 **끝나지 않은 것으로** 적어 주기 작업이 다시 읽게 하고, 체결은 예전처럼 요청의 시장 값으로 한 줄 보낸다. `readView`가 실패해도 부르는 쪽의 본래 결과(`res`)는 바뀌지 않는다.
 
-`send`가 예외를 던지면(풀에서 못 빌림) 방송 없이 예외가 컨트롤러로 올라간다. 즉 **503인 주문은 방송되지 않는다.**
+**`orders()`, `knows(id)`, `detail(id)`**
 
-한계도 주석에 있다. 원장은 요청-응답만 하므로 **예전에 걸어 둔 주문이 나중에 체결된 것**은 채널계가 알 수 없고 방송하지 못한다. 방송되는 `fill`은 "이 주문을 넣는 순간 바로 체결된 몫"뿐이다. `fill`의 `market`도 원장이 실제로 체결한 시장이 아니라 요청의 시장 값이라, SOR 자동(255)으로 낸 주문이면 255가 실린다.
+- `orders()` — `registry.newestFirst()`. 이 채널계가 낸 주문과 마지막으로 본 상태, 최근 것부터
+- `knows(id)` — 목록에 있는 번호인가. 취소 응답 409/404를 가르는 데 쓴다
+- `detail(id)` — 원장에서 상세를 **다시 읽는다.** 없거나 남의 주문이면 `null`, 원장에 못 붙으면 `LedgerException`. 목록(`OrderRegistry`)은 고치지 않는다 — 그것은 `LedgerPoller`의 일이다. 주문 유형(`type`)은 상세 전문에 없어 목록에서 가져오고, 목록에 없으면 0이다
+
+**`cancel(id)` — 취소**
+
+1. `CancelReq`에 계좌·주문번호, 목록에 있으면 그 `clOrdId`를 실어 `gateway.call(r, CancelAck.class)`
+2. 목록에 있는 주문이면 상세를 다시 읽어 목록을 고치고 `order-update`를 방송한다 — **주기 작업을 기다리지 않는다**
+3. `CancelResult(orderId, reason, status, canceledQty, order)`를 돌려준다. `order`는 다시 읽은 상태이고, 못 읽었거나 모르는 주문이면 `null`이다
+
+원장은 "없는 주문", "남의 주문", "이미 끝난 주문"을 모두 `ERR_NOT_FOUND`(-9)로 답한다(4.3절 ledger 4.9). 이것을 409와 404로 나누는 일은 컨트롤러가 `knows()`로 한다.
 
 ##### 7.4 OrderController — 상태 코드로 말한다
 
@@ -5773,6 +5881,16 @@ public ResponseEntity<OrderResponseDto> submit(@Valid @RequestBody OrderRequestD
 - 풀 크기가 1이라, 앞 요청이 2초 넘게 접속을 붙들고 있으면 다음 요청은 원장이 살아 있어도 "접속이 모자라다"로 503이 되고, 그때도 `ledgerReachable(false, ...)`가 불린다. 코드가 두 원인을 구분하지 않는다.
 - 202는 보통 "받아서 나중에 처리하겠다"는 뜻으로 쓰는 코드인데, 여기서는 "처리 결과를 모른다"를 표현하는 데 썼다.
 
+**조회와 취소 (T7-03)**
+
+| 요청 | 성공 | 그 밖 |
+|---|---|---|
+| `GET /api/orders` | 200, `OrderView` 목록(최근 것부터) | 원장을 부르지 않는다 — 목록은 채널계 메모리다 |
+| `GET /api/orders/{orderId}` | 200, 원장에서 다시 읽은 `OrderView` | 404 없거나 남의 주문, 503 원장에 못 붙음 |
+| `DELETE /api/orders/{orderId}` | 200, `CancelResult`(`canceledQty`만큼 취소) | 409 이 채널계가 낸 주문인데 취소할 잔량이 없다(이미 체결·취소로 끝남), 404 모르는 주문, 422 그 밖의 원장 거절, 503 원장에 못 붙음(본문 없음) |
+
+**409와 404를 나누는 이유**(T7-03 판단). 원장은 둘 다 `ERR_NOT_FOUND`로 답한다(남의 주문을 "없다"로 답하는 원장 쪽 판단, T7-01). 채널계가 아는 주문이면 "이미 끝남"(409), 모르면 404다. 화면이 "다시 누를 필요 없음"과 "번호가 틀림"을 구별해 보여 줄 수 있다. 취소의 503은 주문의 503과 달리 **다시 보내도 안전하다** — 두 번째는 "잔량 없음"일 뿐이다.
+
 ##### 7.5 BookController — GET /api/book
 
 ```java
@@ -5783,8 +5901,8 @@ public ResponseEntity<BookDto> book(
 
 - 요청: `GET /api/book?market=0` (KRX) 또는 `?market=1` (NXT). `symbol`은 생략하면 `005930`
 - 검증: `market`이 0·1이 아니거나(**255 자동은 여기서 안 된다**), 종목이 비었거나 8자를 넘으면 400. `market`을 아예 안 주면 Spring이 400을 낸다
-- 처리: 풀에서 접속을 빌려 `BookReq`를 보내고 `BookAck`를 받는다. 성공하면 `ledgerReachable(true)`, `LedgerException`이면 `ledgerReachable(false, 사유)` 후 본문 없는 **503**. 접속은 `finally`에서 항상 돌려준다(깨졌으면 풀이 버린다)
-- 응답: 원장의 배열 넷을 `Level(price, qty)` 목록 둘로 바꾼다. `levels()`는 **가격이 0인 첫 단에서 멈춘다.** 원장이 앞에서부터 채우므로 그 뒤는 모두 빈 단이다
+- 처리: `fetch(gateway, symbol, market)`가 `LedgerGateway`로 `BookReq`를 보내고 `BookAck`를 받는다. `LedgerException`이면 본문 없는 **503**(끊김 알림은 게이트웨이가 이미 했다)
+- 응답: 원장의 배열 넷을 `Level(price, qty)` 목록 둘로 바꾼다(`BookDto.from`). `levels()`는 **가격이 0인 첫 단에서 멈춘다.** 원장이 앞에서부터 채우므로 그 뒤는 모두 빈 단이다
 
 응답 JSON 모양(컴파일된 record로 확인했다):
 
@@ -5794,19 +5912,85 @@ public ResponseEntity<BookDto> book(
  "asks":[{"price":70100,"qty":7}]}
 ```
 
-주문과 달리 조회는 **아무것도 바꾸지 않으므로** 답을 못 받아도 모호하지 않다. 그래서 202가 아니라 503이고, 다시 불러도 된다. 주석대로 화면이 1초마다 이것을 부르므로, 원장이 죽으면 채널계는 대개 여기서 가장 먼저 알게 된다.
+주문과 달리 조회는 **아무것도 바꾸지 않으므로** 답을 못 받아도 모호하지 않다. 그래서 202가 아니라 503이고, 다시 불러도 된다. 주석대로 이 API는 **화면이 처음 뜰 때와 방송이 끊겼을 때** 쓴다. 평소의 호가 변화는 `LedgerPoller`가 같은 `fetch`와 `BookDto.from`으로 읽어 밀어 보낸다. `BookDto`가 record라 `equals`로 "바뀌었나"를 비교할 수 있다.
 
-`BookController`는 `OrderService`와 별도로 자기 `logicalClock`을 갖는다.
+##### 7.6 LedgerGateway, OrderView, OrderRegistry, BalanceController — 조회·취소의 부품 (T7-03)
+
+**`LedgerGateway`** (`@Component`) — 원장에 요청 하나를 보내고 응답 하나를 받는다. **조회·취소처럼 다시 보내도 안전한 요청**용이다.
+
+```java
+public <T> T call(Object request, Class<T> responseType) {
+    LedgerConnection c;
+    try { c = pool.borrow(); }
+    catch (LedgerException e) { hub.ledgerReachable(false, e.getMessage()); throw e; }
+    try {
+        T res = c.call(request, responseType, logicalClock.getAndIncrement());
+        hub.ledgerReachable(true, null);
+        return res;
+    } catch (LedgerException e) { hub.ledgerReachable(false, e.getMessage()); throw e; }
+    finally { pool.release(c); }
+}
+```
+
+(줄여 옮겼다.) 호가·상세·잔고·취소가 "빌리기 → 부르기 → 끊김·회복 알림 → 돌려주기"를 되풀이하던 것을 한 곳에 모았다. 자기 `logicalClock`을 갖는다.
+
+**`OrderView`** (record) — 원장의 주문 상세(`DetailAck`)를 JSON으로 옮긴 것. 칸은 `orderId, clOrdId, side, type, market, price, qty, filled, canceled, working, notional, avgPrice, status, done, legs`이고, `legs`는 `LegView(market, sent, filled, canceled, notional, avgPrice)` 목록이다.
+
+- `from(d, type)` — **보낸 수량이 0인 시장은 싣지 않는다.** `avgPrice`는 `notional / filled`(버림), 체결이 없으면 0. `done`은 `working == 0`(체결·취소·거부로 끝남). `type`은 상세 전문에 없어서 부르는 쪽이 넘긴다
+- `fromAccepted(req, res)` — 상세를 못 읽었을 때 접수 응답만으로 만든다. `legs`는 비우고 `done`은 `false`로 둬서 주기 작업이 다시 읽게 한다
+- `market`은 주문할 때 고른 값(255면 SOR)이고, 실제 배분은 `legs`에 있다. 화면의 "논리 주문 1건 → 시장별 물리 주문"이 이것이다
+
+**`OrderRegistry`** (`@Component`) — 이 채널계가 원장에 낸 주문과 마지막으로 본 상태. 원장은 "이 계좌의 주문 목록"을 한 번에 주지 않으므로 접수된 주문번호를 여기 적어 두고, 화면을 새로고침해도 목록을 돌려준다.
+
+- `LinkedHashMap`, 메서드마다 `synchronized`. `CAPACITY = 500` — 넘으면 가장 오래된 것부터 버린다
+- `put(v)` — 새 주문이면 뒤에 붙이고, 있던 주문이면 **자리를 지킨 채** 상태만 바꾼다(`LinkedHashMap`은 같은 키를 다시 넣어도 순서가 그대로다)
+- `newestFirst()` — 뒤집은 목록. `open()` — `done`이 아닌 주문만(들어온 순서). 주기 작업이 다시 읽을 대상이다
+- ponytail 주석: **메모리에만 둔다.** 채널계를 다시 띄우면 목록이 비고, 원장을 다시 띄우면 원장 쪽 주문이 사라진다. 오래 남겨야 하면 원장에 "계좌의 주문 목록" 전문을 더하는 것이 먼저다
+
+**`BalanceController`** — `GET /api/balance`. 설정의 데모 계좌로 `BalanceReq`를 보내고, `reason`이 0이면 200 + `BalanceDto(account, cash, reserved, available)`, 아니면(없는 계좌) 404, 원장에 못 붙으면 503. `available`은 **예수금 − 묶인 금액**이고 채널계가 계산한다.
+
+##### 7.7 LedgerPoller — 원장을 다시 읽어 바뀐 것만 밀어 보낸다 (T7-03)
+
+**왜 필요한가.** 원장은 요청-응답만 한다. 그래서 채널계가 가만히 있으면 화면은 **다른 주문 때문에 바뀐 호가**와 **예전에 걸어 둔 주문이 나중에 체결된 것**(그에 따른 잔고 변화)을 모른다. 원장에 구독 접속을 새로 만들지 않고 T4-05의 완료 조건("체결 통보·호가 갱신을 화면에 밀어 보낸다")을 지키는 방법이다.
+
+```java
+@Scheduled(fixedDelayString = "${minisor.poller.interval-ms:1000}",
+           initialDelayString = "${minisor.poller.interval-ms:1000}")
+void scheduled() { if (enabled) tick(); }
+
+public synchronized void tick() {
+    try { books(); balance(); orders(); }
+    catch (LedgerException e) { /* 다음 바퀴에 다시 읽는다 */ }
+}
+```
+
+한 바퀴(`tick`)는 셋을 차례로 읽는다. 원장이 답하지 않으면 그 바퀴는 그만둔다 — 끊김 알림은 게이트웨이가 했다.
+
+| 단계 | 읽는 것 | 비교 대상 | 바뀌면 보내는 것 |
+|---|---|---|---|
+| `books()` | 시장 0·1의 호가 10단(`BookController.fetch`) | 시장별 마지막 `BookDto`(`lastBooks`) | `book` |
+| `balance()` | 데모 계좌 잔고(`BalanceController.fetch`). `reason`이 0이 아니면 건너뜀 | 마지막 `BalanceDto` | `balance` |
+| `orders()` | `registry.open()`의 주문마다 상세(`DetailReq`). `reason`이 0이 아니면 건너뜀 | 목록에 적힌 `OrderView` | 목록을 고치고 `order-update`, 그리고 늘어난 체결마다 `fill` |
+
+비교는 모두 record의 `equals`다. 그래서 **아무것도 안 바뀌면 아무것도 보내지 않는다.**
+
+**나중 체결의 가격 — `broadcastNewFills(before, after)`**
+
+다리(시장)마다 `qty = 지금 filled − 전에 본 filled`가 0보다 크면 `fill`을 보낸다. 가격은 **`(지금 notional − 전 notional) / qty`**다. 평균가의 차이로는 두 번째 체결의 가격이 나오지 않기 때문이다(T7-03 판단). 예: 70,000원에 4주 체결 뒤 69,900원에 2주가 더 체결되면 두 번째 방송의 가격은 (419,800 − 280,000) ÷ 2 = 69,900원이다. 전에 없던 시장의 다리면 0에서 센다. 주문 상세의 다리 체결 금액을 i64로 실은 이유가 이것이다(T7-02).
+
+**끝난 주문은 다시 묻지 않는다**(T7-03 판단). `open()`이 `done`이 아닌 주문만 주므로, 전량 체결·취소된 주문은 다음 바퀴부터 원장에 상세를 묻지 않는다. 목록이 500건이면 매초 500번 원장을 부르게 되고, 접속 풀은 1개다.
+
+ponytail 주석: 1초마다 읽는다. 원장 접속이 1개라 주문과 같은 줄에 서지만 원장의 처리는 마이크로초라 주문을 눈에 띄게 늦추지 않는다. 끝나지 않은 주문이 수백 개로 늘면 한 번에 읽는 수를 나눠야 한다.
 
 ---
 
 #### 8. 한 주문의 JSON 모양 (화면 ↔ 채널계)
 
-모두 코드에서 끌어낸 모양이다. 7.3~7.5절의 record와 `Map`, `web/src/components/OrderTicket.tsx`의 호출에서 나온다. 값은 예시다.
+모두 코드에서 끌어낸 모양이다. 7.3~7.7절의 record와 `Map`, `web/src/lib/useTrading.ts`의 호출에서 나온다. 값은 예시다.
 
 ##### 8.1 화면이 보내는 요청 — POST /api/orders
 
-`OrderTicket`이 `submitOrder`에 넘기는 객체를 `JSON.stringify`한 것이 그대로 본문이 된다. 헤더는 `Content-Type: application/json`.
+`useTrading`의 `submit`이 주문창의 값(방향·유형·시장·가격·수량)에 계좌·종목·`clOrdId`를 붙여 `submitOrder`에 넘기고, 그 객체를 `JSON.stringify`한 것이 그대로 본문이 된다. 헤더는 `Content-Type: application/json`.
 
 ```json
 {
@@ -5821,9 +6005,9 @@ public ResponseEntity<BookDto> book(
 }
 ```
 
-- `account`, `symbol`은 화면에 고정돼 있다
-- `clOrdId`는 `Date.now() % 1_000_000_000` — 지금 시각(밀리초)을 10억으로 나눈 나머지
-- `side`는 매수 0 / 매도 1, `type`은 항상 지정가 0
+- `account`, `symbol`은 화면에 고정돼 있다(`api.ts`의 `ACCOUNT`, `SYMBOL`)
+- `clOrdId`는 `Math.max(Date.now() % 1_000_000_000, 직전 번호 + 1)` — 지금 시각(밀리초)을 10억으로 나눈 나머지이되, 같은 밀리초에 두 번 눌러도 겹치지 않게 직전보다 크게
+- `side`는 매수 0 / 매도 1, `type`은 지정가 0 / IOC 2 / FOK 3(주문창의 "유형")
 - `market`은 SOR 자동 255(기본) / KRX 0 / NXT 1
 
 ##### 8.2 채널계의 응답
@@ -5876,14 +6060,35 @@ public ResponseEntity<BookDto> book(
 - `request` 안의 `"marketKnown":true`는 3.6절에서 말한 Jackson의 동작 때문에 붙는다. 화면은 이 값을 쓰지 않는다
 - `payload`는 `Map.of(...)`로 만들었으므로 `request`와 `result` 중 **어느 키가 먼저 나올지는 정해져 있지 않다.** 직접 직렬화해 보았을 때는 `result`가 먼저 나왔다. JSON을 객체로 읽는 쪽에는 상관없다
 
-**fill** — 위 주문의 `filledQty`가 0보다 클 때만, `order` 바로 뒤에:
+**fill** — 체결 한 몫. 두 곳에서 온다.
+
+1. 접수 직후: `order` 뒤에, 원장 상세의 다리마다 체결이 있으면 하나씩(7.3절). `price`는 그 다리의 평균 체결가, `qty`는 그 다리의 체결 수량
+2. 나중 체결: `LedgerPoller`가 늘어난 체결을 찾으면 다리마다 하나씩(7.7절). `price`는 체결 금액 차이 ÷ 수량 차이
 
 ```json
 {"kind":"fill",
- "payload":{"clOrdId":417283915,"orderId":1,"side":0,"market":255,"price":70000,"qty":4}}
+ "payload":{"clOrdId":417283915,"orderId":200000001,"side":0,"market":1,"price":70000,"qty":4}}
 ```
 
-`price`는 `avgPrice`, `qty`는 `filledQty`, `market`은 요청의 시장 값이다. 키 순서는 역시 정해져 있지 않다.
+`market`은 **실제로 체결된 시장**(0 KRX, 1 NXT)이다. 상세를 못 읽은 드문 경우에만 요청의 시장 값(255일 수 있다)이 실린다. 키 순서는 역시 정해져 있지 않다.
+
+**order-update** — 원장에서 다시 읽은 주문 상태가 바뀌었을 때(주기 작업) 또는 취소 직후. `payload`는 8.4절의 `OrderView` 하나다.
+
+```json
+{"kind":"order-update",
+ "payload":{"orderId":200000002,"clOrdId":417283916,"side":0,"type":0,"market":1,"price":69000,
+            "qty":100,"filled":50,"canceled":0,"working":50,"notional":3450000,"avgPrice":69000,
+            "status":1,"done":false,
+            "legs":[{"market":1,"sent":100,"filled":50,"canceled":0,"notional":3450000,"avgPrice":69000}]}}
+```
+
+**balance** — 예수금·묶인 금액이 바뀌었을 때. `payload`는 8.4절의 `BalanceDto`다.
+
+```json
+{"kind":"balance","payload":{"account":"123456789012","cash":96550000,"reserved":3450000,"available":93100000}}
+```
+
+**book** — 시장 하나의 호가 10단이 바뀌었을 때. `payload`는 7.5절의 `BookDto`와 같은 모양이다(`market`은 숫자).
 
 **ledger-down** — 원장 호출이 연결 상태에서 처음 실패한 순간 한 번, 그리고 끊긴 상태에서 새 화면이 붙을 때 그 화면에만:
 
@@ -5897,11 +6102,49 @@ public ResponseEntity<BookDto> book(
 {"kind":"ledger-up","payload":"연결됨"}
 ```
 
+##### 8.4 조회·취소·잔고 — GET /api/orders, GET·DELETE /api/orders/{id}, GET /api/balance (T7-03)
+
+**`GET /api/orders`** — 200, `OrderView`의 배열(최근 것부터). 칸 순서는 record 선언 순서다.
+
+```json
+[{"orderId":200000002,"clOrdId":417283916,"side":0,"type":0,"market":255,"price":70100,"qty":5000,
+  "filled":5000,"canceled":0,"working":0,"notional":350500000,"avgPrice":70100,"status":2,"done":true,
+  "legs":[{"market":1,"sent":5000,"filled":5000,"canceled":0,"notional":350500000,"avgPrice":70100}]}]
+```
+
+- `market` 255는 SOR 자동으로 냈다는 뜻이고, 실제 배분은 `legs`에 있다. 보낸 수량이 0인 시장은 `legs`에 없다
+- `avgPrice`는 버림 평균이다. 정확한 값은 `notional / filled`
+- `done`은 `working == 0`이다. 일부 체결 뒤 취소한 주문은 `status`가 1(PARTIAL)인 채 `done: true`, `canceled > 0`이다
+
+**`GET /api/orders/{orderId}`** — 200, 원장에서 다시 읽은 `OrderView` 하나(위 배열의 원소와 같은 모양). 없거나 남의 주문이면 본문 없는 404, 원장에 못 붙으면 본문 없는 503.
+
+**`DELETE /api/orders/{orderId}`** — `CancelResult`.
+
+```json
+{"orderId":200000003,"reason":0,"status":3,"canceledQty":10,
+ "order":{"orderId":200000003,"clOrdId":417283917,"side":0,"type":0,"market":0,"price":70000,"qty":10,
+          "filled":0,"canceled":10,"working":0,"notional":0,"avgPrice":0,"status":3,"done":true,
+          "legs":[{"market":0,"sent":10,"filled":0,"canceled":10,"notional":0,"avgPrice":0}]}}
+```
+
+- 200: 위처럼 `reason` 0, `canceledQty`만큼 취소, `order`는 취소 뒤 다시 읽은 상태
+- 409: 같은 주문을 다시 취소하면 `reason` -9, `canceledQty` 0, `order`는 이미 끝난 상태
+- 404: 모르는 주문이면 `reason` -9, `order`는 `null`
+- 503: 본문 없음. 다시 보내도 안전하다
+
+**`GET /api/balance`** — 200, `BalanceDto`. 없는 계좌면 404, 원장에 못 붙으면 503(둘 다 본문 없음).
+
+```json
+{"account":"123456789012","cash":100000000,"reserved":7000000,"available":93000000}
+```
+
+`available` = `cash` − `reserved`다(채널계가 계산).
+
 ---
 
 #### 9. 한 주문의 전체 여정 (시간 순서)
 
-1. 사용자가 거래 탭의 주문 칸에서 "매수 주문"을 누른다 → `OrderTicket.send()`
+1. 사용자가 주문창에서 "매수 10주 주문" 버튼을 누르거나 Ctrl+Enter → `OrderTicket.send()` → `useTrading.submit()`
 2. `submitOrder()`가 `fetch("/api/orders", POST, JSON)`
 3. Vite 개발 서버가 `/api`로 시작하는 요청을 `http://localhost:8080`으로 넘긴다
 4. Spring이 JSON을 `OrderRequestDto`로 읽고 `@Valid` 검증 → 틀리면 여기서 400
@@ -5909,17 +6152,20 @@ public ResponseEntity<BookDto> book(
 6. `LedgerConnectionPool.borrow()` → 못 빌리면 503
 7. `LedgerConnection.call()` — `OrderReq`를 39바이트 바디 + 24바이트 헤더로 만들어 원장에 쓰고, `OrderAck` 29바이트를 기다린다 → 5초 안에 안 오면 202
 8. 원장이 SOR·매칭을 돌려 `OrderAck`로 답한다 → `reason`에 따라 200 또는 422
-9. `StreamHub.broadcast`가 `order`(그리고 체결이 있으면 `fill`)를 모든 화면에 보낸다
-10. HTTP 응답이 화면에 돌아와 `OrderTicket`이 결과 상자를 그린다
-11. 모든 화면의 `useStream`이 `order`/`fill`을 받아 `App`의 주문·체결 목록을 갱신하고, 호가를 곧바로 다시 읽는다
+9. `StreamHub.broadcast`가 `order`를 모든 화면에 보낸다. 접수됐으면 `OrderService`가 주문 상세를 읽어 `OrderRegistry`에 적고, 체결이 있는 다리마다 `fill`을 보낸다
+10. HTTP 응답이 화면에 돌아오면 `useTrading.submit`이 주문 상세(`GET /api/orders/{id}`)와 잔고를 읽어 목록에 넣고, `OrderTicket`이 알림(접수·거절·확인 필요, 방송이 끊겼으면 체결)을 띄운다
+11. 모든 화면의 `useStream`이 `order`·`fill`을 받아 `useTrading`이 목록·체결을 고치고, `App`이 새 체결마다 알림을 띄운다
+12. 다음 바퀴(약 1초 뒤)에 `LedgerPoller`가 바뀐 호가·잔고를 `book`·`balance`로 밀어 보낸다. 주문이 호가창에 남았다가 나중에 체결되면 `order-update`와 `fill`이 온다
 
-10과 11은 **서로 다른 길**이다. 결과 상자는 HTTP 응답으로, 주문·체결 내역은 WebSocket으로 채워진다. WebSocket이 끊겨 있으면 결과 상자는 뜨는데 주문·체결 탭에는 아무것도 추가되지 않는다.
+10과 11은 **서로 다른 길**이다. 방송이 끊겨 있어도 HTTP 응답으로 주문 내역과 잔고는 채워지고, 체결 알림도 주문창이 대신 띄운다. 그동안 호가·잔고·주문 목록은 `useTrading`이 3초마다 다시 읽어 맞춘다(체결 탭에는 방송으로 온 체결만 쌓이므로 그사이의 나중 체결은 주문 목록에만 보인다).
 
 ---
 
 #### 10. 채널계 테스트 — 무엇을 약속하는가
 
 테스트는 `channel/`에서 `./mvnw.cmd test`로 돈다(Windows). JUnit 5(`@Test`)와 AssertJ(`assertThat(...)`)를 쓴다. 각 테스트 클래스 주석에 어느 태스크의 완료 조건을 옮긴 것인지 적혀 있다.
+
+모두 **49개**다(T7-03에서 40개 → 49개). `WireCodecTest` 10, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 2, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1.
 
 ##### 10.1 WireCodecTest — 코덱이 C와 같은 바이트를 만든다 (T4-02)
 
@@ -5930,6 +6176,7 @@ Spring 없이 도는 순수 단위 테스트다.
 - `bigEndianOnTheWire` — `0x0102030405060708`을 넣으면 첫 바이트가 `01`, 여덟째가 `08`이다. 리틀엔디언이면 C가 뒤집힌 수를 읽는다
 - `fixedWidthStrings` — 짧은 문자열은 0으로 채우고, 긴 문자열(`ABCDEFGHIJK`)은 8자로 잘린다
 - `intArraysInOrder` — `BookAck`가 169바이트이고, 배열 넷이 선언 순서대로 놓인다(바이트 9~12가 첫 매수 가격, 165~168이 마지막 매도 수량). 비운 배열은 0이 된다. 선언과 길이가 다른 배열은 예외다
+- `longArraysInOrder`(T7-02) — `DetailAck`가 91바이트이고, `market` 255가 바이트 22에, `legNotional[0]`의 첫 바이트가 75에 놓인다. i32를 넘는 70억 원(70,000원 × 100,000주)이 그대로 돌아온다
 - `rejectsWrongLength` — 38바이트나 40바이트로 39바이트짜리를 읽으려 하면 거절한다
 - `headerRoundTrip`, `headerRejectsBadMagicAndVersion`, `headerRejectsHugeBody` — 헤더 왕복, magic·version 불일치 거절, 거대한 bodyLen 거절
 
@@ -5945,7 +6192,7 @@ Spring 없이 도는 순수 단위 테스트다.
 
 - `readCLengths()`가 `msg.h`를 읽는다. 줄 끝 역슬래시로 이어진 `#define`을 한 줄로 합치고, `#define MSG_이름 식` 줄마다 식을 계산한다
 - `eval()`은 괄호를 지우고 `+`로 나누고, 각 항을 `*`로 나눠 곱한다. 숫자이거나 **이미 계산한 상수**면 값으로 쓰고, 모르는 것이 섞이면 포기한다. 예를 들어 `MSG_ORDER_REQ_LEN (MSG_ACCOUNT_LEN + MSG_SYMBOL_LEN + 8 + 1 + 1 + 1 + 4 + 4)`는 12+8+8+1+1+1+4+4 = 39, `MSG_BOOK_ACK_LEN (MSG_SYMBOL_LEN + 1 + MSG_BOOK_DEPTH * 4 * 4)`는 8+1+160 = 169다
-- 8개 메시지 클래스 각각에 대해 `WireCodec.bodyLength(cls)`가 C 상수와 같은지 본다
+- 12개 메시지 클래스 각각에 대해 `WireCodec.bodyLength(cls)`가 C 상수와 같은지 본다(T7-03에서 `DetailReq`·`DetailAck`·`BalanceReq`·`BalanceAck`을 더했다). 이 대조 목록에 넣으려고 `Map.of`(인자 10쌍까지)를 `Map.ofEntries`로 바꿨다
 - **헤더를 못 찾으면 실패한다.** "파일이 없어서 건너뜀"이 통과로 보이면 대조를 안 한 것보다 나쁘기 때문이다
 
 **`headerLengthMatches`** — `WireHeader.LENGTH`가 24, `MAGIC`이 `0x4D53`. 이 둘은 C 파일을 읽지 않고 숫자로 확인한다.
@@ -5957,20 +6204,23 @@ Spring 없이 도는 순수 단위 테스트다.
 - `WireEnums`의 `public static int` 필드를 리플렉션으로 모두 모은다
 - **양쪽 방향으로** 대조한다. Java에 있는 이름은 C에도 있고 값이 같아야 하고, C에 있는 이름은 Java에도 있어야 한다. C에 새 열거값이 생겼는데 Java가 모르면 여기서 깨진다
 
-**`typeCodesAreDistinct`** — 8개 클래스의 종별 코드가 서로 겹치지 않는다.
+**`typeCodesAreDistinct`** — 12개 클래스의 종별 코드가 서로 겹치지 않는다.
 
 **이 테스트가 잡지 못하는 것 — 필드 순서.** 길이의 **합**만 비교하므로, 합이 같으면서 순서만 다른 배치는 통과한다. 예를 들어 `OrderReq`에서 `price`(i32)와 `qty`(i32)의 `order`를 서로 바꿔도 길이는 39 그대로라 통과하지만, 원장은 가격 자리에서 수량을 읽는다. 같은 이유로 `side`·`type`·`market`(모두 u8) 사이의 순서 바뀜도 못 잡는다. 순서까지 잡으려면 C 쪽이 필드 배치를 기계가 읽을 수 있는 형태로 내보내야 하는데, 아직 하지 않았다. 코드 주석은 이것을 "한계를 알고 쓰는 것과 모르고 쓰는 것은 다르다"로 적어 둔다. 또 `-16` 같은 오류 코드(`errors.h`)는 대조 대상이 아니다.
 
 ##### 10.3 FakeLedger — 시험용 가짜 원장
 
-`src/test/.../ledger/FakeLedger.java`는 테스트에서만 쓰는 **진짜 TCP 서버**다. 채널계 입장에서는 원장과 구분되지 않는다. "진짜 전문 규격으로 답한다 — 지어내면 시험이 아니다"가 주석의 원칙이다.
+`src/test/.../ledger/FakeLedger.java`는 테스트에서만 쓰는 **진짜 TCP 서버**다. 채널계 입장에서는 원장과 구분되지 않는다. "진짜 전문 규격으로 답한다 — 지어내면 시험이 아니다"가 주석의 원칙이다. T7-03부터 **주문을 기억한다** — 상세·취소·잔고 조회에 일관되게 답하고, 시험이 나중 체결이나 호가 변화를 일으킬 수 있게 한다. 매칭은 하지 않는다(그것은 C 원장 시험의 몫이다).
 
 - 생성자에서 `ServerSocket(0)`으로 빈 포트를 받고, 접속을 받는 스레드를 띄운다. `port()`로 그 포트를 알려 준다
-- 접속마다 스레드 하나로 `serve()`가 돈다: 헤더 24바이트 → 바디를 읽고, 요청 수를 세고, 종별이 `BookReq`면 호가를, 아니면 `OrderReq`로 보고 주문 응답을 만든다. 응답 헤더의 `seq`·`ts`는 요청 것을 그대로 돌려준다
-- 주문 응답: `orderId = clOrdId + 100000`(어느 요청의 답인지 알아볼 수 있게), `filledQty = fillQty`, `status`는 체결이 있으면 1, 없으면 0, `price`는 요청 가격, `reason`은 항상 0
-- 호가 응답: 매수 3단(70000, 69900, 69800 / 수량 `10+i+100×market`), 매도 2단(70100, 70200 / 수량 20, 21), 나머지 0
-- 조절 손잡이: `setDelayMs`(답하기 전에 쉼), `setSilent(true)`(받고 답하지 않음 — 시간 초과를 만든다), `setFillQty`(체결 수량)
-- 관찰: `connections()`(받은 접속 수), `requests()`(받은 요청 수)
+- 접속마다 스레드 하나로 `serve()`가 돈다: 헤더 24바이트 → 바디를 읽고, 요청 수를 세고, 종별에 따라 `BookReq`·`DetailReq`·`CancelReq`·`BalanceReq`에 답하고, 그 밖이면 `OrderReq`로 보고 주문 응답을 만든다. 응답 헤더의 `seq`·`ts`는 요청 것을 그대로 돌려준다
+- 주문 응답: `orderId = clOrdId + 100000`(어느 요청의 답인지 알아볼 수 있게), `filledQty = fillQty`, `price`는 요청 가격, `reason`은 항상 0. 주문을 `FakeOrder`로 기억한다 — 고른 시장(`requested`)과 실제로 보낸 시장(`market`, **SOR 자동 255면 NXT로 간 것으로 둔다**), 시장별 보냄·체결·취소·금액
+- 상세 응답: 기억한 주문이 없으면 `reason` -9. 있으면 시장별 배열을 채우고 `market`에는 **고른 값(`requested`)** 을 싣는다 — 진짜 원장처럼. T7-03 변이 검사에서 처음에 이것을 실제로 간 시장으로 싣고 있어서, "체결 시장을 고른 값으로 방송" 변이(M7)가 살아남았다. 가짜를 진짜처럼 고치자 잡혔다
+- 취소 응답: 없는 주문이거나 살아 있는 수량이 없으면 `reason` -9, 있으면 남은 수량을 취소 수량으로
+- 잔고 응답: `setBalance`로 정한 예수금·묶인 금액
+- 호가 응답: 매수 3단(70000, 69900, 69800 / 수량 `10+i+100×market`, 1단에는 `bookBump`를 더함), 매도 2단(70100, 70200 / 수량 20, 21), 나머지 0
+- 조절 손잡이: `setDelayMs`(답하기 전에 쉼), `setSilent(true)`(받고 답하지 않음 — 시간 초과를 만든다), `setFillQty`(체결 수량), `setBalance(cash, reserved)`, `bumpBook(delta)`(호가 변화), `fillLater(orderId, qty, price)`(걸어 둔 주문의 나중 체결)
+- 관찰: `connections()`(받은 접속 수), `requests()`(받은 요청 수), `detailCalls()`(받은 상세 요청 수)
 
 ##### 10.4 LedgerConnectionPoolTest — 풀의 약속 (T4-03)
 
@@ -5982,13 +6232,13 @@ Spring 없이 `FakeLedger`와 풀을 직접 만든다.
 - `reportsWhenLedgerIsDown` — 원장을 닫은 포트로 빌리면 예외, 살아 있는 수는 0
 - `refusesWhenUnconfigured` — 포트 0이면 "설정" 문구가 든 예외
 - `failsWhenPoolExhausted` — 크기 2, 대기 150ms로 두 개를 빌린 뒤 셋째를 빌리면 **100ms 이상 기다렸다가** "모자라" 예외. 상한을 넘겨 만들지 않았다. 돌려주면 다시 빌릴 수 있다
-- `concurrentBorrowNeverExceedsLimit`(작업 트리, T6-11) — 크기 1인 **빈** 풀에 스레드 16개를 `CyclicBarrier`로 한꺼번에 출발시켜 빌리고 돌려주게 한다. 이것을 200판 반복하며, 판마다 건네진 접속 객체가 **정확히 1개**인지 본다. 경합이 나노초 단위 틈에서만 나므로 한 판으로는 잘 안 걸려서 여러 판을 돌린다
-- `waiterWakesWhenConnectionIsDiscarded`(작업 트리, T6-11) — 크기 1, 대기 3초. 첫 접속을 빌린 상태에서 다른 스레드가 빌리려고 기다리게 하고, 첫 접속을 시간 초과로 깨뜨려 돌려준다(버려진다). 기다리던 쪽이 **2초 안에** 새 접속을 받아야 한다. 대기 3초를 다 채우지 않았다는 뜻이다
+- `concurrentBorrowNeverExceedsLimit`(T6-11) — 크기 1인 **빈** 풀에 스레드 16개를 `CyclicBarrier`로 한꺼번에 출발시켜 빌리고 돌려주게 한다. 이것을 200판 반복하며, 판마다 건네진 접속 객체가 **정확히 1개**인지 본다. 경합이 나노초 단위 틈에서만 나므로 한 판으로는 잘 안 걸려서 여러 판을 돌린다
+- `waiterWakesWhenConnectionIsDiscarded`(T6-11) — 크기 1, 대기 3초. 첫 접속을 빌린 상태에서 다른 스레드가 빌리려고 기다리게 하고, 첫 접속을 시간 초과로 깨뜨려 돌려준다(버려진다). 기다리던 쪽이 **2초 안에** 새 접속을 받아야 한다. 대기 3초를 다 채우지 않았다는 뜻이다
 - `concurrentCallsDoNotCrossAnswers` — 크기 4 풀에 스레드 8개로 64개 요청을 동시에 보내고(가짜 원장 지연 5ms로 겹칠 틈을 넓힘), **모든 요청이 자기 번호의 답을 받는지** 본다. 접속은 4개를 넘지 않는다. 주석은 이것을 "풀에서 가장 조용한 위험"이라 부른다
 
 ##### 10.5 StreamTest — 방송 (T4-05)
 
-`@SpringBootTest(RANDOM_PORT)`로 애플리케이션을 띄우고 JDK `HttpClient`의 WebSocket으로 `/ws/stream`에 붙는다. `Sink`는 받은 문자열을 모으는 구독자다.
+`@SpringBootTest(RANDOM_PORT)`로 애플리케이션을 띄우고(주기 작업은 끈다) JDK `HttpClient`의 WebSocket으로 `/ws/stream`에 붙는다. `Sink`는 받은 문자열을 모으는 구독자다.
 
 - `broadcastsToAllSubscribers` — 구독자 둘 모두 `fill` 사건을 받는다
 - `ledgerDownIsVisible` — `hub.broadcast(ledgerDown(...))`를 직접 부르면 구독자가 받는다
@@ -5997,9 +6247,9 @@ Spring 없이 `FakeLedger`와 풀을 직접 만든다.
 
 이 테스트들은 `broadcast`를 **직접** 부른다. 그래서 "실제 원장 실패가 방송으로 이어지는가"는 확인하지 못한다. 6.3절에서 말한 "화면의 원장 끊김 표시가 한 번도 켜지지 않았던" 사고가 이 틈에서 났고, 그 부분은 아래 두 클래스가 맡는다.
 
-##### 10.6 OrderApiTest — REST 상태 코드와 방송 (T4-04, T6-04, T6-10)
+##### 10.6 OrderApiTest — REST 상태 코드와 방송 (T4-04, T6-04, T6-10, T7-03)
 
-`@SpringBootTest(RANDOM_PORT)` + `@DynamicPropertySource`로 `FakeLedger`의 포트와 읽기 제한 500ms를 설정에 넣는다. 가짜 원장은 클래스 전체가 공유하고(`static`), `@AfterEach`에서 손잡이를 원래대로 돌린다.
+`@SpringBootTest(RANDOM_PORT)` + `@DynamicPropertySource`로 `FakeLedger`의 포트와 읽기 제한 500ms, `minisor.poller.enabled=false`를 설정에 넣는다(주기 작업이 끼어들면 방송 개수를 세는 시험이 흔들린다). 가짜 원장은 클래스 전체가 공유하고(`static`), `@AfterEach`에서 손잡이(`silent`, `delayMs`, `fillQty`)를 원래대로 돌린다.
 
 - `acceptedOrderReturns200` — 200, 본문에 `ACCEPTED`와 `100011`
 - `malformedOrderReturns400` — 계좌를 `"12"`로 바꾸면 400이고 **가짜 원장의 요청 수가 늘지 않는다**(원장에 가지 않았다)
@@ -6010,10 +6260,33 @@ Spring 없이 `FakeLedger`와 풀을 직접 만든다.
 - `bookComesFromLedger` — `/api/book?market=1`이 200이고 `{"price":70000,"qty":110}` 등이 들어 있으며 `"price":0`은 없다. `market` 2와 255는 400이고 원장에 가지 않는다
 - `orderAndFillAreBroadcast` — 체결 4주로 설정하고 주문하면 구독자가 정확히 2개(`order`에 `ACCEPTED`, `fill`에 `"qty":4`·`"price":70000`)를 받고, 체결 0이면 `order`만 하나 더 받는다
 - `ledgerDownAndUpAreBroadcast` — 침묵 상태에서 주문(202) 후 정상 주문(200)을 하면, `ledger-` 사건이 `ledger-down`, `ledger-up` 순서로 2개다
+- `readFailureIsBroadcast`(T7-03) — 조회(게이트웨이 경유)도 끊김을 알린다. 침묵 상태에서 `GET /api/balance`가 503이고 구독자가 `ledger-down`을 받는다. 처음에 끊김 시험이 주문 경로만 봐서 "조회가 원장에 못 닿아도 끊김을 안 알림" 변이(M13)가 살아남아 더한 시험이다
+- `ordersAreListedAndReadable`(T7-03) — 접수된 주문이 `GET /api/orders`에 `"working":10`으로 있고, `GET /api/orders/100030`이 `"legs":[{"market":0,"sent":10`…과 `"done":false`를 준다. 모르는 번호는 404
+- `cancelFlow`(T7-03) — 첫 취소는 200(`"canceledQty":10`, `"done":true`), **같은 주문을 다시 취소하면 409**, 모르는 주문은 404. 목록과 상세가 곧바로 `"canceled":10`을 보인다 — 주기 작업을 기다리지 않는다
+- `balanceComesFromLedger`(T7-03) — 예수금 1억·묶인 금액 70만이면 `"available":99300000`
+- `sorFillCarriesActualMarket`(T7-03) — `market` 255로 낸 주문이 3주 체결되면 `fill`이 정확히 하나이고 `"market":1`(255가 아니라 실제 시장)이다
 
 `422`(원장 거절)를 확인하는 테스트는 없다. `FakeLedger`가 `reason`을 항상 0으로 답하기 때문이다.
 
-##### 10.7 ChannelStartupTests — 뜨는가, 설정을 읽는가 (T4-01, T6-10)
+##### 10.7 OrderRegistryTest — 목록 순서, 상태 바꾸기, 상한 (T7-03)
+
+Spring 없이 `OrderRegistry`를 직접 만든다.
+
+- `newestFirstAndUpdateKeepsPlace` — 1·2·3번을 넣고 1번을 체결된 상태로 다시 넣으면 `newestFirst()`는 3·2·1 그대로(자리를 지킨다), 1번은 `done`, `open()`은 2·3
+- `dropsOldestBeyondCapacity` — 501건을 넣으면 500건만 남고 가장 오래된 1번이 빠진다. `put`의 버리기 반복을 겨눈 변이 M11(`while (false)`)은 도달 불가 문장이라 컴파일부터 실패해 판정이 아니었고, `CAPACITY * 2`로 바꿔 다시 돌려 잡혔다(PROGRESS T7-03)
+
+##### 10.8 LedgerPollerTest — 바뀐 것만 밀어 보낸다 (T7-03)
+
+`@SpringBootTest(RANDOM_PORT)`에 주기 실행을 끄고 `LedgerPoller.tick()`을 **직접** 부른다 — 시간에 기대는 시험은 흔들린다. 시험 하나(`pushesOnlyChanges`)가 한 줄거리로 이어진다.
+
+1. NXT 70,000원 10주를 걸어 두고(체결 없음) 첫 바퀴 → `book` 2개(처음 보는 두 시장), `balance` 1개, `order-update` 0개
+2. 아무것도 안 바꾸고 한 바퀴 → **아무것도 오지 않는다**
+3. `fillLater(100050, 4, 70000)` 뒤 한 바퀴 → `order-update` 1개(`"filled":4`, `"working":6`), `fill` 1개(`"market":1`, `"qty":4`, `"price":70000`)
+4. `fillLater(100050, 2, 69900)` 뒤 한 바퀴 → `fill`은 **늘어난 몫만**, `"qty":2`, `"price":69900` — 가격이 금액 차이 ÷ 수량 차이다
+5. `bumpBook(5)`와 `setBalance(1억, 28만)` 뒤 한 바퀴 → `book` 2개, `balance` 1개(`"available":99720000`), `order-update` 0개
+6. 남은 4주가 체결되어 `"done":true`가 온 뒤 한 바퀴 더 → 가짜 원장의 `detailCalls()`가 **늘지 않는다**(끝난 주문은 다시 묻지 않는다). 처음엔 결과만 보는 시험이라 "끝난 주문까지 다시 읽음" 변이(M16)가 살아남았고, 결과는 같고 비용만 달라서 요청 수를 세는 단계를 더했다
+
+##### 10.9 ChannelStartupTests — 뜨는가, 설정을 읽는가 (T4-01, T6-10)
 
 `@TestPropertySource`로 원장 포트를 **아무도 없는** 17001로 덮어쓴다.
 
@@ -6022,25 +6295,29 @@ Spring 없이 `FakeLedger`와 풀을 직접 만든다.
 - `ledgerEndpointComesFromConfiguration` — 포트가 17001(덮어쓴 값)이고, 호스트·시간 제한은 파일 값이다. 기본값 9100을 그대로 읽고 통과하면 "코드에 박힌 값"과 구분되지 않으므로 **일부러 바꿔서** 확인한다
 - `ledgerDownReachesSubscribers` — 구독한 뒤 호가를 두 번 조회하면(둘 다 503) 구독자가 `ledger-down`을 **정확히 1개** 받는다(바뀔 때만 방송한다). 그 뒤 새로 붙은 구독자도 1개 받는다(끊긴 뒤에 들어온 화면에 따로 보낸다)
 
-##### 10.8 ChannelApplicationTests
+##### 10.10 ChannelApplicationTests
 
-`@SpringBootTest`로 컨텍스트가 뜨기만 하면 통과한다. 풀은 첫 `borrow()` 때 접속하므로 원장이 없어도 뜬다.
+`@SpringBootTest`(주기 작업은 끈다)로 컨텍스트가 뜨기만 하면 통과한다. 풀은 첫 `borrow()` 때 접속하므로 원장이 없어도 뜬다.
 
 ---
 
 #### 11. 화면(web/) 읽는 순서
 
-1. `web/package.json` — 쓰는 도구(`react`, `react-dom`, `vite`, `typescript`, `oxlint`)와 명령(`dev`, `build`, `lint`, `preview`)
+1. `web/package.json` — 쓰는 도구(`react`, `react-dom`, `vite`, `typescript`, `oxlint`)와 명령(`dev`, `build`, `lint`, `check`, `preview`)
 2. `web/vite.config.ts` — 개발 서버 프록시
 3. `web/.env.example` — 주소를 바꾸는 환경 변수(기본은 비워 둔다)
 4. `web/index.html` → `web/src/main.tsx` — 시작점
-5. `web/src/lib/wire.ts` → `types.ts` → `format.ts` → `api.ts` → `useStream.ts` — 화면이 기대는 도구들
-6. `web/src/App.tsx` — 상태를 모두 쥐고 있는 최상위 컴포넌트
-7. `web/src/components/Panel.tsx`, `StatusBar.tsx` — 틀
-8. 거래 탭: `OrderBook.tsx` → `SorPanel.tsx` → `OrderTicket.tsx`
-9. 주문·체결 탭: `Working.tsx` → `Fills.tsx`
-10. 전략 비교·관제 탭: `Strategies.tsx`, `Ops.tsx`
-11. `web/src/index.css` — 색·간격 변수
+5. `web/src/lib/wire.ts` → `types.ts` → `format.ts` → `api.ts` → `estimate.ts` — 화면이 기대는 도구들
+6. `web/src/lib/useStream.ts` → `useTrading.ts` — 방송 구독과, 화면이 쓰는 원장 상태 전부
+7. `web/src/lib/useToasts.ts` → `useFlash.ts` — 알림과 "바뀐 값" 표시
+8. `web/src/App.tsx` — 화면 배치와 체결 알림
+9. `web/src/components/Panel.tsx` → `Header.tsx` — 틀
+10. 거래 화면: `OrderBook.tsx` → `MarketCompare.tsx` → `OrderTicket.tsx` → `Activity.tsx` → `Toasts.tsx`
+11. 전략 비교·관제: `Strategies.tsx`, `Ops.tsx`
+12. `web/src/index.css` — 색 토큰, 클래스, 좁은 화면 배치
+13. `web/scripts/estimate.check.ts` — `npm run check`로 도는 자체 점검
+
+T7-05에서 `StatusBar.tsx`(상단 표시줄), `SorPanel.tsx`("SOR 판단" 패널), `Working.tsx`(주문 내역), `Fills.tsx`(체결 내역)를 지웠다. 각각 `Header.tsx`, `MarketCompare.tsx`, `Activity.tsx`가 맡는다.
 
 `web/README.md`는 Vite 템플릿이 만든 기본 문서 그대로라 이 프로젝트 설명은 없다.
 
@@ -6053,62 +6330,65 @@ Spring 없이 `FakeLedger`와 풀을 직접 만든다.
 React 화면은 **컴포넌트**를 쌓아 만든다. 컴포넌트는 "화면 조각을 돌려주는 함수"다.
 
 ```tsx
-export function Panel({ title, right, children, pad = true }: { ... }) {
+export function Panel({ title, sub, head, children, flush = false, className = "" }: { ... }) {
   return (
-    <section style={{ ... }}>
-      {title && <header>...</header>}
-      <div>{children}</div>
+    <section className={`panel ${className}`} aria-label={title}>
+      <header className="panel-head">
+        {head ?? <h2>{title}</h2>}
+        {sub && <span className="sub">{sub}</span>}
+      </header>
+      <div className={flush ? "panel-body flush" : "panel-body"}>{children}</div>
     </section>
   );
 }
 ```
 
-함수 안의 `<section>...</section>`처럼 HTML 비슷한 문법이 **JSX**다(TypeScript와 함께 쓰면 파일 확장자가 `.tsx`). `{...}` 안에는 JavaScript 식을 쓴다. `{title && <header/>}`는 "title이 있으면 header를 그린다", `{list.map((x) => <Row key=... />)}`는 "목록의 각 항목마다 Row를 그린다"는 뜻이다. 목록으로 그릴 때 `key`는 React가 항목을 구분하는 이름표다.
+함수 안의 `<section>...</section>`처럼 HTML 비슷한 문법이 **JSX**다(TypeScript와 함께 쓰면 파일 확장자가 `.tsx`). `{...}` 안에는 JavaScript 식을 쓴다. `{sub && <span/>}`는 "sub가 있으면 span을 그린다", `{head ?? <h2/>}`는 "head가 없으면 h2를 그린다", `{list.map((x) => <Row key=... />)}`는 "목록의 각 항목마다 Row를 그린다"는 뜻이다. 목록으로 그릴 때 `key`는 React가 항목을 구분하는 이름표다. HTML의 `class`는 JSX에서 `className`으로 쓴다.
 
-이 프로젝트는 CSS 파일 대신 `style={{ ... }}` 객체로 스타일을 직접 적고, 색·간격은 `index.css`의 CSS 변수(`var(--buy)` 등)를 쓴다. 매수는 빨강(`--buy`), 매도는 파랑(`--sell`)으로 국내 관행을 따른다.
+스타일은 T7-05부터 대부분 `index.css`의 클래스(`panel`, `tag buy`, `lvl ask` 등)와 CSS 변수(`var(--buy)` 등)로 옮겼다. 막대 너비처럼 값에 따라 바뀌는 것과 개편하지 않은 `Strategies`·`Ops`에만 `style={{ ... }}`이 남아 있다. 매수는 빨강(`--buy`), 매도는 파랑(`--sell`)으로 국내 관행을 따르되, **색만으로 뜻을 전하지 않는다** — 매수/매도·상태·시장은 늘 글자 태그와 함께 쓴다(T7-05).
 
 ##### 12.2 props — 부모가 넘겨주는 값
 
-컴포넌트 함수의 인자가 **props**다. `<OrderTicket price={price} onPriceChange={setPrice} />`라고 쓰면 `OrderTicket` 함수가 `{ price, onPriceChange }`를 받는다. 값뿐 아니라 함수도 넘길 수 있다. 자식은 props를 바꾸지 않고, 바꾸고 싶으면 부모가 넘겨준 함수를 부른다. `children`은 여는 태그와 닫는 태그 사이에 넣은 내용이다(`<Panel>여기</Panel>`).
+컴포넌트 함수의 인자가 **props**다. `<OrderTicket draft={draft} onChange={patch} ... />`라고 쓰면 `OrderTicket` 함수가 `{ draft, onChange, ... }`를 받는다. 값뿐 아니라 함수도 넘길 수 있다. 자식은 props를 바꾸지 않고, 바꾸고 싶으면 부모가 넘겨준 함수를 부른다(주문창이 가격을 바꾸면 `onChange({ price })` → `App`의 `draft`가 바뀐다). `children`은 여는 태그와 닫는 태그 사이에 넣은 내용이다(`<Panel>여기</Panel>`).
 
 ##### 12.3 useState — 기억하는 값
 
 ```tsx
-const [tab, setTab] = useState<Tab>("trade");
+const [view, setView] = useState<View>("trade");
 ```
 
-컴포넌트 함수는 화면을 다시 그릴 때마다 처음부터 다시 실행된다. 그래서 보통 변수는 매번 초기화된다. `useState`는 다시 실행돼도 **값을 기억하는 칸**을 만든다. `tab`은 지금 값, `setTab`은 값을 바꾸는 함수다. `setTab("orders")`를 부르면 React가 값을 바꾸고 **화면을 다시 그린다.**
+컴포넌트 함수는 화면을 다시 그릴 때마다 처음부터 다시 실행된다. 그래서 보통 변수는 매번 초기화된다. `useState`는 다시 실행돼도 **값을 기억하는 칸**을 만든다. `view`는 지금 값, `setView`는 값을 바꾸는 함수다. `setView("ops")`를 부르면 React가 값을 바꾸고 **화면을 다시 그린다.**
 
 이전 값을 바탕으로 바꿀 때는 `setEvents((n) => n + 1)`처럼 함수를 넘긴다. 짧은 시간에 여러 번 바뀌어도 가장 최신 값에서 계산되게 하려는 것이다.
 
 ##### 12.4 useEffect — 그리기 바깥의 일과 정리
 
-타이머를 걸거나, 서버에 묻거나, WebSocket을 여는 일은 "화면을 그리는 계산"이 아니다. 이런 일은 `useEffect` 안에서 한다.
+타이머를 걸거나, 서버에 묻거나, WebSocket을 여는 일은 "화면을 그리는 계산"이 아니다. 이런 일은 `useEffect` 안에서 한다. `useTrading.ts`의 다시 맞추기 타이머가 예다.
 
 ```tsx
 useEffect(() => {
   // 1) 할 일
-  const t = window.setInterval(load, 1000);
+  const t = window.setInterval(refresh, state === "open" ? RESYNC_MS : FALLBACK_POLL_MS);
   // 2) 정리 함수
   return () => window.clearInterval(t);
-}, [bookTick]);
+}, [refresh, state]);
 ```
 
 - 첫 번째 인자 함수는 화면이 그려진 **뒤에** 실행된다
-- 두 번째 인자 `[bookTick]`은 **의존 배열**이다. 그 안의 값이 바뀔 때만 다시 실행한다. 빈 배열 `[]`이면 처음 한 번만 실행한다
+- 두 번째 인자 `[refresh, state]`는 **의존 배열**이다. 그 안의 값이 바뀔 때만 다시 실행한다. 빈 배열 `[]`이면 처음 한 번만 실행한다. 여기서는 방송 연결 상태(`state`)가 바뀌면 옛 타이머를 끄고 새 간격(20초 또는 3초)으로 다시 건다
 - 함수가 돌려주는 함수가 **정리(cleanup)**다. 다시 실행되기 직전, 그리고 컴포넌트가 화면에서 사라질 때 불린다. 타이머를 끄거나 연결을 닫지 않으면 옛 타이머가 계속 돌아 같은 일을 여러 번 하게 된다
 
 `main.tsx`의 `<StrictMode>`는 개발 모드에서 일부러 효과를 "실행 → 정리 → 다시 실행"해 정리를 빼먹은 코드를 드러낸다. 그래서 정리 함수가 제대로 있어야 한다.
 
 ##### 12.5 useCallback, useMemo, useRef
 
-- `useCallback(fn, [의존])` — 함수를 **같은 객체로 유지**한다. 보통은 다시 그릴 때마다 함수가 새로 만들어진다. `App`의 `onEvent`는 의존이 `[]`라 처음 만든 함수가 계속 쓰인다
-- `useMemo(() => 계산, [의존])` — 의존이 바뀔 때만 다시 계산하고 결과를 기억한다. `App`의 `bestOverall`이 `books`가 바뀔 때만 다시 계산된다
-- `useRef(초기값)` — `.current`에 값을 담는 상자. 바꿔도 **화면을 다시 그리지 않는다.** 다시 그려도 같은 상자가 유지된다. `useStream`이 "가장 최신 콜백"을 담아 두는 데 쓴다
+- `useCallback(fn, [의존])` — 함수를 **같은 객체로 유지**한다. 보통은 다시 그릴 때마다 함수가 새로 만들어진다. `App`의 `patch`는 의존이 `[]`라 처음 만든 함수가 계속 쓰이고, `OrderTicket`의 키보드 효과가 그 함수에 기대므로 다시 걸리지 않는다
+- `useMemo(() => 계산, [의존])` — 의존이 바뀔 때만 다시 계산하고 결과를 기억한다. `OrderTicket`의 예상 체결(`est`)이 호가·시장·방향·가격·수량·유형이 바뀔 때만 다시 계산된다
+- `useRef(초기값)` — `.current`에 값을 담는 상자. 바꿔도 **화면을 다시 그리지 않는다.** 다시 그려도 같은 상자가 유지된다. `useStream`이 "가장 최신 콜백"을, `useTrading`이 직전 `clOrdId`를, `App`이 마지막으로 알림을 띄운 체결 번호를 담아 두는 데 쓴다
 
 ##### 12.6 Vite와 개발 서버
 
-브라우저는 `.tsx`나 TypeScript를 바로 실행하지 못한다. **Vite**는 개발 중에 파일을 브라우저가 읽을 수 있게 그때그때 바꿔 주는 개발 서버다(`npm run dev`, 기본 `http://localhost:5173`). 파일을 저장하면 화면이 곧바로 갱신된다. `npm run build`는 `tsc -b`로 타입 검사 후 배포용 파일을 만든다.
+브라우저는 `.tsx`나 TypeScript를 바로 실행하지 못한다. **Vite**는 개발 중에 파일을 브라우저가 읽을 수 있게 그때그때 바꿔 주는 개발 서버다(`npm run dev`, 기본 `http://localhost:5173`). 파일을 저장하면 화면이 곧바로 갱신된다. `npm run build`는 `tsc -b`로 타입 검사 후 배포용 파일을 만든다. `npm run lint`는 oxlint, `npm run check`는 Node로 계산 자체 점검을 돌린다(13.23절).
 
 `import.meta.env.VITE_...`는 Vite가 `.env` 파일의 `VITE_`로 시작하는 값을 코드에 넣어 주는 방법이다.
 
@@ -6118,7 +6398,7 @@ useEffect(() => {
 
 ##### 13.1 index.html, main.tsx — 시작점
 
-`index.html`에는 `<div id="root"></div>` 하나와 `/src/main.tsx`를 불러오는 스크립트뿐이다. `main.tsx`가 그 `div`를 찾아 `App`을 그린다.
+`index.html`에는 제목(`mock-sor · 복수시장 주문 집행`), `<div id="root"></div>` 하나와 `/src/main.tsx`를 불러오는 스크립트뿐이다. `main.tsx`가 그 `div`를 찾아 `App`을 그린다.
 
 ```tsx
 createRoot(document.getElementById("root")!).render(
@@ -6130,45 +6410,74 @@ createRoot(document.getElementById("root")!).render(
 
 `!`는 TypeScript에게 "이 값은 null이 아니다"라고 알려 주는 표시다. `index.css`도 여기서 불러온다.
 
-##### 13.2 lib/wire.ts — 숫자의 뜻
+##### 13.2 lib/wire.ts — 숫자의 뜻과 호가 단위
 
-`WireEnums.java`의 화면 쪽 짝이다. `SIDE_BUY 0`, `SIDE_SELL 1`, `ORDER_LIMIT 0`, `MARKET_KRX 0`, `MARKET_NXT 1`, `MARKET_AUTO 255`, `STATUS_NEW 0`, `STATUS_PARTIAL 1`, `STATUS_FILLED 2`. 주석이 4.5절의 사고를 다시 적고, "날숫자를 없애고 이 이름만 쓴다"고 정한다. **이 파일은 C 헤더와 자동 대조되지 않는다.** Java 쪽만 `WireLayoutTest`로 대조된다.
+`WireEnums.java`의 화면 쪽 짝이다. 주석이 4.5절의 사고를 다시 적고, "날숫자를 없애고 이 이름만 쓴다"고 정한다. **이 파일은 C 헤더와 자동 대조되지 않는다.** Java 쪽만 `WireLayoutTest`로 대조된다.
 
-- `type Side = typeof SIDE_BUY | typeof SIDE_SELL` — 0 또는 1만 되는 타입
+- 열거값: `SIDE_BUY 0`, `SIDE_SELL 1`, `ORDER_LIMIT 0`, `ORDER_IOC 2`, `ORDER_FOK 3`(원장이 받는 주문 유형만 — `ledger/src/order_validate.c`), `MARKET_KRX 0`, `MARKET_NXT 1`, `MARKET_AUTO 255`, `STATUS_NEW 0` ~ `STATUS_REJECTED 4`
+- `type Side = typeof SIDE_BUY | typeof SIDE_SELL` — 0 또는 1만 되는 타입. `OrderType`도 같은 방식
 - `marketName(m)` — 0 → `"KRX"`, 1 → `"NXT"`, 그 밖(255 포함) → `"SOR"`
-- `reasonText(code)` — C `errors.h`의 문구를 옮긴 표(-1 잘못된 인자, -14 증거금 부족, -16 원장에 연결하지 못함 등). 모르는 코드는 `사유 코드 N`. 주석대로 화면 글자일 뿐이라 틀려도 주문이 잘못 나가지는 않는다
+- `sideText`, `orderTypeText`(지정가/IOC/FOK), `statusText`(대기/부분 체결/전량 체결/취소/거부)
+- `reasonText(code)` — C `errors.h`의 문구를 옮긴 표(-1 잘못된 인자, -5 호가 단위, -9 계좌·주문을 찾을 수 없음, -14 증거금 부족, -16 원장에 연결하지 못함 등). 모르는 코드는 `사유 코드 N`. 주석대로 화면 글자일 뿐이라 틀려도 주문이 잘못 나가지는 않는다
+- **호가 단위(T7-04)** — `core/src/tick_size.c`의 표를 옮긴 `TICKS`(2,000원 미만 1원, 5,000원 미만 5원, 20,000원 미만 10원, 50,000원 미만 50원, 200,000원 미만 100원, 500,000원 미만 500원, 그 이상 1,000원)
+  - `tickSize(price)`, `isValidTick(price)` — 가격이 0보다 크고 단위로 나누어떨어지는가
+  - `stepPrice(price, ±1)` — 한 호가 위·아래. 단위에 안 맞는 가격이면 먼저 맞추고(70,050 ↑ → 70,100), 내려갈 때 구간 경계를 넘으면 아래 구간 단위를 쓴다(50,000 ↓ → 49,950)
+  - 판정은 원장이 다시 한다. 화면 표가 틀려도 "호가 단위에 맞지 않는 가격"으로 거절될 뿐이다
 
 ##### 13.3 lib/types.ts — 화면 안의 데이터 모양
 
-- `Market = "KRX" | "NXT"`
-- `Level { price, qty }`
-- `Book { market, bids, asks }` — 채널계 응답과 달리 `market`이 **문자열**이다(`api.ts`가 바꾼다). `symbol`은 타입에 없다
-- `Fill { at, market, side, price, qty, clOrdId }` — `market`이 `MarketName`이라 `"SOR"`도 된다. 주석: SOR이면 어느 시장에서 체결됐는지는 응답에 없다
+- `Market = "KRX" | "NXT"`, `Level { price, qty }`
+- `Book { market, bids, asks }` — 채널계 응답과 달리 `market`이 **문자열**이다(`api.ts`·`useTrading`이 바꾼다). `symbol`은 타입에 없다
+- `Fill { id, at, market, side, price, qty, clOrdId, orderId }` — 방송으로 온 체결 한 건. `market`은 채널계가 원장 상세에서 시장별로 나눠 보낸 **실제 시장**이다(T7-03). `id`는 화면이 붙인 번호(`주문번호-순번`)
+- `LegView`, `OrderView` — 채널계 `OrderView`(7.6절)와 같은 모양
+- `LocalReject` — 원장까지 가지 못했거나 원장이 거절한 주문. 주문번호가 없어 **화면만 기억한다**. `outcome`은 `"REJECTED" | "IN_DOUBT"`, `reason`은 글자
+- `Balance { account, cash, reserved, available }`, `CancelResult { orderId, reason, status, canceledQty, order }`
 
 ##### 13.4 lib/format.ts — 표시용 글자
 
 - `won(n)`, `qty(n)` — `toLocaleString("ko-KR")`로 세 자리마다 쉼표
 - `bp(n)`, `pct(n)` — 부호 붙은 bp, 백분율. 지금 컴포넌트에서 쓰는 곳은 없다
-- `time(d)` — 24시간제 시각 문자열. 체결 목록의 시각에 쓴다
+- `time(d)` — `13:11:28` 같은 24시간제 시각. `ko-KR` 형식("13시 11분 28초")은 표에서 폭이 넓고 흔들려 `en-GB`로 바꿨다(T7-05)
 
 ##### 13.5 lib/api.ts — REST 호출
 
 ```ts
 const BASE = import.meta.env.VITE_API_BASE ?? "";
+export const ACCOUNT = "123456789012";
+export const SYMBOL = "005930";
 ```
 
-`VITE_API_BASE`가 없으면 빈 문자열이다. 그러면 요청 주소가 `/api/orders`처럼 **같은 출처**가 되고 Vite 프록시가 채널계로 넘긴다. `.env`와 `.env.example`은 둘 다 이 줄을 주석으로만 담고 있어 기본은 비어 있다.
+`VITE_API_BASE`가 없으면 빈 문자열이다. 그러면 요청 주소가 `/api/orders`처럼 **같은 출처**가 되고 Vite 프록시가 채널계로 넘긴다. `.env`와 `.env.example`은 둘 다 이 줄을 주석으로만 담고 있어 기본은 비어 있다. `ACCOUNT`·`SYMBOL`은 원장 데몬의 데모 계좌·종목이다.
 
 - `OrderRequest`, `OrderResponse` 인터페이스 — 8장의 JSON과 같은 모양. `Outcome`은 `"ACCEPTED" | "REJECTED" | "IN_DOUBT"`
 - `submitOrder(req)`
-  - `fetch`로 POST
+  - `fetch`로 POST. `fetch` 자체가 실패하면(채널계가 꺼짐) `outcome "REJECTED"`, `reason -16`, `message "채널계에 붙지 못했다"`를 스스로 만든다
   - **400이면** 본문을 읽지 않고 `outcome "REJECTED"`, `reason -1`, `message "입력이 올바르지 않습니다"`인 응답을 직접 만든다. 400 본문은 Spring 기본 오류라 모양이 다르기 때문이다
   - 그 밖에는 본문을 JSON으로 읽되(읽기 실패면 `null`), **`outcome`이 세 값 중 하나일 때만** 그대로 `OrderResponse`로 돌려준다. 200/422/503/202는 모두 `OrderResponseDto` 모양이라 여기를 통과한다
-  - `outcome`이 없거나 모르는 값이면(예: 예상 못 한 500 오류 본문) `outcome "REJECTED"`, `reason 0`, `message "채널계 오류 (HTTP 500)"`을 직접 만든다. 주석에 따르면 그대로 넘기면 `OrderTicket`이 `OUTCOME_STYLE[undefined]`를 읽다 화면이 통째로 멈춘다. 이 부분은 작업 트리의 커밋되지 않은 변경이다
-  - `fetch` 자체가 실패하면(채널계가 꺼짐) 예외가 호출자로 올라간다
+  - `outcome`이 없거나 모르는 값이면(예: 예상 못 한 500 오류 본문) `outcome "REJECTED"`, `reason 0`, `message "채널계 오류 (HTTP 500)"`을 직접 만든다. 그대로 넘기면 화면이 없는 모양을 읽다 통째로 멈춘다(T6-11)
 - `fetchBook(market)` — `GET /api/book?market=N`. `res.ok`가 아니면(503 등) 예외. 받은 `market` 숫자를 `marketName`으로 문자열로 바꿔 `Book`을 만든다
+- `fetchOrders()` — `GET /api/orders`. 실패면 예외
+- `fetchOrder(id)` — `GET /api/orders/{id}`. **404면 `null`**, 그 밖의 실패는 예외
+- `cancelOrder(id)` — `DELETE /api/orders/{id}`. 상태 코드와 본문(`CancelResult` 또는 `null`)을 **함께** 돌려준다. 200/409/404/422를 부르는 쪽이 나눠 읽어야 하기 때문이다. `fetch` 자체가 실패하면 `status 0`
+- `fetchBalance()` — `GET /api/balance`. 실패면 예외
 
-##### 13.6 vite.config.ts — 프록시와 CORS
+##### 13.6 lib/estimate.ts — 주문 전 예상 체결 (T7-05)
+
+**지금 화면에 보이는 호가만으로** "이 주문을 내면 얼마나, 얼마에 체결될까"를 계산한다. 주문창의 "예상 체결"과 시장 비교 패널이 쓴다.
+
+- `marketsOf(market)` — 전문의 시장 번호가 쓰는 호가창들. 0 → `["KRX"]`, 1 → `["NXT"]`, 그 밖(255) → `["KRX", "NXT"]`
+- `estimate(books, markets, buy, limit, qty, allOrNone)` → `{ fill, notional, avg, rest, byMarket }`
+  1. 고른 시장들의 반대편 호가(매수면 매도호가, 매도면 매수호가) 중 **지정가 안쪽**만 모은다
+  2. 가격순으로 정렬한다(매수는 낮은 가격부터, 매도는 높은 가격부터). 정렬이 안정적이라 같은 가격이면 `markets` 순서(KRX 먼저)가 유지된다
+  3. 앞에서부터 수량을 채우며 금액과 시장별 수량을 더한다
+  4. `allOrNone`(FOK)인데 전량이 안 되면 **아무것도 체결되지 않은 것**으로 돌려준다
+  5. `avg`는 버림 평균, `rest`는 바로 체결되지 않는 수량(지정가면 호가창에 남고, IOC·FOK면 취소된다)
+
+**판단 — 예상 체결은 화면에서 계산한다**(T7-05). 원장에 "해 보기" 전문을 더하면 정확하지만 주문창 입력마다 원장을 부르게 된다. 그래서 채널계가 주는 **시장마다 10단** 기준의 참고값이라고 화면에 적었다. 그보다 깊이 쓸어 담는 주문은 적게 잡힌다. 실제 배분은 바로 아래 시장 비교 패널에 원장 값으로 보인다.
+
+`web/scripts/estimate.check.ts`가 이 계산을 확인한다(13.23절).
+
+##### 13.7 vite.config.ts — 프록시와 CORS
 
 ```ts
 const CHANNEL = 'http://localhost:8080'
@@ -6191,7 +6500,7 @@ export default defineConfig({
 
 그래서 채널계에 CORS 설정을 더하지 않았다. `.env.example`은 채널계를 다른 호스트에 둘 때만 `VITE_API_BASE`/`VITE_WS_URL`을 채우라고 안내하면서, 그러면 CORS 때문에 주문 POST가 막힌다고 경고한다.
 
-##### 13.7 lib/useStream.ts — WebSocket 구독과 재연결
+##### 13.8 lib/useStream.ts — WebSocket 구독과 재연결
 
 직접 만든 훅(hook)이다. 훅은 `use`로 시작하고 안에서 `useState`/`useEffect` 등을 쓰는 함수이며, 컴포넌트가 불러 쓴다.
 
@@ -6228,157 +6537,190 @@ useEffect(() => { cb.current = onEvent; }, [onEvent]);
 
 주석의 한 줄이 이 훅의 목적이다. "화면이 조용히 멈추면 사용자는 '시장이 조용한 것'과 구분하지 못한다."
 
-##### 13.8 App.tsx — 상태를 모두 쥔 최상위
+##### 13.9 lib/useTrading.ts — 화면이 쓰는 원장 상태 전부 (T7-04)
+
+**상태의 주인은 원장이다.** 화면은 받은 것을 보여 줄 뿐 체결이나 잔고를 스스로 계산하지 않는다(주석). 처음에 한 번 전부 읽고, 그다음은 채널계가 밀어 보내는 사건으로 고친다. 방송이 끊기면 몇 초마다 직접 읽는다.
 
 **상태(useState)**
 
 | 이름 | 초기값 | 뜻 |
 |---|---|---|
-| `tab` | `"trade"` | 지금 탭 |
-| `events` | 0 | 받은 WebSocket 사건 수 |
-| `ledgerDown` | `null` | 원장 끊김 사유. `null`이면 정상 |
-| `price` | 70000 | 주문 칸의 가격. 호가 클릭과 주문 칸이 함께 쓴다 |
-| `fills` | `[]` | 체결 목록 |
-| `orders` | `[]` | 주문 목록 |
-| `books` | `[]` | KRX·NXT 호가창 |
+| `books` | `{}` | 시장 이름 → 호가창 |
 | `bookError` | `null` | 호가 조회 실패 문구 |
-| `bookTick` | 0 | 호가를 "지금 당장" 다시 읽게 하는 신호 |
+| `balance` | `null` | 잔고 |
+| `orders` | `[]` | 원장이 알려 준 주문들(주문번호가 큰 것부터) |
+| `rejects` | `[]` | 거절·확인 필요 주문(화면만 기억, 100건까지) |
+| `fills` | `[]` | 방송으로 온 체결(최신이 앞, 300건까지) |
+| `ledgerDown` | `null` | 원장 끊김 사유. `null`이면 정상 |
+| `events` | 0 | 받은 WebSocket 사건 수 |
+| `lastSync` | `null` | 마지막으로 호가를 받은 시각 |
 
-**탭** — `TABS` 배열(거래 / 주문·체결 / 전략 비교 / 관제)을 버튼으로 그리고, 누르면 `setTab`. 아래 `main`에서 `tab === "trade" && (...)`처럼 지금 탭의 내용만 그린다. 다른 탭의 컴포넌트는 화면에서 빠진다(그래서 `Working`의 펼침 상태 같은 것은 탭을 오가면 초기화된다).
+돌려주는 값은 이 상태들과 연결 상태 `ws { state, attempt }`, 그리고 함수 `submit`, `cancel`, `refresh`다.
 
-**호가를 1초마다 읽기**
+**`refresh()` — 전부 다시 읽기**
 
-```tsx
-useEffect(() => {
-  let alive = true;
-  const load = () =>
-    Promise.all([fetchBook(MARKET_KRX), fetchBook(MARKET_NXT)])
-      .then((b) => { if (!alive) return; setBooks(b); setBookError(null); })
-      .catch((e: unknown) => alive && setBookError(String(e)));
-  load();
-  const t = window.setInterval(load, BOOK_POLL_MS);
-  return () => { alive = false; window.clearInterval(t); };
-}, [bookTick]);
-```
+`Promise.allSettled`로 KRX 호가, NXT 호가, 잔고, 주문 목록을 **동시에** 읽는다. `allSettled`라 하나가 실패해도 나머지는 반영된다. 호가는 두 시장이 모두 성공해야 바꾸고, 하나라도 실패하면 `bookError`에 문구를 넣고 **마지막으로 성공한 호가를 그대로 둔다.** 주문 목록은 받은 그대로 주문번호순으로 바꾼다.
 
-- 효과가 돌면 곧바로 한 번 읽고, 1초(`BOOK_POLL_MS`)마다 다시 읽는다. 원장은 호가 변화를 밀어 보내지 않으므로 화면이 직접 묻는다
-- `Promise.all`로 KRX와 NXT를 동시에 묻고, 둘 다 성공해야 `books`를 바꾼다. 하나라도 실패하면 `bookError`에 문구를 넣고 **`books`는 마지막으로 성공한 값을 그대로 둔다**
-- `alive` 표시는 정리된 뒤에 늦게 도착한 응답이 상태를 건드리지 않게 막는다
-- 의존 배열이 `[bookTick]`이라, `bookTick`이 바뀌면 옛 타이머를 정리하고 곧바로 다시 읽은 뒤 새 타이머를 건다. 주문 결과가 오면 `bookTick`을 올려 1초를 기다리지 않고 호가를 갱신한다
+**타이머**
 
-**WebSocket 사건 처리 — `onEvent`**
+- 처음 한 번 `refresh()`
+- 방송이 열려 있으면 **20초**(`RESYNC_MS`)마다, 끊겨 있으면 **3초**(`FALLBACK_POLL_MS`)마다 `refresh()`. 주석: 방송이 살아 있어도 가끔 전체를 맞춘다 — 놓친 방송이 있어도 화면이 영영 틀리지 않게
 
-`useCallback(..., [])`로 만든 함수를 `useStream(onEvent)`에 넘긴다. 사건마다 먼저 `events`를 1 올리고 `kind`에 따라 나눈다.
+**판단 — 화면이 1초마다 호가를 끌어오던 것을 뺐다**(T7-04). 채널계가 바뀐 호가만 밀어 보내므로(T7-03), 끌어오기는 방송이 끊겼을 때의 대비로만 남겼다.
 
-- `ledger-down` → `setLedgerDown(payload 문자열 또는 "원인 미상")`. 상단 표시줄과 관제 탭에 끊김이 뜬다
-- `ledger-up` → `setLedgerDown(null)`
-- `order` → `payload`를 `{ request, result }`로 읽어 `LogicalOrder` 하나를 만든다
-  - `clOrdId`, `symbol`, `side`, `price`, `qty`는 요청에서
-  - `legs`에는 `legOf(req, res)`로 만든 항목 **하나**
-  - 목록 맨 앞에 넣고, 같은 `clOrdId`의 옛 항목은 빼고, 200개까지만 남긴다
-  - `setBookTick(n => n + 1)`로 호가를 즉시 다시 읽게 한다
-- `fill` → `{ market, side, price, qty, clOrdId }`를 읽어 `Fill`을 만들고(`at`은 지금 시각, `market`은 `marketName`으로 문자열) 맨 앞에 넣고 200개까지 남긴다
+**사건 처리 — `onEvent`**
 
-**`legOf(req, res)`** — 원장 응답을 주문 내역 한 줄로 바꾼다.
+사건마다 `events`를 1 올리고 `kind`에 따라 나눈다.
 
-- 상태: `IN_DOUBT`면 `"IN_DOUBT"`, `REJECTED`면 `"REJECTED"`, 접수이면서 `status`가 `STATUS_FILLED`(2)면 `"DONE"`, 그 밖이면 `"LIVE"`
-- `market`은 요청 시장의 이름(자동이면 `"SOR"`), `exchOrderId`는 원장 주문번호
-- `price`는 체결이 있으면 평균 체결가, 없으면 주문 가격
-- 거절이면 `note`에 `reasonText(reason)`
+- `ledger-down` → `ledgerDown`에 사유(없으면 "원인 미상")
+- `ledger-up` → `ledgerDown`을 지우고 `refresh()` — 끊긴 사이에 바뀐 것을 한 번에 맞춘다
+- `book` → 받은 시장 번호를 이름으로 바꿔 그 시장 호가만 교체
+- `balance` → 잔고 교체
+- `order-update` → 주문 하나를 목록에 넣거나 교체(`upsertOrder`)
+- `order` → 어느 화면에서 낸 주문이든 받는다. 접수(`ACCEPTED`)면 `fetchOrder`로 상세를 읽어 목록에 넣는다. 거절·확인 필요면 `rejects` 맨 앞에 넣는다(같은 `clOrdId`가 이미 있으면 넣지 않는다). 사유는 `IN_DOUBT`면 채널계 `message`, 거절이면 `reasonText(reason)`. 어느 경우든 잔고를 다시 읽는다
+- `fill` → `Fill`을 만들어 맨 앞에 넣는다. `id`는 `주문번호-순번`(순번은 `useRef`로 센다), `at`은 받은 시각
 
-**`bestOverall`** — `useMemo`로 두 호가창의 최우선 매도 중 가장 낮은 값과 최우선 매수 중 가장 높은 값을 구한다. 호가창이 비어 있으면 `Math.min()`은 `Infinity`, `Math.max()`는 `-Infinity`가 되는데, 어떤 가격과도 같지 않으므로 강조가 켜지지 않을 뿐이다.
+**`submit(order)`** — 주문창의 값에 `ACCOUNT`·`SYMBOL`·`clOrdId`를 붙여 `submitOrder`. `clOrdId`는 `Date.now() % 1_000_000_000`과 직전 번호 + 1 중 큰 값이다(같은 밀리초에 두 번 눌러도 겹치지 않게). 접수됐으면 상세를 읽어 목록에 넣고 잔고를 다시 읽는다. 응답은 그대로 돌려준다 — 알림은 주문창이 띄운다.
 
-**배치** — 위에 `StatusBar`, 그 아래 탭, 그 아래 내용.
+**`cancel(orderId)`** — `cancelOrder` 뒤 본문의 `order`가 있으면 목록에 반영하고 잔고를 다시 읽는다. 상태 코드를 사람의 말로 바꿔 `{ ok, message }`로 돌려준다.
 
-- 거래 탭: 세 칸 격자. `호가창 · 005930 삼성전자` 패널 안에 두 시장의 `OrderBook`을 나란히(오류가 있으면 위에 빨간 안내), `SOR 판단` 패널에 `SorPanel`(항상 매수 기준), `주문` 패널에 `OrderTicket`
-- 주문·체결 탭: `Working`과 `Fills`를 나란히
-- 전략 비교 탭: `Strategies`
-- 관제 탭: `Ops`에 `state`, `ledgerDown`, `events`
-
-##### 13.9 components/Panel.tsx — 제목 달린 상자
-
-`title`(선택), `right`(제목 줄 오른쪽에 넣을 것, 선택), `children`, `pad`(기본 `true`, 안쪽 여백)를 받아 테두리 상자를 그린다. 내용이 넘치면 상자 안에서 스크롤된다. 모든 탭의 패널이 이것을 쓴다.
-
-##### 13.10 components/StatusBar.tsx — 상단 표시줄
-
-props: `state`, `attempt`, `ledgerDown`.
-
-- 왼쪽: `mock-sor` · "복수시장 주문 집행"
-- `ledgerDown`이 있으면 빨간 알약 모양으로 "원장 끊김 · 사유"
-- 오른쪽: 연결 상태 점과 글자. `connecting` → 노랑 "연결 중", `open` → 초록 "실시간", `closed` → 빨강 "끊김". 끊긴 상태에서 `attempt`가 1 이상이면 "· 재시도 N"
-
-이 줄 하나로 "채널계와의 연결"과 "채널계와 원장 사이의 연결"을 따로 보여 준다. 앞의 것은 브라우저가 스스로 알고, 뒤의 것은 채널계가 방송해 줘야 안다.
-
-##### 13.11 components/OrderBook.tsx — 한 시장의 호가창
-
-props: `book`, `onPick`(가격을 누르면 부를 함수), `bestOverall`.
-
-- 머리: 시장 이름(KRX 주황, NXT 초록)과 스프레드(최우선 매도 − 최우선 매수. 한쪽이 비면 0으로 계산한다)
-- 매도 단은 `flexDirection: "column-reverse"`로 **거꾸로** 쌓는다. 데이터는 낮은 가격부터 오지만, 화면에서는 가격이 위로 갈수록 높게 보이도록 가장 낮은 매도가가 구분선 바로 위에 온다
-- 구분선 아래에 매수 단(높은 가격부터)
-- 각 단은 `Row` 버튼이다. 잔량을 두 시장 전체 최대 잔량 대비 비율 막대로 깔고, 가격(매수 빨강/매도 파랑)과 수량을 쓴다. 누르면 `onPick(가격)` → `App`의 `setPrice` → 주문 칸 가격이 바뀐다
-- **강조**: 그 시장의 첫 단이면서 두 시장 통틀어 최우선(`bestOverall`)과 가격이 같으면 굵게 쓴다
-
-##### 13.12 components/SorPanel.tsx — "SOR 판단" 패널
-
-props: `books`, `side`(App은 항상 `SIDE_BUY`를 넘긴다).
-
-- 시장마다 최우선 호가를 뽑는다. 매수면 매도 1단(싸게 살 곳), 매도면 매수 1단
-- 가장 유리한 가격(매수면 최솟값)을 `best`로 잡고, 같은 가격인 시장에 "유리" 표시와 초록 테두리
-- 다른 시장에는 `best`와의 차이를 `+100`처럼 표시
-- 막대는 "그 시장 최우선 잔량 ÷ 두 시장 최우선 잔량 합" 비중이고, 아래에 "체결 가능 N주 · M%"
-- 맨 아래 고정 문구: Phase 2 측정 요약(BALANCED에서 KRX 단독 53% → 라우팅 100%)
-
-**주의할 점**: 이 패널은 원장 안의 SOR 엔진이 실제로 내린 판단을 받아 오는 것이 아니다. **브라우저가 1초마다 읽은 호가 최우선 1단만으로 계산해 보여 주는 참고 화면**이다. 실제 배분은 주문을 `market: 255`로 보냈을 때 원장이 정하고, 그 내역(시장별로 나뉜 물리 주문)은 지금 응답에 실려 오지 않는다(13.14절).
-
-##### 13.13 components/OrderTicket.tsx — 주문 칸
-
-props: `price`, `onPriceChange`. 가격은 `App`이 쥐고(호가 클릭과 공유하려고), 나머지는 이 컴포넌트가 쥔다.
-
-| 상태 | 초기값 | 뜻 |
+| 상태 | `ok` | `message` |
 |---|---|---|
-| `side` | `SIDE_BUY` | 매수/매도 |
-| `qty` | 10 | 수량 |
-| `market` | `MARKET_AUTO`(255) | SOR 자동/KRX/NXT |
-| `busy` | `false` | 보내는 중인가 |
-| `result` | `null` | 마지막 응답 |
+| 200 | `true` | "N주 취소" |
+| 409 | `false` | "이미 체결·취소로 끝난 주문" |
+| 404 | `false` | "모르는 주문" |
+| 503 또는 0 | `false` | "원장에 연결하지 못함 — 다시 시도해도 안전" |
+| 그 밖 | `false` | `reasonText(reason)` 또는 "HTTP N" |
 
-화면 구성: 매수/매도 버튼 둘(선택된 쪽이 색으로 채워짐) → 시장 버튼 셋("SOR 자동", "KRX", "NXT") → 가격 입력(`step` 100, 호가를 클릭해도 담긴다) → 수량 입력(1 미만으로 못 내려감)과 10/50/100/500 빠른 버튼 → 주문 금액(가격 × 수량) → 주문 버튼 → 결과 상자.
+##### 13.10 lib/useToasts.ts — 알림 (T7-05)
 
-**`send()`**
+`notify(tone, title, body)`가 알림을 하나 더하고 5초(`LIFE_MS`) 뒤 스스로 지운다. 한 번에 4개(`MAX_SHOWN`)까지 보이고 넘치면 오래된 것부터 내린다. `tone`은 `ok`·`info`·`warn`·`error`. `dismiss(id)`는 사용자가 닫을 때 쓴다.
 
-1. `busy`를 켜고 이전 결과를 지운다
-2. `submitOrder`에 8.1절의 객체를 넘긴다(계좌·종목 고정, `clOrdId`는 시각 기반, 유형은 지정가)
-3. 응답을 `result`에 담는다
-4. `fetch`가 예외를 내면(채널계에 못 붙음) `REJECTED`, `reason -16`, `"채널계에 붙지 못했다"`를 스스로 만든다
-5. 끝나면 `busy`를 끈다
+##### 13.11 lib/useFlash.ts — 바뀐 값 깜빡임 (T7-05)
 
-주문 버튼은 `busy`이거나 가격·수량이 0 이하면 눌리지 않는다. 한 번 누른 뒤 응답이 올 때까지 다시 누를 수 없는 것도 이 `busy` 덕분이다.
+`useFlash(entries)`는 `[키, 값]` 목록을 받아 "지난번과 값이 달라진 키"를 알려 주는 함수(`flash(key) → "up" | "down" | undefined`)를 돌려준다. 호가 잔량, 주문의 체결·취소 수량, 잔고 칸, 새 체결 줄이 잠깐 깜빡이는 데 쓴다.
 
-**결과 상자** — `OUTCOME_STYLE`로 색과 제목을 정한다.
+- 배열은 그릴 때마다 새로 만들어지므로 **내용을 문자열(서명)로 만들어** 비교한다(`키=값|키=값…`)
+- 비어 있던 첫 값에서는 아무것도 표시하지 않는다 — 처음 뜰 때 화면 전체가 깜빡이면 뜻이 없다
+- 바뀐 키마다 방향(커졌으면 `up`, 작아졌으면 `down`, 새 키는 `up`)과 이번 변화의 순번을 적는다
+- 900ms(`HOLD_MS`, CSS `.flash-up` 애니메이션 길이와 같다) 뒤 그 순번 이하의 표시를 지운다. 정리 함수로 타이머를 취소하지 않는다 — 곧바로 다음 변화가 와도 이번 표시는 제 시간만큼 남아야 한다
+- 같은 키가 다시 바뀌면 애니메이션을 다시 틀어야 하므로, 부르는 쪽이 값을 React `key`에 넣는다
 
-- `ACCEPTED` 초록 "접수됨": 체결이 있으면 "N주 체결 · 평균 P원" + (전량이면 " · 전량", 아니면 " · 나머지는 호가창에 대기"), 체결이 없으면 "체결 없음 · 호가창에 대기"
-- `REJECTED` 빨강 "거절됨": `reasonText(reason)`. 400이면 -1 "잘못된 인자", 503이면 -16 "원장에 연결하지 못함". `api.ts`가 모르는 본문을 대신 만든 경우는 `reason`이 0이라 "사유 코드 0"으로 보인다(`message`의 "채널계 오류 (HTTP N)"은 거절 때 표시되지 않는다)
-- `IN_DOUBT` 노랑 "확인 필요": 채널계의 `message`와 함께 안내문 "원장 응답을 못 받았다. 다시 보내면 중복 주문이 될 수 있다 — 호가창에 걸렸는지 먼저 확인한다." 채널계에 조회 API가 없으므로, 화면이 사용자에게 제안할 수 있는 확인 수단이 호가창을 눈으로 보는 것이다
+**그리는 중에 상태를 고치는 이유**(PROGRESS T7-05 "막힌 점"). 처음에는 그리는 중에 `ref`와 `Date.now()`를 읽어 oxlint의 react 규칙(purity·refs)이 경고했고, 효과(`useEffect`) 안에서 `setState`로 바꾸자 `set-state-in-effect` 경고가 났다. React 문서의 "이전 값을 상태로 기억하고, 입력이 바뀐 그리기에서 바로 고친다" 방식으로 바꿔 경고가 0이 됐다. 코드로는 `if (signature !== seen) { setSeen(signature); ... setMarks(...) }`가 함수 본문에 있다.
 
-##### 13.14 components/Working.tsx — 주문 내역
+##### 13.12 App.tsx — 배치와 체결 알림
 
-`Leg`(시장, 원장 주문번호, 가격, 수량, 체결, 상태, 메모)와 `LogicalOrder`(주문번호, 종목, 방향, 가격, 수량, `legs`) 타입을 이 파일이 정의하고 `App`이 가져다 쓴다. 상태 이름은 `PENDING`(응답 대기), `LIVE`(접수), `DONE`(전량 체결), `REJECTED`(거절), `IN_DOUBT`(확인 필요)인데, `App`의 `legOf`는 `PENDING`을 만들지 않는다.
+`useTrading()`과 `useToasts()`를 부르고, 주문창의 입력값 `draft`(`side`·`market`·`type`·`price`·`qty`, 처음은 매수·SOR 자동·지정가·70,000원·10주)를 쥔다. 호가창을 누르면 `pick(price, side)`가 `draft`의 가격과 방향을 바꾼다.
 
-- 주문이 없으면 "주문이 없다"
-- 주문마다 한 줄 버튼: 매수/매도, 종목, "가격 × 수량", 확인 필요 표시, 거절이면 "거절 · 사유" 표시(T6-13 — 접힌 줄에서도 대기 중인 주문과 구분되게), "체결/수량", 펼침 화살표, 체결 비율 막대
-- 누르면 펼치고 다시 누르면 접는다. 처음 그려질 때(탭에 들어올 때) 맨 위 주문이 펼쳐져 있다
-- 펼치면 `legs`마다 시장 이름, `#원장주문번호`(0이면 "—"), 가격 × 수량, 체결 수량, 상태(거절이면 사유 덧붙임)
+**화면 셋** — `VIEWS`(거래 / 전략 비교 / 관제)를 탭 버튼으로 그리고 지금 것만 그린다. T7-05에서 "거래"와 "주문·체결" 탭을 **거래 한 화면**으로 합쳤다.
 
-주석의 ponytail 메모대로, 원장 응답에는 시장별로 나뉜 물리 주문이 없어서 **항상 한 줄**만 보인다. SOR이 여러 시장으로 나눈 내역을 보이려면 응답 전문에 그 목록을 실어야 한다.
+**거래 화면의 배치** — `.workspace` 격자(3열).
 
-##### 13.15 components/Fills.tsx — 체결 내역
+| 자리 | 컴포넌트 | 내용 |
+|---|---|---|
+| 왼쪽 전체 높이 | `Panel "호가"` + `OrderBook` | 두 시장 호가를 나란히. 호가 조회가 실패하면 위에 빨간 안내 |
+| 가운데 위 | `Panel "시장 비교"` + `MarketCompare` | 지금 주문창 조건의 시장별 예상과 원장이 실제로 나눈 최근 SOR 주문 |
+| 가운데 아래 | `Activity` | 미체결·주문 내역·체결 탭 |
+| 오른쪽 전체 높이 | `Panel "주문"` + `OrderTicket` | 주문창 |
 
-- 없으면 "체결 내역이 없다"
-- 맨 위에 목록 전체의 **평균 체결 단가**(Σ가격×수량 ÷ Σ수량, 반올림)와 총 수량. 매수·매도를 구분하지 않고 합산한다
-- 그 아래 체결마다 시각, 시장(KRX/NXT/SOR), 매수/매도, 가격, 수량
+맨 위에 `Header`(통합 최우선호가·잔고·연결 상태), 화면 아래 왼쪽에 `Toasts`.
 
-##### 13.16 components/Strategies.tsx — 전략 비교(고정 데이터)
+**체결 알림** — `t.fills`가 바뀌면 앞에서부터 마지막으로 본 체결 `id`(`useRef`)를 만날 때까지를 새 체결로 모아, 오래된 것부터 "체결 · NXT 매수 / 100주 · 70,000원" 알림을 띄운다.
+
+**판단 — 주문 결과 알림과 체결 알림을 나눈다**(T7-05). 접수 즉시 체결은 방송으로도 오므로 둘 다 띄우면 한 체결에 알림이 둘이다. 방송이 붙어 있으면 체결 알림은 방송 쪽(`App`)만, 끊겼으면 주문 응답으로(`OrderTicket`, `liveFills` prop) 띄운다.
+
+##### 13.13 components/Panel.tsx — 제목 달린 상자
+
+`title`, `sub`(제목 줄 오른쪽의 보조 글), `head`(제목 대신 제목 줄에 놓을 것 — 예: `Activity`의 탭), `children`, `flush`(안쪽 여백 없음), `className`(격자 자리)을 받아 `<section class="panel">`을 그린다. 내용이 넘치면 상자 안에서 스크롤된다.
+
+##### 13.14 components/Header.tsx — 머리글 (T7-05)
+
+props: `ws`, `ledgerDown`, `balance`, `books`.
+
+- 왼쪽: `mock-sor` · "KRX·NXT 복수시장 주문 집행", 종목 "삼성전자 005930 · 계좌 123456789012"
+- **통합 최우선 매도·매수** — `best()`가 두 시장의 1단을 비교해 가장 싼 매도·가장 비싼 매수와 그 시장을 적는다. 같은 가격이면 "KRX·NXT"
+- **잔고** — 예수금·묶인 금액·주문 가능. 값이 바뀌면 `useFlash`로 깜빡인다
+- **연결 상태** — `connecting` "연결 중", `open` "실시간", `closed` "재연결 중"(재시도 횟수와 함께). 점의 색과 글자를 함께 쓴다
+- 아래 띠: `ledgerDown`이 있으면 빨간 띠 "원장에 연결되지 않음 — 사유. 주문·취소는 원장이 돌아오면 다시 하세요."(`role="alert"`). 원장은 정상인데 방송만 끊겼으면 노란 띠 "실시간 연결 끊김 — 다시 붙는 동안 3초마다 원장 상태를 직접 읽는다."
+
+한 줄로 "채널계와의 연결"(브라우저가 스스로 안다)과 "채널계와 원장 사이의 연결"(채널계가 방송해 줘야 안다)을 따로 보여 준다.
+
+##### 13.15 components/OrderBook.tsx — 두 시장 호가 (T7-05)
+
+props: `books`, `orders`, `onPick`.
+
+- 두 시장을 **나란히** 한 열씩. 열 머리에 시장 태그와 스프레드(한쪽이 비면 "—"). 매도는 위(높은 가격이 위), 가운데에 매도·매수 잔량 합, 매수는 아래
+- 각 단은 `Row` 버튼. 잔량을 두 시장 전체 최대 잔량 대비 막대로 깔고 가격과 수량을 쓴다
+- **"최우선"** — 그 시장의 첫 단이면서 두 시장을 합친 최우선과 가격이 같으면
+- **"내 N"** — 내가 걸어 둔 주문이 있는 가격. 끝나지 않은 주문의 **원장 다리**(`legs`)마다 `보냄 − 체결 − 취소`를 그 시장·그 방향·지정가 자리에 더한다(내 매수는 매수호가 쪽)
+- 잔량이 바뀐 줄은 `useFlash`로 깜빡이고 ▲▼로 방향을 보인다
+- 누르면 `onPick(가격, 반대 방향)` — 매도호가를 누르면 매수, 매수호가를 누르면 매도가 주문창에 담긴다
+- 두 열의 가운데 줄이 같은 높이에 오도록 단 수가 적은 쪽을 빈 줄로 채운다
+- 접근성: 줄마다 읽을 이름(`aria-label`, 예: "NXT 매도호가 70,000원 2,257주, 두 시장 최우선. 누르면 이 가격으로 매수 준비"), 매도·매수 묶음에 `role="group"`
+- 최우선에서 5단(`FAR_DEPTH`) 이상 먼 줄에는 `far` 클래스를 붙여 520px 이하에서 숨긴다
+
+##### 13.16 components/MarketCompare.tsx — 시장 비교 (T7-05)
+
+props: `books`, `draft`, `orders`. 전에 있던 "SOR 판단" 패널(`SorPanel`)을 대신한다. 주석: 그 패널은 각 시장 최우선호가만 비교해 **수량을 모르니 판단이 아니었다.**
+
+- **위: 같은 조건을 세 곳에 넣어 본 예상** — "KRX 단독", "NXT 단독", "두 시장 (SOR)" 각각에 `estimate()`(주문창의 방향·가격·수량, FOK면 전량 조건). 칸마다 예상 평균가, 시장별 색 막대, "체결 N/M주 · P%"
+- "유리" 표시: 더 많이 체결되는 쪽, 같으면 매수는 싼 쪽·매도는 비싼 쪽. 체결이 0이면 표시하지 않는다
+- **아래: 원장이 실제로 나눈 결과** — 목록에서 시장을 `MARKET_AUTO`(255)로 낸 가장 최근 주문의 `legs`를 막대와 "NXT 보냄 N · 체결 M @ P"로 보인다. 없으면 "시장을 'SOR 자동'으로 주문하면 원장이 실제로 나눈 결과가 여기 보인다."
+- 맨 아래 문구: "예상은 지금 보이는 호가(시장마다 10단)로 계산한 참고값이다. 실제 배분은 원장이 정한다."
+
+예상과 실제를 나란히 보게 한 것이다. 원장은 SOR 자동 주문을 `STRATEGY_BEST_PRICE`로 배분하므로(4.3절 ledger), 두 시장 호가를 가격순으로 합쳐 채우는 "두 시장 (SOR)" 예상과 실제 다리가 다를 수 있다.
+
+##### 13.17 components/OrderTicket.tsx — 주문창 (T7-04, T7-05)
+
+props: `draft`, `onChange`, `books`, `balance`, `submit`, `notify`, `liveFills`. 입력값은 `App`이 쥐고(호가 클릭과 공유하려고), 이 컴포넌트는 `busy`(보내는 중)만 쥔다.
+
+화면 구성: 매수/매도(`B`/`S`) → 시장(SOR 자동 / KRX / NXT, 버튼마다 설명) → 유형(지정가 / IOC / FOK와 설명) → 가격(반대쪽 최우선호가를 담는 버튼, −/+ 한 호가, 지금 호가 단위 표시) → 수량(−/+, 10·100·1,000, 매수면 "최대") → **주문 전 확인** → 주문 버튼과 문제 문구, 단축키 안내.
+
+**주문 전 확인(`summary`)**
+
+- 예상 체결: `estimate(books, marketsOf(market), ...)`의 "N주 · 평균 P원". SOR 자동이면 "KRX a · NXT b"
+- 나머지: 없음 / "N주 호가창 대기"(지정가) / "N주 취소"(IOC) / "전량 불가 — 주문 전체 취소"(FOK)
+- 매수: 필요 금액(가격 × 수량, "체결되면 실제 체결가로 정산")과 주문 가능 여부("✓ 가능 · 남는 금액" 또는 "✕ N원 부족")
+- 매도: 예상 수령(예상 체결 금액)
+
+**보내기 전에 막는 것** — 원장이 틀림없이 거절할 입력만 막는다(`problem`). 가격이 없음, 호가 단위에 안 맞음("↑↓로 맞추세요"), 수량이 1 미만이거나 정수가 아님, 매수 금액이 주문 가능 금액을 넘음. 판정은 원장이 다시 한다.
+
+**`send()`** — `busy`거나 `problem`이 있으면 아무것도 안 한다. `submit(draft)`의 결과로 알림을 고른다.
+
+| 결과 | 알림 |
+|---|---|
+| `REJECTED` | error "주문 거절" + 사유(사유 코드가 음수면 `reasonText`, 단 -16이나 0이면 `message`) |
+| `IN_DOUBT` | warn "확인 필요" + "원장 응답을 못 받았다. 다시 보내기 전에 주문 내역을 확인하세요." |
+| 접수, 체결 0 | info "주문 접수" + "호가창에 대기"(지정가) 또는 "체결 없이 끝남"(IOC·FOK) |
+| 접수, 체결 있음 | 방송이 끊겼을 때(`liveFills`가 거짓)만 ok "체결" + "N주 · 평균 P원" |
+
+**키보드**
+
+- `B` 매수, `S` 매도 — 입력칸 밖에서만. **`e.code`(`KeyB`, `KeyS`)** 로 보므로 한글 입력 상태(ㅠ·ㄴ)에서도 된다
+- 가격칸에서 `↑`/`↓` — 한 호가(`stepPrice`)
+- `Ctrl+Enter`(맥은 `⌘+Enter`) — 주문
+- **입력칸에서 Enter만으로는 주문이 나가지 않는다.** `<form onSubmit>`이 기본 동작을 막는다. 수량을 고치다 Enter를 치는 실수가 곧 주문이 되면 안 된다(T7-05 판단)
+
+전역 단축키는 `window`에 한 번 걸고, 최신 `send`를 `useRef`로 이어 부른다.
+
+##### 13.18 components/Activity.tsx — 미체결·주문 내역·체결 (T7-04, T7-05)
+
+props: `orders`, `rejects`, `fills`, `onCancel`, `notify`. 한 패널의 탭 셋이고 **미체결**이 기본이다 — 거래 중에 가장 자주 보는 것. 탭마다 개수를 붙인다.
+
+- **미체결** — `done`이 아닌 주문. **주문 내역** — 모든 주문 뒤에 `rejects`(화면만 기억하는 거절·확인 필요)
+- **주문 줄(`OrderRow`)**: 매수/매도·시장(SOR/KRX/NXT)·유형 태그, "가격 × 수량", 상태 태그, 체결(매수 빨강·매도 파랑)·취소(회색) 진행 막대(`role="progressbar"`), "체결 N · 평균 P원", 취소·대기 수량, `#주문번호`, 끝나지 않았으면 **취소** 버튼
+- 체결·취소 수량이 바뀐 줄은 깜빡인다(나중 체결·취소가 방송으로 오면)
+- ▸를 누르면 펼쳐 **"논리 주문 1건 → 시장별 물리 주문"** — 다리마다 시장, 보냄, 체결 @ 평균가, 취소, 대기
+- **상태 태그(`StateTag`)**: 끝났고 취소가 있으면 "부분 체결 후 취소" 또는 "취소", 아니면 전량 체결 / 부분 체결 / 대기 / 그 밖(거부 등). 원장은 일부 체결 뒤 취소한 주문을 `PARTIAL`로 두므로(4.3절 ledger 4.9) 그대로 쓰면 아직 기다리는 주문처럼 보였다 — T7-04에서 고쳤다
+- 거절 줄(`RejectRow`): "거부" 또는 "확인 필요" 태그와 사유, 시각
+- **취소** — `onCancel`(= `useTrading.cancel`) 결과로 "취소 완료" / "취소 실패" 알림. 보내는 동안 버튼은 "취소 중…"
+- **체결 탭(`FillTable`)** — 맨 위에 **매수·매도를 나눈** 평균 체결가와 수량(Σ가격×수량 ÷ Σ수량, 버림). 주석: 매수와 매도를 섞은 평균은 뜻이 없다(T7-04에서 고침). 그 아래 시각·시장·구분·가격·수량 표. 없으면 "체결 내역이 없다. 이 화면을 연 뒤에 들어온 체결이 여기 쌓인다."
+
+##### 13.19 components/Toasts.tsx — 알림 목록 (T7-05)
+
+`<ol role="status" aria-live="polite">` — 화면 읽기 프로그램에도 읽힌다. 알림마다 모양 아이콘(✓ i ! ✕)을 붙여 **색만으로 구별하지 않고**, 닫기 버튼이 있다. 화면 왼쪽 아래에 뜬다 — 처음엔 오른쪽 아래였는데 주문 버튼을 가려 옮겼다(PROGRESS T7-05).
+
+##### 13.20 components/Strategies.tsx — 전략 비교(고정 데이터)
 
 서버를 부르지 않는다. 파일 안의 `DATA` 배열에 Phase 2 측정 결과를 **직접 적어 둔** 화면이다(주석: `bench/results/strategies-2026-09-16.md`, 시드 20260916 한 장면).
 
@@ -6391,9 +6733,9 @@ props: `price`, `onPriceChange`. 가격은 `App`이 쥐고(호가 클릭과 공�
 
 시나리오마다 "체결률 A% → B%"(나아졌으면 초록)와 KRX 단독·SPLIT 막대(체결률)와 bp(슬리피지)를 그린다. bp는 "접수 시점 통합 최우선호가 대비 슬리피지"다. 결론 문구: 복수시장 라우팅의 이득은 단가보다 체결률에서 먼저 온다. NXT_THIN에서 라우팅이 1bp 비싼 것은 더 많이 채우느라 비싼 호가까지 갔기 때문이다. 이 값은 측정 결과 파일이 바뀌어도 자동으로 따라가지 않는다.
 
-##### 13.17 components/Ops.tsx — 관제
+##### 13.21 components/Ops.tsx — 관제
 
-props: `wsState`, `ledgerDown`, `events`. 세 줄을 초록/빨강 점과 함께 보여 준다.
+props: `wsState`, `ledgerDown`, `events`(모두 `useTrading`이 준다). 세 줄을 초록/빨강 점과 함께 보여 준다.
 
 - 채널계 구독: `open`이면 "실시간 수신 중", 아니면 "끊김 — 자동 재시도"
 - 원장: `ledgerDown`이 없으면 "정상", 있으면 그 사유
@@ -6401,22 +6743,42 @@ props: `wsState`, `ledgerDown`, `events`. 세 줄을 초록/빨강 점과 함께
 
 맺음 문구: "시장이 조용한 것"과 "우리가 못 받는 것"은 다르다.
 
+
+##### 13.22 index.css — 색 토큰과 배치 (T7-05)
+
+- `:root`에 색·간격·모서리 토큰(`--bg`, `--buy`, `--sell`, `--krx`, `--nxt`, `--ok`, `--warn`, `--danger`, `--s-1`~`--s-5` 등). 주석: "색은 여기서만 정한다. 화면마다 새로 고르지 않는다."
+- `.num`은 `tabular-nums`로 숫자 폭을 고정한다 — 자리가 흔들리면 읽기 어렵다
+- `.workspace`의 `grid-template-areas`가 13.12절의 배치다
+- **좁은 화면**: 1180px 이하 2열(호가·시장 비교 | 주문창, 아래 전체 폭 주문 내역, 페이지 스크롤), 760px 이하 1열(호가 → 주문창 → 시장 비교 → 주문 내역), 520px 이하 두 시장을 나란히 두되 최우선 5단만(`.lvl.far` 숨김). PROGRESS 기록상 1440·1024·500px에서 가로 스크롤이 없음을 확인했다
+- `@keyframes flash-up`/`flash-down`(900ms)과 알림 등장 애니메이션. `prefers-reduced-motion: reduce`이면 모두 끈다
+
+##### 13.23 scripts/estimate.check.ts — `npm run check` (T7-05)
+
+웹에는 시험 도구가 없어 Node가 TypeScript의 타입만 지우고 바로 돌린다(`node --experimental-strip-types`). 틀리면 `assert`가 던지고 종료 코드가 0이 아니다. 통과하면 `estimate.check: 통과`.
+
+- 예상 체결 4경우: SOR 매수 15주 @70,100(NXT 70,000 3주 → 70,100은 KRX 먼저 10주 → NXT 2주, 평균 70,080, KRX 10·NXT 5), KRX만(10주 체결·5주 나머지), FOK(전량 불가면 0), 매도(높은 매수호가부터, 지정가 아래로 안 감 — KRX 13·NXT 2, 나머지 5)
+- 호가 단위 9경우: `tickSize(1999)=1`, `tickSize(2000)=5`, `tickSize(70000)=100`, `isValidTick(70050)`은 거짓, `stepPrice` 다섯(70,000↑ 70,100 / 50,000↓ 49,950 / 4,995↑ 5,000 / 70,050↑ 70,100 / 70,050↓ 70,000)
+
+C의 `tick_size.c`와 자동으로 대조하지는 않는다 — 같은 표를 손으로 옮긴 값을 확인한다.
+
 ---
 
 #### 14. 알아 두면 좋은 한계와 어긋남 (코드에서 확인한 것)
 
 읽다가 "이건 왜 안 되지?" 하고 멈추기 쉬운 지점을 모았다. 모두 현재 코드에서 확인한 사실이다.
 
-1. **나중에 체결된 주문은 화면에 오지 않는다.** 채널계는 주문을 넣는 순간 원장이 돌려준 체결만 방송한다. 호가창에 걸려 있다가 다른 주문과 맞아 체결돼도 주문·체결 탭은 바뀌지 않는다(호가창 숫자는 1초 폴링으로 바뀐다).
-2. **"조회로 확인"할 API가 없다.** `IN_DOUBT` 뒤에 사용자가 할 수 있는 것은 호가창을 보는 것뿐이다. `QueryAck`, `CancelReq` 등의 전문 클래스는 있지만 쓰는 API가 없다.
-3. **SOR 판단 패널은 브라우저 계산이다.** 원장의 실제 배분이 아니다. 주문 내역도 시장별 물리 주문을 보여 주지 못한다.
-4. **SOR 자동 주문의 체결 시장은 알 수 없다.** `fill` 사건의 `market`은 요청 값(255)이라 화면에 "SOR"로 뜬다.
-5. **풀 크기 1.** 원장이 접속을 하나씩 처리하기 때문이다. 앞 요청이 2초를 넘기면 뒤 요청은 503이 되고, 그때도 원장이 끊긴 것으로 기록돼 `ledger-down`이 방송될 수 있다. 코드는 "원장이 죽음"과 "자리 대기 초과"를 구분하지 않는다.
-6. **작업 트리가 움직이고 있다.** 이 글을 쓰는 동안 T6-10이 커밋됐고, 풀의 세마포어(T6-11)와 `api.ts`의 응답 검사는 아직 커밋 전이다. 다시 읽을 때 `git status`로 먼저 확인한다.
-7. **`WireLayoutTest`는 필드 순서를 못 잡는다.** 길이와 열거값만 대조한다. 화면 쪽 `wire.ts`와 오류 문구 표는 자동 대조 대상이 아니다.
-8. **`order` 방송의 `request`에 `marketKnown`이 붙고, `payload` 키 순서는 정해져 있지 않다.** 화면 동작에는 영향이 없다.
-9. **CORS는 프록시로 피했다.** Vite 개발 서버(또는 `vite preview`) 없이 화면 파일을 다른 곳에서 열고 채널계를 직접 부르면 주문 POST가 막힌다. WebSocket은 `setAllowedOrigins("*")`라 열린다.
-10. **전략 비교 탭은 고정 숫자다.** 벤치마크를 다시 돌려도 화면 숫자는 바뀌지 않는다.
+1. **체결 탭은 화면 메모리다.** 이 화면을 연 뒤 방송으로 온 체결만(300건까지) 쌓이고, 새로고침하면 사라진다. 주문 목록·잔고는 원장 값이라 새로고침해도 남는다.
+2. **주문 목록은 채널계 메모리다.** `OrderRegistry`는 500건까지이고 채널계를 다시 띄우면 비며, 원장을 다시 띄우면 원장 쪽 주문이 사라진다. 거절·확인 필요 주문(`rejects`)은 화면 메모리(100건)라 새로고침하면 사라진다.
+3. **"조회로 확인"할 수단이 아직 없다.** `IN_DOUBT` 주문은 원장 주문번호를 모르므로 목록에도, 상세 API로도 찾을 수 없다. `clOrdId`로 찾는 조회 전문이 먼저 필요하다.
+4. **예상 체결은 보이는 10단 기준 참고값이다.** 그보다 깊은 주문은 적게 잡히고, 그 사이 다른 주문이 들어오면 달라진다. 원장의 SOR은 BEST_PRICE 전략이라 "두 시장 (SOR)" 예상 배분과 실제 다리가 다를 수 있다 — 실제는 시장 비교 아래와 주문 내역을 펼친 다리에 보인다.
+5. **정정은 없다.** 원장이 `ERR_NOT_SUPPORTED`로 답하고, 채널계·화면에 정정 API·버튼이 없다. 취소만 된다.
+6. **방송은 최대 약 1초 늦다.** `LedgerPoller`가 1초 간격으로 읽기 때문이다. 방송이 끊기면 화면은 3초마다 읽는다. 끝나지 않은 주문이 수백 개로 늘면 한 바퀴의 원장 호출이 그만큼 는다(ponytail 주석).
+7. **풀 크기 1.** 원장이 접속을 하나씩 처리하기 때문이다. 앞 요청이 2초를 넘기면 뒤 요청은 503이 되고, 그때도 원장이 끊긴 것으로 기록돼 `ledger-down`이 방송될 수 있다. 코드는 "원장이 죽음"과 "자리 대기 초과"를 구분하지 않는다. 주기 작업도 같은 줄에 선다.
+8. **`WireLayoutTest`는 필드 순서를 못 잡는다.** 길이와 열거값만 대조한다. 화면 쪽 `wire.ts`의 열거값·오류 문구·호가 단위 표는 C와 자동 대조되지 않는다(`npm run check`는 손으로 옮긴 값을 확인할 뿐이다).
+9. **`order` 방송의 `request`에 `marketKnown`이 붙고, `payload` 키 순서는 정해져 있지 않다.** 화면 동작에는 영향이 없다.
+10. **CORS는 프록시로 피했다.** Vite 개발 서버(또는 `vite preview`) 없이 화면 파일을 다른 곳에서 열고 채널계를 직접 부르면 주문 POST가 막힌다. WebSocket은 `setAllowedOrigins("*")`라 열린다.
+11. **전략 비교 탭은 고정 숫자다.** 벤치마크를 다시 돌려도 화면 숫자는 바뀌지 않는다.
+12. **계좌 하나, 종목 하나.** 화면·채널계 모두 데모 계좌 `123456789012`와 `005930`에 고정돼 있다.
 
 ---
 
@@ -6444,14 +6806,16 @@ cmake --build build-asan && ctest --test-dir build-asan
 ```
 
 ```powershell
-# [Windows] 채널계 테스트 — 40개
+# [Windows] 채널계 테스트 — 49개
 cd channel
 ./mvnw.cmd test
 
-# [Windows] 화면 빌드 확인
+# [Windows] 화면 빌드·린트·계산 자체 점검
 cd ../web
 npm install
 npm run build
+npm run lint
+npm run check    # 예상 체결 4경우 + 호가 단위 9경우 → "estimate.check: 통과"
 ```
 
 ### 5.2 세 프로그램 띄우기
@@ -6474,17 +6838,25 @@ npm run build
 
 ### 5.3 해 볼 것
 
-1. **SOR 자동 매수**: 시장 "SOR 자동", 가격 70000, 수량 100 → "100주 체결 · 평균 70,000원 · 전량".
-   NXT 70,000원 잔량이 100 줄어든다.
-2. **걸어 두기**: 시장 "KRX", 수량 10 → "체결 없음 · 호가창에 대기". KRX 70,000원 매수 잔량이 10 는다.
-3. **거절**: 가격 70050 → "거절됨 · 호가 단위에 맞지 않는 가격". 수량 999999 → "증거금이 모자람".
-4. **주문·체결 탭**: 위 주문들이 원장 응답(체결 수량, 상태, 거절 사유)으로 채워진다.
-5. **원장 장애**: WSL에서 `ledgerd`를 Ctrl+C로 끈다 → 화면 위에 "원장 끊김". 다시 띄우면 표시가 사라지고
+화면은 "거래" 한 화면이다. 왼쪽 두 시장 호가, 가운데 시장 비교와 미체결·주문 내역·체결 탭, 오른쪽 주문창, 맨 위에 잔고.
+
+1. **SOR 자동 매수**: 시장 "SOR 자동", 가격 70000, 수량 100 → 주문창의 "주문 전 확인"에 예상 체결이 보인다.
+   "매수 100주 주문"(또는 Ctrl+Enter) → "체결 · NXT 매수" 알림. NXT 70,000원 잔량이 100 줄어들고(깜빡이며 ▼),
+   시장 비교 아래에 원장이 실제로 나눈 다리가 보인다.
+2. **걸어 두기**: 호가창의 매수호가를 누르면 가격과 "매도"가 담긴다. B를 눌러 매수로 바꾸고 시장 "KRX", 수량 10 →
+   "주문 접수 — 호가창에 대기". 그 가격 줄에 "내 10", 미체결 탭에 한 줄, 머리글의 묶인 금액이 는다.
+3. **취소**: 미체결 줄의 "취소" → "취소 완료 — 10주 취소", 묶인 금액이 원래대로. 같은 주문을 다시 취소할 수는 없다(버튼이 사라진다).
+4. **나중 체결**: NXT에 69,000원 매수 100주를 걸어 둔 뒤, 같은 시장에 69,000원 지정가로 그 가격까지 쓸어 내리는 큰 매도 주문을 낸다.
+   앞선 매수호가를 다 먹고 나면 걸어 둔 주문이 체결된다 — 미체결 줄이 "부분 체결"(또는 전량이면 목록에서 빠져 주문 내역의 "전량 체결")로 바뀌며 깜빡이고 체결 탭·잔고가 약 1초 뒤 바뀐다
+   (`LedgerPoller`). PROGRESS T7-04의 브라우저 확인이 이 순서였다(50주 나중 체결 → 취소 50주 → 묶인 금액 0).
+5. **거절**: 가격 70050 → 주문 버튼이 막히고 "호가 단위(100원)에 맞지 않는 가격 — ↑↓로 맞추세요". 수량을 주문 가능 금액보다 크게 →
+   "주문 가능 금액이 N원 모자람". 막지 않는 거절(예: FOK 수량 부족)은 "주문 거절" 알림과 주문 내역의 "거부" 줄로 보인다.
+6. **원장 장애**: WSL에서 `ledgerd`를 Ctrl+C로 끈다 → 화면 위에 빨간 띠 "원장에 연결되지 않음". 다시 띄우면 띠가 사라지고
    호가창이 처음 상태로 돌아간다(원장은 시작할 때마다 같은 시드로 유동성을 만든다).
 
-**이 데모가 하지 않는 것**: 계좌는 하나(`123456789012`), 종목은 하나(`005930`)다. 취소·정정은 원장이
-"미지원"으로 답한다. 예전에 걸어 둔 주문이 **나중에** 체결되면 원장은 계산은 하지만 화면으로 밀어 보내지는 않는다.
-SOR 판단 패널은 화면이 호가창 맨 위만 보고 그린 것이지 원장의 실제 배분 계산이 아니다.
+**이 데모가 하지 않는 것**: 계좌는 하나(`123456789012`), 종목은 하나(`005930`)다. 정정은 원장이
+"지원 안 함"(`ERR_NOT_SUPPORTED`)으로 답한다. 체결 탭은 화면을 연 뒤 방송으로 온 것만 보이고 새로고침하면 사라진다.
+주문창의 예상 체결은 보이는 10단 기준 참고값이고 실제 배분은 원장이 정한다. 더 자세한 한계는 4.4절 14.
 
 ---
 
@@ -6548,7 +6920,7 @@ SOR 판단 패널은 화면이 호가창 맨 위만 보고 그린 것이지 원�
 | FEP | Front End Processor. 거래소와 전문을 주고받는 게이트웨이 |
 | 채널계 | 화면(고객 접점)과 원장 사이의 서버 |
 | 전문 | 시스템끼리 주고받는 고정 형식 메시지. 이 프로젝트는 24바이트 헤더 + 바디 |
-| 종별 | 전문의 종류(주문 요청=1, 주문 응답=2, …, 호가 조회 응답=16) |
+| 종별 | 전문의 종류(주문 요청=1, 주문 응답=2, …, 호가 조회 응답=16, 주문 상세 요청=17, …, 잔고 조회 응답=20) |
 | 빅엔디언 | 큰 자리 바이트부터 보내는 순서 |
 | 시퀀스 번호 / 갭 / 재전송 | 전문 순번 / 빠진 번호 구간 / 빠진 것을 다시 받기 |
 | 하트비트 | 보낼 게 없어도 살아 있음을 알리는 전문 |
