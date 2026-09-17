@@ -740,6 +740,7 @@ Java는 같은 방법을 `channel/src/main/java`의 파일에 쓰고 `./mvnw.cmd
 | 채널계: 8080 포트 사용 중 | 전에 띄운 채널계가 남음 | PowerShell: `Get-NetTCPConnection -LocalPort 8080` → 해당 프로세스 종료 |
 | C 빌드가 경고로 실패 | `-Werror` — 경고는 곧 실패 | 경고 내용을 고친다. Release에서만 나는 경고가 있으니 세 빌드 모두 확인 |
 | 소스를 고쳤는데 다시 빌드가 안 됨 | `/mnt/c`의 파일 시각이 WSL 시계와 어긋남 | 해당 목적 파일을 지우거나 빌드 폴더를 새로 만든다 |
+| 빌드 로그에 `gmake: warning: Clock skew detected` / `modification time … in the future` | **컴파일러 경고가 아니다.** WSL2 가상 머신 시계가 Windows와 몇 초 어긋나면(점검 때 약 5초) make가 내는 알림이다. 컴파일러 경고였다면 `-Werror`로 빌드가 실패했을 것이다 | 빌드가 성공하고 테스트가 통과하면 결과는 믿어도 된다. 소스를 막 고친 직후라면 덜 빌드됐을 수 있으니 빌드 폴더를 새로 만든다. 시계를 맞추려면 PowerShell에서 `wsl --shutdown` 후 다시 연다 |
 | 테스트가 영원히 안 끝남 | 테스트가 SIGTERM을 스스로 처리한다 | `timeout -s KILL 60 ./test_...` |
 | 스크립트가 `\r` 오류로 실패 | Windows 줄바꿈(CRLF) | 저장소의 `.gitattributes`가 LF로 맞춘다. 직접 만든 파일은 LF로 저장 |
 | `WireLayoutTest` 실패 "C 헤더에서 … 읽지 못했다" | `channel/`만 따로 받았다 | 저장소 전체를 받는다 (테스트가 `core/include`를 읽는다) |

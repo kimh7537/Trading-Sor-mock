@@ -25,6 +25,16 @@
 
 ## 2026-09-17
 
+- [T6-15] 마지막 점검 — 새로 받은 저장소에서
+  - 한 일: 커밋 `2c848bd`를 WSL 홈과 Windows 임시 폴더에 새로 clone해 전체 검증, `docs/RUNNING.md` 문제 해결 표에 한 줄.
+  - 결과: clone에서 C Debug·Release·ASan 58/58, Java clean 40/40, 화면 `npm ci`·빌드·린트 통과. 전략 비교·품질 리포트 clone에서도
+    바이트 동일. 추적 파일 273개 중 CRLF 0, 빌드 산출물 0, `.env` 없음, 비밀값 패턴 없음. 모든 Markdown의 상대 링크와
+    문서 5개(README·CLAUDE·GUIDE·RUNNING·ENGINEERING-NOTES)가 인용한 파일 경로가 전부 존재.
+  - **발견** — clone의 ASan 빌드 로그에서 `warning:`이 16줄 나왔다. 작업 폴더 빌드는 0줄이었으므로 확인했더니 전부
+    `gmake: warning: Clock skew detected`였다. WSL 시계가 Windows보다 약 5초 어긋나 있었다. 컴파일러 경고면 `-Werror`로
+    실패했을 것이고, 새 빌드 폴더에서 테스트 58/58이 통과했으므로 결과에는 영향이 없다. 숫자만 세던 점검 스크립트가
+    "경고 16"이라고 보고한 것이라, 문서를 따라 하는 사람도 같은 오해를 할 수 있어 안내서에 적었다.
+
 - [T6-14] 실행·테스트 안내서
   - 한 일: `docs/RUNNING.md`(문서 3), README·CLAUDE.md·GUIDE·ENGINEERING-NOTES에서 연결.
   - 내용의 출처: ctest 목록(58), surefire 결과(40), `bench/*.c`의 상수·인자·기본 결과 경로, `bench/results/` 4개 파일,
