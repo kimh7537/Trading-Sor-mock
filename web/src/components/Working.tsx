@@ -54,6 +54,8 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
         const ratio = o.qty > 0 ? filled / o.qty : 0;
         const isOpen = open === o.clOrdId;
         const indoubt = o.legs.some((l) => l.state === "IN_DOUBT");
+        // 접힌 줄만 보고도 거절을 대기 중인 주문과 구분할 수 있어야 한다
+        const rejected = o.legs.length > 0 && o.legs.every((l) => l.state === "REJECTED");
 
         return (
           <div key={o.clOrdId} style={{ borderBottom: "1px solid var(--line-soft)" }}>
@@ -80,6 +82,11 @@ export function Working({ orders }: { orders: LogicalOrder[] }) {
                 </span>
                 {indoubt && (
                   <span style={{ fontSize: 10, color: "var(--warn)" }}>확인 필요</span>
+                )}
+                {rejected && (
+                  <span style={{ fontSize: 10, color: "var(--danger)" }} title={o.legs[0].note}>
+                    거절{o.legs[0].note ? ` · ${o.legs[0].note}` : ""}
+                  </span>
                 )}
                 <span style={{ flex: 1 }} />
                 <span className="num" style={{ fontSize: 11, color: "var(--text-dim)" }}>
