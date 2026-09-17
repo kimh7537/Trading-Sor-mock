@@ -1,5 +1,5 @@
 import { won, qty as fq } from "../lib/format";
-import { SIDE_BUY } from "../lib/wire";
+import { SIDE_BUY, SIDE_SELL, sideText } from "../lib/wire";
 import type { Fill } from "../lib/types";
 
 const MARKET_COLOR = { KRX: "var(--krx)", NXT: "var(--nxt)", SOR: "var(--ok)" };
@@ -13,9 +13,13 @@ export function Fills({ fills }: { fills: Fill[] }) {
     );
   }
 
-  const total = fills.reduce((s, f) => s + f.price * f.qty, 0);
-  const totalQty = fills.reduce((s, f) => s + f.qty, 0);
-  const avg = totalQty > 0 ? Math.round(total / totalQty) : 0;
+  // 매수와 매도를 섞은 평균은 뜻이 없다 — 방향별로 나눈다
+  const summary = ([SIDE_BUY, SIDE_SELL] as const).map((side) => {
+    const mine = fills.filter((f) => f.side === side);
+    const q = mine.reduce((s, f) => s + f.qty, 0);
+    const amt = mine.reduce((s, f) => s + f.price * f.qty, 0);
+    return { side, q, avg: q > 0 ? Math.round(amt / q) : 0 };
+  });
 
   return (
     <div>
@@ -29,15 +33,21 @@ export function Fills({ fills }: { fills: Fill[] }) {
           fontSize: 11,
         }}
       >
-        <span style={{ color: "var(--text-dim)" }}>평균 체결 단가</span>
-        <span className="num" style={{ fontWeight: 700 }}>
-          {won(avg)}원 · {fq(totalQty)}주
-        </span>
+        {summary.map((s) => (
+          <span key={s.side}>
+            <span style={{ color: s.side === SIDE_BUY ? "var(--buy)" : "var(--sell)" }}>
+              {sideText(s.side)} 평균
+            </span>{" "}
+            <span className="num" style={{ fontWeight: 700 }}>
+              {s.q > 0 ? `${won(s.avg)}원 · ${fq(s.q)}주` : "—"}
+            </span>
+          </span>
+        ))}
       </div>
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {fills.map((f, i) => (
+        {fills.map((f) => (
           <li
-            key={i}
+            key={f.id}
             style={{
               display: "flex",
               alignItems: "center",

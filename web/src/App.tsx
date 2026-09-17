@@ -1,51 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  MARKET_KRX,
-  MARKET_NXT,
-  SIDE_BUY,
-  STATUS_FILLED,
-  marketName,
-  reasonText,
-  type Side,
-} from "./lib/wire";
+import { useMemo, useState } from "react";
+import { SIDE_BUY } from "./lib/wire";
 import { Panel } from "./components/Panel";
 import { StatusBar } from "./components/StatusBar";
 import { OrderBook } from "./components/OrderBook";
 import { OrderTicket } from "./components/OrderTicket";
 import { SorPanel } from "./components/SorPanel";
-import { Working, type Leg, type LogicalOrder } from "./components/Working";
+import { Working } from "./components/Working";
 import { Fills } from "./components/Fills";
 import { Strategies } from "./components/Strategies";
 import { Ops } from "./components/Ops";
-import { useStream, type StreamEvent } from "./lib/useStream";
-import type { Book, Fill } from "./lib/types";
-import { fetchBook, type OrderRequest, type OrderResponse } from "./lib/api";
-import { time } from "./lib/format";
+import { useTrading } from "./lib/useTrading";
+import type { Book } from "./lib/types";
 
 type Tab = "trade" | "orders" | "strategies" | "ops";
-
-/** 호가를 다시 읽는 간격. 원장은 호가 변화를 밀어 보내지 않는다(T6-04). */
-const BOOK_POLL_MS = 1000;
-
-function legOf(req: OrderRequest, res: OrderResponse): Leg {
-  const state: Leg["state"] =
-    res.outcome === "IN_DOUBT"
-      ? "IN_DOUBT"
-      : res.outcome === "REJECTED"
-        ? "REJECTED"
-        : res.status === STATUS_FILLED
-          ? "DONE"
-          : "LIVE";
-  return {
-    market: marketName(req.market),
-    exchOrderId: res.orderId,
-    price: res.filledQty > 0 ? res.avgPrice : req.price,
-    qty: req.qty,
-    filled: res.filledQty,
-    state,
-    note: res.outcome === "REJECTED" ? reasonText(res.reason) : undefined,
-  };
-}
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "trade", label: "거래" },
@@ -55,84 +22,14 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function App() {
+  const t = useTrading();
   const [tab, setTab] = useState<Tab>("trade");
-  const [events, setEvents] = useState(0);
-  const [ledgerDown, setLedgerDown] = useState<string | null>(null);
   const [price, setPrice] = useState(70000);
-  const [fills, setFills] = useState<Fill[]>([]);
-  const [orders, setOrders] = useState<LogicalOrder[]>([]);
-  const [books, setBooks] = useState<Book[]>([]);
-  const [bookError, setBookError] = useState<string | null>(null);
-  const [bookTick, setBookTick] = useState(0);
 
-  // 원장의 실제 호가창을 읽는다. 주문 결과가 오면 기다리지 않고 바로 다시 읽는다.
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      Promise.all([fetchBook(MARKET_KRX), fetchBook(MARKET_NXT)])
-        .then((b) => {
-          if (!alive) return;
-          setBooks(b);
-          setBookError(null);
-        })
-        .catch((e: unknown) => alive && setBookError(String(e)));
-    load();
-    const t = window.setInterval(load, BOOK_POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [bookTick]);
-
-  const onEvent = useCallback((e: StreamEvent) => {
-    setEvents((n) => n + 1);
-    if (e.kind === "ledger-down") setLedgerDown(String(e.payload ?? "원인 미상"));
-    if (e.kind === "ledger-up") setLedgerDown(null);
-    if (e.kind === "order") {
-      const { request: req, result: res } = e.payload as {
-        request: OrderRequest;
-        result: OrderResponse;
-      };
-      setOrders((prev) =>
-        [
-          {
-            clOrdId: req.clOrdId,
-            symbol: req.symbol,
-            side: req.side as Side,
-            price: req.price,
-            qty: req.qty,
-            legs: [legOf(req, res)],
-          },
-          ...prev.filter((o) => o.clOrdId !== req.clOrdId),
-        ].slice(0, 200),
-      );
-      setBookTick((n) => n + 1);
-    }
-    if (e.kind === "fill") {
-      const p = e.payload as {
-        market: number;
-        side: Side;
-        price: number;
-        qty: number;
-        clOrdId: number;
-      };
-      setFills((prev) =>
-        [
-          {
-            at: time(),
-            market: marketName(p.market),
-            side: p.side,
-            price: p.price,
-            qty: p.qty,
-            clOrdId: p.clOrdId,
-          },
-          ...prev,
-        ].slice(0, 200),
-      );
-    }
-  }, []);
-
-  const { state, attempt } = useStream(onEvent);
+  const books = useMemo(
+    () => [t.books.KRX, t.books.NXT].filter((b): b is Book => !!b),
+    [t.books],
+  );
 
   const bestOverall = useMemo(() => {
     const asks = books.map((b) => b.asks[0]?.price).filter(Boolean) as number[];
@@ -142,7 +39,7 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <StatusBar state={state} attempt={attempt} ledgerDown={ledgerDown} />
+      <StatusBar state={t.ws.state} attempt={t.ws.attempt} ledgerDown={t.ledgerDown} balance={t.balance} />
 
       <nav
         style={{
@@ -154,22 +51,22 @@ export default function App() {
           flex: "0 0 auto",
         }}
       >
-        {TABS.map((t) => (
+        {TABS.map((x) => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+            key={x.id}
+            onClick={() => setTab(x.id)}
             style={{
               border: "none",
               borderRadius: 0,
               background: "transparent",
               padding: "10px var(--s-4)",
               fontSize: 13,
-              fontWeight: tab === t.id ? 700 : 500,
-              color: tab === t.id ? "var(--text)" : "var(--text-faint)",
-              borderBottom: `2px solid ${tab === t.id ? "var(--buy)" : "transparent"}`,
+              fontWeight: tab === x.id ? 700 : 500,
+              color: tab === x.id ? "var(--text)" : "var(--text-faint)",
+              borderBottom: `2px solid ${tab === x.id ? "var(--buy)" : "transparent"}`,
             }}
           >
-            {t.label}
+            {x.label}
           </button>
         ))}
       </nav>
@@ -185,9 +82,9 @@ export default function App() {
             }}
           >
             <Panel title="호가창 · 005930 삼성전자" pad={false}>
-              {bookError && (
+              {t.bookError && (
                 <div style={{ padding: "8px var(--s-3)", fontSize: 12, color: "var(--danger)" }}>
-                  원장 호가를 읽지 못했다 — 원장(ledgerd)과 채널계가 떠 있는지 확인 ({bookError})
+                  원장 호가를 읽지 못했다 — 원장(ledgerd)과 채널계가 떠 있는지 확인 ({t.bookError})
                 </div>
               )}
               <div
@@ -209,7 +106,12 @@ export default function App() {
               <SorPanel books={books} side={SIDE_BUY} />
             </Panel>
             <Panel title="주문">
-              <OrderTicket price={price} onPriceChange={setPrice} />
+              <OrderTicket
+                price={price}
+                onPriceChange={setPrice}
+                submit={t.submit}
+                available={t.balance?.available ?? null}
+              />
             </Panel>
           </div>
         )}
@@ -223,11 +125,11 @@ export default function App() {
               height: "100%",
             }}
           >
-            <Panel title="주문 내역 (원장 응답)" pad={false}>
-              <Working orders={orders} />
+            <Panel title="주문 내역 (원장 상태)" pad={false}>
+              <Working orders={t.orders} rejects={t.rejects} onCancel={t.cancel} />
             </Panel>
             <Panel title="체결 내역" pad={false}>
-              <Fills fills={fills} />
+              <Fills fills={t.fills} />
             </Panel>
           </div>
         )}
@@ -240,7 +142,7 @@ export default function App() {
 
         {tab === "ops" && (
           <Panel title="관제">
-            <Ops wsState={state} ledgerDown={ledgerDown} events={events} />
+            <Ops wsState={t.ws.state} ledgerDown={t.ledgerDown} events={t.events} />
           </Panel>
         )}
       </main>

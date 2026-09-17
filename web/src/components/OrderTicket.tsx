@@ -3,6 +3,8 @@ import {
   MARKET_AUTO,
   MARKET_KRX,
   MARKET_NXT,
+  ORDER_FOK,
+  ORDER_IOC,
   ORDER_LIMIT,
   SIDE_BUY,
   SIDE_SELL,
@@ -10,7 +12,8 @@ import {
   reasonText,
   type Side,
 } from "../lib/wire";
-import { submitOrder, type OrderResponse } from "../lib/api";
+import type { OrderResponse } from "../lib/api";
+import type { NewOrder } from "../lib/useTrading";
 import { won } from "../lib/format";
 
 const OUTCOME_STYLE: Record<string, { color: string; label: string; hint: string }> = {
@@ -26,13 +29,19 @@ const OUTCOME_STYLE: Record<string, { color: string; label: string; hint: string
 export function OrderTicket({
   price,
   onPriceChange,
+  submit,
+  available,
 }: {
   price: number;
   onPriceChange: (p: number) => void;
+  submit: (o: NewOrder) => Promise<OrderResponse>;
+  /** 주문 가능 금액. 잔고를 아직 못 읽었으면 null */
+  available: number | null;
 }) {
   const [side, setSide] = useState<Side>(SIDE_BUY);
   const [qty, setQty] = useState(10);
   const [market, setMarket] = useState<number>(MARKET_AUTO);
+  const [type, setType] = useState<number>(ORDER_LIMIT);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<OrderResponse | null>(null);
 
@@ -44,28 +53,7 @@ export function OrderTicket({
     setBusy(true);
     setResult(null);
     try {
-      const res = await submitOrder({
-        account: "123456789012",
-        symbol: "005930",
-        clOrdId: Date.now() % 1_000_000_000,
-        side,
-        type: ORDER_LIMIT,
-        market,
-        price,
-        qty,
-      });
-      setResult(res);
-    } catch {
-      setResult({
-        outcome: "REJECTED",
-        clOrdId: 0,
-        orderId: 0,
-        reason: -16,
-        message: "채널계에 붙지 못했다",
-        status: 0,
-        filledQty: 0,
-        avgPrice: 0,
-      });
+      setResult(await submit({ side, type, market, price, qty }));
     } finally {
       setBusy(false);
     }
@@ -127,6 +115,33 @@ export function OrderTicket({
       </div>
 
       <div style={{ display: "grid", gap: 6 }}>
+        {label("유형")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--s-2)" }}>
+          {[
+            { v: ORDER_LIMIT, t: "지정가", h: "안 맞은 수량은 호가창에 남는다" },
+            { v: ORDER_IOC, t: "IOC", h: "맞는 만큼만 체결하고 나머지는 취소" },
+            { v: ORDER_FOK, t: "FOK", h: "전량 체결될 때만 체결, 아니면 전부 취소" },
+          ].map((m) => (
+            <button
+              key={m.v}
+              onClick={() => setType(m.v)}
+              title={m.h}
+              aria-pressed={type === m.v}
+              style={{
+                padding: "8px 0",
+                fontSize: 12,
+                fontWeight: 600,
+                background: type === m.v ? "var(--bg-raised)" : "transparent",
+                borderColor: type === m.v ? "#3d4a63" : "var(--line)",
+              }}
+            >
+              {m.t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gap: 6 }}>
         {label("가격 (호가를 클릭해도 담긴다)")}
         <input
           className="num"
@@ -175,6 +190,14 @@ export function OrderTicket({
           {won(notional)}원
         </span>
       </div>
+      {isBuy && available !== null && (
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: notional > available ? "var(--danger)" : "var(--text-dim)" }}>
+          <span>주문 가능 금액</span>
+          <span className="num">
+            {won(available)}원{notional > available && " · 모자람"}
+          </span>
+        </div>
+      )}
 
       <button
         onClick={send}

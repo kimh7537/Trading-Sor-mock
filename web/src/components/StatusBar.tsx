@@ -1,4 +1,6 @@
 import type { ConnState } from "../lib/useStream";
+import type { Balance } from "../lib/types";
+import { won } from "../lib/format";
 
 const LABEL: Record<ConnState, string> = {
   connecting: "연결 중",
@@ -16,10 +18,12 @@ export function StatusBar({
   state,
   attempt,
   ledgerDown,
+  balance,
 }: {
   state: ConnState;
   attempt: number;
   ledgerDown: string | null;
+  balance: Balance | null;
 }) {
   return (
     <header
@@ -42,6 +46,20 @@ export function StatusBar({
       </div>
 
       <div style={{ flex: 1 }} />
+
+      {balance && (
+        <span style={{ display: "inline-flex", gap: 14, fontSize: 12, color: "var(--text-dim)" }}>
+          <span>
+            예수금 <b className="num" style={{ color: "var(--text)" }}>{won(balance.cash)}</b>
+          </span>
+          <span>
+            묶인 금액 <b className="num" style={{ color: "var(--text)" }}>{won(balance.reserved)}</b>
+          </span>
+          <span>
+            주문 가능 <b className="num" style={{ color: "var(--ok)" }}>{won(balance.available)}</b>
+          </span>
+        </span>
+      )}
 
       {ledgerDown && (
         <span
