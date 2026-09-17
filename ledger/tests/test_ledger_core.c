@@ -592,21 +592,17 @@ static void test_capacity(void)
     ledger_core_destroy(c);
 }
 
-/* --- 5. 연결하지 않은 종별 --- */
+/* --- 5. 취소와 정정 --- */
 
-/*
- * **취소는 아직 안 된다고 말한다.** 예전 껍데기는 취소 성공을 돌려줘서, 호가창에
- * 그대로 남은 주문을 취소됐다고 믿게 만들었다.
- */
-static void test_cancel_is_not_faked(void)
+/* 취소 전문을 만들어 넣고 응답을 푼다. 응답의 reason을 돌려준다 */
+static int cancel(ledger_core_t *c, const char *account, order_id_t id,
+                  uint64_t cl, msg_cancel_ack_t *ack)
 {
-    ledger_core_t *c = empty_core(8);
-
     msg_cancel_req_t req;
     memset(&req, 0, sizeof(req));
-    snprintf(req.account, sizeof(req.account), "%s", ACCT);
-    req.order_id = 200000000;
-    req.cl_ord_id = 70;
+    snprintf(req.account, sizeof(req.account), "%s", account);
+    req.order_id = id;
+    req.cl_ord_id = cl;
 
     uint8_t body[MSG_CANCEL_REQ_LEN];
     assert(msg_encode_cancel_req(&req, body, sizeof(body)) ==
@@ -617,14 +613,178 @@ static void test_cancel_is_not_faked(void)
     h.version = WIRE_VERSION;
     h.type = MSG_CANCEL_REQ;
     h.body_len = MSG_CANCEL_REQ_LEN;
-    h.seq = 70;
+    h.seq = cl;
 
     uint8_t out[256];
     int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
     assert(n == (int)(WIRE_HEADER_LEN + MSG_CANCEL_ACK_LEN));
 
-    msg_cancel_ack_t ack;
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_CANCEL_ACK && rh.seq == cl);
     assert(msg_decode_cancel_ack(out + WIRE_HEADER_LEN, MSG_CANCEL_ACK_LEN,
+                                 ack) >= 0);
+    assert(ack->order_id == id);
+    assert(ack->cl_ord_id == cl);
+    return ack->reason;
+}
+
+/*
+ * T7-01 — **걸어 둔 매수를 취소하면 호가창에서 빠지고 묶인 돈이 전부 풀린다.**
+ * 예수금은 그대로다(체결이 없었으므로).
+ */
+static void test_cancel_releases_margin(void)
+{
+    ledger_core_t      *c = empty_core(16);
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+    msg_order_ack_t     ack;
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 20, 700, &ack) == ERR_OK);
+    order_id_t id = ack.order_id;
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(reserved == (int64_t)70000 * 20);
+
+    msg_cancel_ack_t ca;
+    assert(cancel(c, ACCT, id, 701, &ca) == ERR_OK);
+    assert(ca.canceled_qty == 20);
+    assert(ca.status == STATUS_CANCELED);
+
+    balance(c, &cash, &reserved);
+    assert(reserved == 0);
+    assert(cash == CASH);
+    assert(book_qty_at(krx, SIDE_BUY, 70000) == 0);
+
+    /* 두 번 취소하면 살아 있는 것이 없다 — 거절하고 돈을 건드리지 않는다 */
+    assert(cancel(c, ACCT, id, 702, &ca) == ERR_NOT_FOUND);
+    assert(ca.status == STATUS_REJECTED && ca.canceled_qty == 0);
+    balance(c, &cash, &reserved);
+    assert(reserved == 0 && cash == CASH);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **일부 체결된 뒤 취소하면 남은 수량만큼만 푼다.** 20주 중 12주가 maker로 체결되면
+ * 묶음은 8주분이고, 취소로 그 8주분이 풀려야 한다. 상태는 체결이 있었으므로 부분 체결.
+ */
+static void test_cancel_after_partial_fill(void)
+{
+    ledger_core_t  *c = empty_core(16);
+    msg_order_ack_t ack;
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 20, 710, &ack) == ERR_OK);
+    order_id_t id = ack.order_id;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 12, 711, &ack) == ERR_OK);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(reserved == (int64_t)70000 * 8);
+
+    msg_cancel_ack_t ca;
+    assert(cancel(c, ACCT, id, 712, &ca) == ERR_OK);
+    assert(ca.canceled_qty == 8);
+    assert(ca.status == STATUS_PARTIAL);
+
+    balance(c, &cash, &reserved);
+    assert(reserved == 0);
+    assert(cash == CASH); /* 같은 계좌끼리 체결이라 예수금은 제자리 */
+
+    ledger_core_destroy(c);
+}
+
+/* **매도 취소는 돈을 건드리지 않는다.** 매도는 증거금을 묶지 않았다 */
+static void test_cancel_sell_keeps_cash(void)
+{
+    ledger_core_t  *c = empty_core(16);
+    msg_order_ack_t ack;
+
+    assert(send_order(c, SIDE_SELL, MARKET_NXT, 71000, 5, 720, &ack) == ERR_OK);
+    msg_cancel_ack_t ca;
+    assert(cancel(c, ACCT, ack.order_id, 721, &ca) == ERR_OK);
+    assert(ca.canceled_qty == 5);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(cash == CASH && reserved == 0);
+    assert(book_qty_at(ledger_core_book(c, MARKET_NXT), SIDE_SELL, 71000) == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **남의 주문, 없는 주문, 이미 끝난 주문은 거절한다.** 남의 주문을 취소할 수 있으면
+ * 주문번호만 알면 누구든 남의 주문을 지운다. 어느 경우든 호가창과 돈은 그대로다.
+ */
+static void test_cancel_rejections(void)
+{
+    ledger_core_t      *c = empty_core(16);
+    const order_book_t *krx = ledger_core_book(c, MARKET_KRX);
+    msg_order_ack_t     ack;
+    msg_cancel_ack_t    ca;
+
+    const char *OTHER = "210987654321";
+    assert(ledger_core_open_account(c, OTHER, 5000000) == ERR_OK);
+    /* 이미 있는 계좌를 다시 열어 몰래 입금하지 않는다 */
+    assert(ledger_core_open_account(c, ACCT, 1) == ERR_DUPLICATE);
+    int64_t oc, orsv;
+    assert(ledger_core_balance(c, OTHER, &oc, &orsv) == ERR_OK && oc == 5000000);
+
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 10, 730, &ack) == ERR_OK);
+    order_id_t mine = ack.order_id;
+
+    /* 다른 계좌 이름으로 취소 */
+    assert(cancel(c, OTHER, mine, 731, &ca) == ERR_NOT_FOUND);
+    assert(ca.status == STATUS_REJECTED && ca.canceled_qty == 0);
+    assert(book_qty_at(krx, SIDE_BUY, 70000) == 10);
+
+    /* 없는 계좌, 없는 주문번호 */
+    assert(cancel(c, "999999999999", mine, 732, &ca) == ERR_NOT_FOUND);
+    assert(cancel(c, ACCT, mine + 1000, 733, &ca) == ERR_NOT_FOUND);
+    assert(cancel(c, ACCT, 0, 734, &ca) == ERR_NOT_FOUND);
+
+    /* 전량 체결로 끝난 주문 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 10, 735, &ack) == ERR_OK);
+    assert(cancel(c, ACCT, mine, 736, &ca) == ERR_NOT_FOUND);
+
+    int64_t cash, reserved;
+    balance(c, &cash, &reserved);
+    assert(cash == CASH && reserved == 0);
+
+    ledger_core_destroy(c);
+}
+
+/* **정정은 아직 안 된다고 말한다** — 무조건 성공이라고 답하던 옛 껍데기로 돌아가지 않는다 */
+static void test_modify_is_not_faked(void)
+{
+    ledger_core_t *c = empty_core(8);
+
+    msg_modify_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", ACCT);
+    req.order_id = 200000000;
+    req.cl_ord_id = 70;
+    req.new_price = 70100;
+    req.new_qty = 1;
+
+    uint8_t body[MSG_MODIFY_REQ_LEN];
+    assert(msg_encode_modify_req(&req, body, sizeof(body)) ==
+           (int)MSG_MODIFY_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_MODIFY_REQ;
+    h.body_len = MSG_MODIFY_REQ_LEN;
+    h.seq = 70;
+
+    uint8_t out[256];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_MODIFY_ACK_LEN));
+
+    msg_modify_ack_t ack;
+    assert(msg_decode_modify_ack(out + WIRE_HEADER_LEN, MSG_MODIFY_ACK_LEN,
                                  &ack) >= 0);
     assert(ack.reason == ERR_NOT_SUPPORTED);
     assert(ack.status == STATUS_REJECTED);
@@ -712,7 +872,11 @@ int main(void)
     STEP(test_auto_routes_to_cheaper_market);
     STEP(test_rejects_leave_money_alone);
     STEP(test_capacity);
-    STEP(test_cancel_is_not_faked);
+    STEP(test_cancel_releases_margin);
+    STEP(test_cancel_after_partial_fill);
+    STEP(test_cancel_sell_keeps_cash);
+    STEP(test_cancel_rejections);
+    STEP(test_modify_is_not_faked);
     STEP(test_bad_body_drops);
     STEP(test_deterministic);
     return 0;

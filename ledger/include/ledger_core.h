@@ -109,8 +109,8 @@ void           ledger_core_destroy(ledger_core_t *core);
  * 다르면 음수(리스너가 접속을 끊는다).
  *
  * 주문이 거부돼도 **음수가 아니라 거부 응답**이다. 거부는 정상적인 대답이다.
- * 취소·정정은 아직 연결하지 않았으므로 `ERR_NOT_SUPPORTED`로 답한다 — 예전처럼
- * 무조건 성공이라고 답하지 않는다. 조회는 주문번호 하나에 대해 지금 상태를 돌려준다
+ * 취소는 이 계좌의 살아 있는 물리 주문을 모두 취소하고 묶인 돈을 푼다(T7-01). 정정은
+ * 아직 연결하지 않았으므로 `ERR_NOT_SUPPORTED`로 답한다 — 무조건 성공이라고 답하지 않는다. 조회는 주문번호 하나에 대해 지금 상태를 돌려준다
  * (호가창에 걸어 뒀다가 나중에 체결된 것까지 반영). 호가 조회는 한 시장의 10단을
  * 돌려준다.
  */
@@ -119,6 +119,14 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
 
 /* 시장의 호가창. 없는 시장이면 NULL. 테스트와 호가 조회(T6-04)가 쓴다. */
 const order_book_t *ledger_core_book(const ledger_core_t *core, market_t market);
+
+/*
+ * 계좌를 하나 더 열고 입금한다(T7-01). 데모 계좌 말고 다른 계좌가 필요할 때 — 지금은 "남의
+ * 주문은 취소할 수 없다"를 시험하는 데 쓴다. 계좌 자리는 4개다.
+ * 이미 있는 계좌면 ERR_DUPLICATE, 자리가 없으면 ERR_POOL_EXHAUSTED.
+ */
+int ledger_core_open_account(ledger_core_t *core, const char *account,
+                             int64_t cash);
 
 /* 계좌의 예수금·묶인 금액. 없는 계좌면 ERR_NOT_FOUND. */
 int ledger_core_balance(ledger_core_t *core, const char *account,

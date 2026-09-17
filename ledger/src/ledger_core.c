@@ -317,6 +317,72 @@ static void query_book(ledger_core_t *c, const msg_book_req_t *req,
     }
 }
 
+/*
+ * 이 계좌가 낸 주문이면 그 논리 주문을, 아니면 NULL(T7-01).
+ *
+ * **남의 주문은 "없다"로 답한다.** "당신 것이 아니다"라고 답하면 주문번호를 하나씩
+ * 넣어 보며 남의 주문이 있는지 알아낼 수 있다.
+ */
+static const logical_order_t *owned_order(ledger_core_t *c, const char *account,
+                                          order_id_t id)
+{
+    if (id < LEDGER_LOGICAL_BASE || id >= c->next_logical) {
+        return NULL;
+    }
+    int acct = acct_find(&c->store, account);
+    if (acct < 0 || c->acct_of[id - LEDGER_LOGICAL_BASE] != acct) {
+        return NULL;
+    }
+    return omap_get(c->map, id);
+}
+
+/*
+ * 살아 있는 물리 주문을 모두 취소한다(T7-01).
+ *
+ * **매수라면 취소된 수량 x 지정가만큼 묶음을 푼다.** 묶음은 "지정가 x 아직 호가창에 살아
+ * 있는 수량"이어야 하고(헤더의 불변식), 취소는 살아 있는 수량을 줄이기 때문이다.
+ * 일부 체결 뒤에 취소해도 같은 식이 맞는다 — 체결분은 콜백이 이미 풀었다.
+ *
+ * 살아 있는 것이 없으면(이미 체결·취소로 끝남) `exec_cancel`이 ERR_NOT_FOUND를 준다.
+ */
+static void cancel_order(ledger_core_t *c, const msg_cancel_req_t *req,
+                         msg_cancel_ack_t *ack)
+{
+    memset(ack, 0, sizeof(*ack));
+    ack->order_id = req->order_id;
+    ack->cl_ord_id = req->cl_ord_id;
+    ack->status = STATUS_REJECTED;
+    ack->reason = ERR_NOT_FOUND;
+
+    const logical_order_t *lo = owned_order(c, req->account, req->order_id);
+    if (lo == NULL) {
+        return;
+    }
+
+    cancel_report_t rep;
+    int rc = exec_cancel(c->map, &c->venues, req->order_id, ++c->clock, &rep);
+
+    if (rep.canceled_qty > 0 && lo->side == SIDE_BUY) {
+        int32_t acct = c->acct_of[req->order_id - LEDGER_LOGICAL_BASE];
+        int     rrc = acct_release(&c->store, acct,
+                                   (int64_t)lo->limit_price * rep.canceled_qty);
+        assert(rrc == ERR_OK); /* 살아 있던 수량만큼은 반드시 묶여 있었다 */
+        (void)rrc;
+    }
+
+    ack->reason = rc;
+    if (rc == ERR_NOT_FOUND && rep.canceled_qty == 0) {
+        return; /* 취소할 것이 없었다 */
+    }
+    /*
+     * 한쪽만 취소되고 한쪽이 실패해도(집행기는 되돌리지 않는다, executor.h) 취소된
+     * 수량과 지금 상태를 그대로 알린다. 사유 칸이 실패를 말한다.
+     * ponytail: 한 프로세스 안에서는 매칭 엔진 취소가 실패할 경로가 없어 시험하지 못한다.
+     */
+    ack->status = (uint8_t)rep.status;
+    ack->canceled_qty = rep.canceled_qty;
+}
+
 /* --- 전문 --- */
 
 int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
@@ -367,16 +433,8 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
         if (msg_decode_cancel_req(body, hdr->body_len, &req) < 0) {
             return -1;
         }
-        /*
-         * **아직 연결하지 않았다고 말한다.** 예전 껍데기는 여기서 무조건 취소
-         * 성공을 돌려줬다 — 호가창에 그대로 남은 주문을 취소됐다고 믿게 만든다.
-         */
         msg_cancel_ack_t ack;
-        memset(&ack, 0, sizeof(ack));
-        ack.order_id = req.order_id;
-        ack.cl_ord_id = req.cl_ord_id;
-        ack.status = STATUS_REJECTED;
-        ack.reason = ERR_NOT_SUPPORTED;
+        cancel_order(c, &req, &ack);
         m = msg_encode_cancel_ack(&ack, b, cap);
         break;
     }
@@ -584,6 +642,25 @@ const order_book_t *ledger_core_book(const ledger_core_t *c, market_t market)
         return NULL;
     }
     return match_book(c->eng[market]);
+}
+
+int ledger_core_open_account(ledger_core_t *c, const char *account,
+                             int64_t cash)
+{
+    if (c == NULL || account == NULL) {
+        return ERR_NULL_PTR;
+    }
+    if (cash < 0) {
+        return ERR_INVALID_ARG;
+    }
+    if (acct_find(&c->store, account) >= 0) {
+        return ERR_DUPLICATE; /* 이미 있는 계좌에 몰래 입금하지 않는다 */
+    }
+    int idx = acct_open(&c->store, account);
+    if (idx < 0) {
+        return idx;
+    }
+    return (cash > 0) ? acct_deposit(&c->store, idx, cash) : ERR_OK;
 }
 
 int ledger_core_balance(ledger_core_t *c, const char *account,
