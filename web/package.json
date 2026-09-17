@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "check": "node --experimental-strip-types --no-warnings scripts/estimate.check.ts",
     "preview": "vite preview"
   },
   "dependencies": {

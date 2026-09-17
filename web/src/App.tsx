@@ -1,151 +1,127 @@
-import { useMemo, useState } from "react";
-import { SIDE_BUY } from "./lib/wire";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MARKET_AUTO, ORDER_LIMIT, SIDE_BUY, sideText, type Side } from "./lib/wire";
+import { won, qty as fq } from "./lib/format";
+import { useTrading, type NewOrder } from "./lib/useTrading";
+import { useToasts } from "./lib/useToasts";
 import { Panel } from "./components/Panel";
-import { StatusBar } from "./components/StatusBar";
+import { Header } from "./components/Header";
 import { OrderBook } from "./components/OrderBook";
 import { OrderTicket } from "./components/OrderTicket";
-import { SorPanel } from "./components/SorPanel";
-import { Working } from "./components/Working";
-import { Fills } from "./components/Fills";
+import { MarketCompare } from "./components/MarketCompare";
+import { Activity } from "./components/Activity";
+import { Toasts } from "./components/Toasts";
 import { Strategies } from "./components/Strategies";
 import { Ops } from "./components/Ops";
-import { useTrading } from "./lib/useTrading";
-import type { Book } from "./lib/types";
 
-type Tab = "trade" | "orders" | "strategies" | "ops";
+type View = "trade" | "strategies" | "ops";
 
-const TABS: { id: Tab; label: string }[] = [
+const VIEWS: { id: View; label: string }[] = [
   { id: "trade", label: "거래" },
-  { id: "orders", label: "주문·체결" },
   { id: "strategies", label: "전략 비교" },
   { id: "ops", label: "관제" },
 ];
 
 export default function App() {
   const t = useTrading();
-  const [tab, setTab] = useState<Tab>("trade");
-  const [price, setPrice] = useState(70000);
+  const { toasts, notify, dismiss } = useToasts();
+  const [view, setView] = useState<View>("trade");
+  const [draft, setDraft] = useState<NewOrder>({
+    side: SIDE_BUY,
+    market: MARKET_AUTO,
+    type: ORDER_LIMIT,
+    price: 70000,
+    qty: 10,
+  });
+  const patch = useCallback((p: Partial<NewOrder>) => setDraft((d) => ({ ...d, ...p })), []);
+  const pick = useCallback((price: number, side: Side) => patch({ price, side }), [patch]);
 
-  const books = useMemo(
-    () => [t.books.KRX, t.books.NXT].filter((b): b is Book => !!b),
-    [t.books],
-  );
-
-  const bestOverall = useMemo(() => {
-    const asks = books.map((b) => b.asks[0]?.price).filter(Boolean) as number[];
-    const bids = books.map((b) => b.bids[0]?.price).filter(Boolean) as number[];
-    return { ask: Math.min(...asks), bid: Math.max(...bids) };
-  }, [books]);
+  // 새로 들어온 체결마다 알림. 체결 목록은 최신이 앞이고 이 화면을 연 뒤의 것만 있다
+  const seen = useRef("");
+  useEffect(() => {
+    const fresh = [];
+    for (const f of t.fills) {
+      if (f.id === seen.current) break;
+      fresh.push(f);
+    }
+    seen.current = t.fills[0]?.id ?? "";
+    for (const f of fresh.reverse()) {
+      notify("ok", `체결 · ${f.market} ${sideText(f.side)}`, `${fq(f.qty)}주 · ${won(f.price)}원`);
+    }
+  }, [t.fills, notify]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <StatusBar state={t.ws.state} attempt={t.ws.attempt} ledgerDown={t.ledgerDown} balance={t.balance} />
+    <div className="app">
+      <Header ws={t.ws} ledgerDown={t.ledgerDown} balance={t.balance} books={t.books} />
 
-      <nav
-        style={{
-          display: "flex",
-          gap: 2,
-          padding: "0 var(--s-4)",
-          background: "var(--bg-panel)",
-          borderBottom: "1px solid var(--line)",
-          flex: "0 0 auto",
-        }}
-      >
-        {TABS.map((x) => (
-          <button
-            key={x.id}
-            onClick={() => setTab(x.id)}
-            style={{
-              border: "none",
-              borderRadius: 0,
-              background: "transparent",
-              padding: "10px var(--s-4)",
-              fontSize: 13,
-              fontWeight: tab === x.id ? 700 : 500,
-              color: tab === x.id ? "var(--text)" : "var(--text-faint)",
-              borderBottom: `2px solid ${tab === x.id ? "var(--buy)" : "transparent"}`,
-            }}
-          >
-            {x.label}
+      <nav className="tabs" role="tablist" aria-label="화면">
+        {VIEWS.map((v) => (
+          <button key={v.id} role="tab" aria-selected={view === v.id} onClick={() => setView(v.id)}>
+            {v.label}
           </button>
         ))}
       </nav>
 
-      <main style={{ flex: 1, minHeight: 0, padding: "var(--s-3)" }}>
-        {tab === "trade" && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) 300px 320px",
-              gap: "var(--s-3)",
-              height: "100%",
-            }}
-          >
-            <Panel title="호가창 · 005930 삼성전자" pad={false}>
+      <main className="page">
+        {view === "trade" && (
+          <div className="workspace">
+            <Panel className="area-book" title="호가" sub="누르면 가격·방향을 주문창에 담는다" flush>
               {t.bookError && (
-                <div style={{ padding: "8px var(--s-3)", fontSize: 12, color: "var(--danger)" }}>
-                  원장 호가를 읽지 못했다 — 원장(ledgerd)과 채널계가 떠 있는지 확인 ({t.bookError})
+                <div className="alert-bar danger" role="alert">
+                  원장 호가를 읽지 못했다 — ledgerd와 채널계가 떠 있는지 확인
                 </div>
               )}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 1,
-                  background: "var(--line-soft)",
-                }}
-              >
-                {books.map((b) => (
-                  <div key={b.market} style={{ background: "var(--bg-panel)" }}>
-                    <OrderBook book={b} onPick={setPrice} bestOverall={bestOverall} />
-                  </div>
-                ))}
-              </div>
+              <OrderBook books={t.books} orders={t.orders} onPick={pick} />
             </Panel>
-            <Panel title="SOR 판단">
-              <SorPanel books={books} side={SIDE_BUY} />
+
+            <Panel
+              className="area-compare"
+              title="시장 비교"
+              sub={`${sideText(draft.side)} ${fq(draft.qty)}주 · ${won(draft.price)}원 기준 예상`}
+            >
+              <MarketCompare books={t.books} draft={draft} orders={t.orders} />
             </Panel>
-            <Panel title="주문">
+
+            <Activity
+              className="area-activity"
+              orders={t.orders}
+              rejects={t.rejects}
+              fills={t.fills}
+              onCancel={t.cancel}
+              notify={notify}
+            />
+
+            <Panel className="area-ticket" title="주문" sub="삼성전자 005930">
               <OrderTicket
-                price={price}
-                onPriceChange={setPrice}
+                draft={draft}
+                onChange={patch}
+                books={t.books}
+                balance={t.balance}
                 submit={t.submit}
-                available={t.balance?.available ?? null}
+                notify={notify}
+                liveFills={t.ws.state === "open"}
               />
             </Panel>
           </div>
         )}
 
-        {tab === "orders" && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "var(--s-3)",
-              height: "100%",
-            }}
-          >
-            <Panel title="주문 내역 (원장 상태)" pad={false}>
-              <Working orders={t.orders} rejects={t.rejects} onCancel={t.cancel} />
-            </Panel>
-            <Panel title="체결 내역" pad={false}>
-              <Fills fills={t.fills} />
+        {view === "strategies" && (
+          <div style={{ maxWidth: 880 }}>
+            <Panel title="전략별 집행 품질" sub="Phase 2 측정 결과">
+              <Strategies />
             </Panel>
           </div>
         )}
 
-        {tab === "strategies" && (
-          <Panel title="전략별 집행 품질 · Phase 2 측정 결과">
-            <Strategies />
-          </Panel>
-        )}
-
-        {tab === "ops" && (
-          <Panel title="관제">
-            <Ops wsState={t.ws.state} ledgerDown={t.ledgerDown} events={t.events} />
-          </Panel>
+        {view === "ops" && (
+          <div style={{ maxWidth: 880 }}>
+            <Panel title="관제">
+              <Ops wsState={t.ws.state} ledgerDown={t.ledgerDown} events={t.events} />
+            </Panel>
+          </div>
         )}
       </main>
+
+      <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }
