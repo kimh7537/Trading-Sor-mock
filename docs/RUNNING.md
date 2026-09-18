@@ -215,13 +215,19 @@ cmake --build build-asan -j8
 # [터미널 1 · WSL] 원장
 ./build/ledger/ledgerd            # 포트 9100
 # ./build/ledger/ledgerd 0        # 0이면 운영체제가 빈 포트를 골라 찍어 준다
+# ./build/ledger/ledgerd 9100 --live 40   # 가상 참가자가 시장마다 초당 40건을 더 낸다
 ```
 
 출력:
 ```
 ledgerd 포트 9100 에서 대기 (SIGTERM/SIGINT로 종료)
   계좌 123456789012, 예수금 100000000원, 종목 005930, 기준가 70000원
+  실시세 모드: 시장마다 초당 40건 (25ms마다 1건)      <- --live를 줬을 때만
 ```
+
+`--live`를 **주지 않으면 예전과 똑같다** — 시드 유동성을 넣고 호가창이 그대로 멈춰 있다.
+테스트와 `bench`의 결정성을 깨지 않으려고 그렇게 뒀다(T8-01). 틈은 `poll()` 타임아웃으로
+만든다: 접속을 기다리다 만료되면 한 틱을 친다.
 
 ```powershell
 # [터미널 2 · Windows] 채널계
@@ -240,6 +246,54 @@ npm run dev      # --port 같은 인자를 붙이지 않는다 (8장)
 
 원장은 **시작할 때마다 같은 시드로 같은 호가창을 만든다.** 원장을 껐다 켜면 계좌와 호가창이 처음 상태로 돌아간다
 (KRX 70,000원 매수 잔량 9,231주, NXT 70,000원 매도 잔량 2,257주).
+
+### 3.2.1 실시세 모드로 띄우기 (Phase 8)
+
+호가창을 **바깥 시세**가 움직이게 한다. 주문·체결·잔고는 그대로 내 원장 안에서만 일어난다 —
+**바깥으로 주문이 나가지 않는다.** 화면 오른쪽 위에 지금 어느 모드인지 늘 보이고, "시세 모드와
+가격" 칸에서 바꾼다.
+
+**가) 토스증권 실시세**
+
+```bash
+cp .env.example .env     # 저장소 루트. .gitignore에 있다
+# TOSS_CLIENT_ID / TOSS_CLIENT_SECRET 를 채운다
+```
+
+```powershell
+cd channel
+$env:TOSS_ENABLED="true"; ./mvnw.cmd spring-boot:run
+```
+
+- 채널계가 `spring.config.import`로 루트의 `.env`를 읽는다. 키가 비어 있으면 **붙지 않는다**
+  (키 없이 뜬 채 403을 되풀이하는 것보다 낫다)
+- 장중에만 움직인다. 허용 IP를 등록해야 하고 미등록 IP는 403이다
+- **client 당 유효한 토큰이 하나다.** 같은 키로 프로세스를 둘 띄우면 서로의 토큰을 무효로 만든다
+- 읽기 경로만 만들었다. 주문 API는 호출하지 않는다
+
+**나) 녹화한 장 재생** — 장 마감·주말 데모용. 같은 파일은 늘 같은 호가창을 만든다.
+
+```powershell
+cd channel
+$env:FEED_REPLAY_FILE="../docs/samples/feed-sample.jsonl"
+$env:FEED_REPLAY_SPEED="3"      # 3배속. 1이면 실시간
+./mvnw.cmd spring-boot:run
+```
+
+`docs/samples/feed-sample.jsonl`은 키 없이 재생 경로를 볼 수 있게 만든 **합성 샘플**이다.
+실제 장은 `FEED_RECORD_FILE=../tape.jsonl`로 녹화해서 쓴다(한 줄에 스냅샷 하나, JSONL).
+
+**확인**
+
+```powershell
+curl http://localhost:8080/api/feed
+# {"mode":"sim","source":"sim","available":true,...}
+curl -X POST "http://localhost:8080/api/feed/mode?mode=live"
+# {"mode":"live","source":"replay",...}   설정이 없으면 409
+```
+
+바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
+주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
 
 ### 3.3 명령줄로 주문 넣어 보기 (화면 없이)
 
@@ -321,7 +375,7 @@ npm run check                # 예상 체결·호가 단위 계산 자체 점검
 | 종류 | 개수 | 어디 | 실행 | 걸리는 시간(점검 PC) |
 |---|---:|---|---|---|
 | C 단위·통합 테스트 | **58** | 각 모듈 `tests/test_*.c` | `ctest` | 빌드 포함 수 분, ASan이 가장 느리다 |
-| Java 테스트 | **49** (9개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
+| Java 테스트 | **68** (13개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
 | 화면 | 자체 점검 스크립트 1개 (13경우) | `web/scripts/estimate.check.ts` | `npm run build`, `npm run lint`, `npm run check` | 수 초 |
 
 **커밋 전 규칙**: C는 **Debug·Release·ASan 세 빌드에서 58개가 모두 통과**해야 한다. Release는 `assert`가 꺼지는
@@ -465,19 +519,23 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 
 > 벤치마크 실행 파일 4개(`bench_match` 등)는 오래 걸려 ctest에 넣지 않았다. 5장에서 따로 돌린다.
 
-### 4.4 Java 테스트 49개
+### 4.4 Java 테스트 68개
 
 | 클래스 | 개수 | 확인하는 것 |
 |---|---:|---|
 | `ChannelApplicationTests` | 1 | 스프링 컨텍스트가 뜨는지 |
 | `ChannelStartupTests` | 4 | 헬스 체크 응답, health 말고는 열려 있지 않음, 원장 주소를 설정에서 읽음, **원장이 없으면 구독자에게 `ledger-down`** |
-| `wire.WireCodecTest` | 10 | 빅엔디언, 고정 길이 문자열, 배열 필드(i32·i64), 헤더 검사 |
+| `wire.WireCodecTest` | 12 | 빅엔디언, 고정 길이 문자열, 배열 필드(i32·i64), 헤더 검사, **호가 스냅샷 배치와 단수 자르기** |
 | `wire.WireLayoutTest` | 4 | **C 헤더를 직접 읽어** 전문 길이·열거값을 Java와 대조 |
 | `ledger.LedgerConnectionPoolTest` | 9 | 접속 재사용, 타임아웃 시 버리기, 원장 죽음, 풀 고갈, 동시 요청이 응답을 바꿔 받지 않음, **동시 빌리기 200판**, 대기자 깨우기 |
 | `api.OrderApiTest` | 14 | 상태 코드 200/400/422/202, SOR 시장값 255, 호가 API, 주문·체결 방송, 원장 끊김·회복 방송, **주문 목록·상세, 취소 200/409/404, 잔고, SOR 체결이 실제 시장으로 방송, 조회 실패도 끊김 방송** |
 | `api.LedgerPollerTest` | 1 | 원장을 다시 읽어 **바뀐 것만** 방송: 첫 바퀴 호가·잔고, 변화 없으면 없음, 나중 체결의 가격(금액 차이 / 수량 차이), 끝난 주문은 다시 묻지 않음 |
 | `api.OrderRegistryTest` | 2 | 주문 목록 상한 500건, 최근 순서 |
 | `stream.StreamTest` | 4 | 구독·방송, 원장 끊김 전파, 나간 구독자 정리, 많은 이벤트 |
+| `feed.SnapshotTest` | 4 | 바깥 시세 읽기: **문자열 decimal → 정수**, 시각 `null` 대체, 못 쓰는 단 버리기, 10단 넘으면 자르기 |
+| `feed.LiveFeedTest` | 4 | 스냅샷이 `MSG_BOOK_FEED`로 원장까지, 심은 호가창 즉시 방송, **설정 없으면 실시세로 못 바꿈(409)**, 모드 전환 |
+| `feed.TossTokenSourceTest` | 5 | client credentials 폼, 토큰 캐시(재발급하면 이전 토큰이 죽으므로), **429의 `Retry-After`**, 403 본문 전달, 만료 전 재발급 |
+| `feed.FeedReplayTest` | 4 | 녹화 파일 왕복, 반쪽 줄 건너뛰기, **같은 파일 같은 결과**, 배속은 간격만 바꿈 |
 
 결과는 콘솔과 `channel/target/surefire-reports/*.txt`에 남는다:
 ```
