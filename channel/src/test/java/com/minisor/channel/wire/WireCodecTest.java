@@ -126,6 +126,52 @@ class WireCodecTest {
     }
 
     /**
+     * 호가 스냅샷 주입(T8-02). 호가 응답과 같은 배열 넷 앞에 <b>피드 시각 i64</b>가 끼어들어
+     * 배열 전체가 8바이트 밀린다. 그 위치를 바이트로 대조한다.
+     *
+     * <p><b>단수가 모자란 스냅샷</b>도 함께 본다 — 토스 호가 스키마에 {@code maxItems}가 없어
+     * 3단·1단이 올 수 있다. 남는 단은 0으로 나가야 한다.
+     */
+    @Test
+    void bookFeedLayout() {
+        BookFeed in = new BookFeed();
+        in.symbol = "005930";
+        in.market = 1;
+        in.feedTs = 0x0102030405060708L;
+        BookFeed.fill(in.bidPrice, in.bidQty, java.util.List.of(new int[] {69900, 12}));
+        BookFeed.fill(in.askPrice, in.askQty, java.util.List.of(new int[] {70000, 7}));
+
+        byte[] body = WireCodec.encodeBody(in);
+        assertThat(body).hasSize(177); // C의 MSG_BOOK_FEED_LEN
+        assertThat(body[8]).isEqualTo((byte) 1);
+        assertThat(java.nio.ByteBuffer.wrap(body, 9, 8).getLong()).isEqualTo(0x0102030405060708L);
+        assertThat(java.nio.ByteBuffer.wrap(body, 17, 4).getInt()).isEqualTo(69900);
+        assertThat(java.nio.ByteBuffer.wrap(body, 57, 4).getInt()).isEqualTo(12);
+
+        BookFeed out = WireCodec.decodeBody(BookFeed.class, body, 0, body.length);
+        assertThat(out.feedTs).isEqualTo(0x0102030405060708L);
+        assertThat(out.bidPrice[0]).isEqualTo(69900);
+        assertThat(out.askQty[0]).isEqualTo(7);
+        assertThat(out.bidPrice[1]).isZero(); // 없는 단
+    }
+
+    /** 10단이 넘게 오면 앞 10단만 싣는다. */
+    @Test
+    void bookFeedTruncatesDeepSnapshot() {
+        BookFeed in = new BookFeed();
+        java.util.List<int[]> deep = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            deep.add(new int[] {70000 + i, i + 1});
+        }
+        BookFeed.fill(in.askPrice, in.askQty, deep);
+
+        assertThat(in.askPrice[BookFeed.DEPTH - 1]).isEqualTo(70009);
+        assertThat(in.askPrice).hasSize(BookFeed.DEPTH);
+        in.symbol = "005930";
+        assertThat(WireCodec.encodeBody(in)).hasSize(177);
+    }
+
+    /**
      * 주문 상세(T7-02)의 i64 배열. 시장별 체결 금액이 i32를 넘어도 그대로 오간다 —
      * 70,000원 x 100,000주 = 70억 원.
      */

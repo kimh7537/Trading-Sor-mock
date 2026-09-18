@@ -55,6 +55,12 @@ msg_type_t msg_reply_type(uint8_t req_type)
         return MSG_QUERY_ACK;
     case MSG_BOOK_REQ:
         return MSG_BOOK_ACK;
+    /*
+     * 스냅샷 주입의 답은 **심은 뒤의 호가창**이다(T8-02). 응답 종별을 새로 만들지
+     * 않는다 — 보낸 쪽이 알고 싶은 것이 정확히 "그래서 지금 호가창이 어떻게 됐나"다.
+     */
+    case MSG_BOOK_FEED:
+        return MSG_BOOK_ACK;
     case MSG_DETAIL_REQ:
         return MSG_DETAIL_ACK;
     case MSG_BALANCE_REQ:
@@ -730,6 +736,50 @@ int msg_decode_book_ack(const uint8_t *buf, size_t len, msg_book_ack_t *out)
     wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
     p += MSG_SYMBOL_LEN;
     out->market = wire_get_u8(p++);
+    p = get_i32s(p, out->bid_price);
+    p = get_i32s(p, out->bid_qty);
+    p = get_i32s(p, out->ask_price);
+    p = get_i32s(p, out->ask_qty);
+    return (int)(p - buf);
+}
+
+/* --- 호가 스냅샷 주입 (T8-02) --- */
+
+int msg_encode_book_feed(const msg_book_feed_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_BOOK_FEED_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_SYMBOL_LEN, m->symbol);
+    p += MSG_SYMBOL_LEN;
+    wire_put_u8(p++, m->market);
+    wire_put_i64(p, m->feed_ts);
+    p += 8;
+    p = put_i32s(p, m->bid_price);
+    p = put_i32s(p, m->bid_qty);
+    p = put_i32s(p, m->ask_price);
+    p = put_i32s(p, m->ask_qty);
+    return (int)(p - buf);
+}
+
+int msg_decode_book_feed(const uint8_t *buf, size_t len, msg_book_feed_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_BOOK_FEED_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
+    p += MSG_SYMBOL_LEN;
+    out->market = wire_get_u8(p++);
+    out->feed_ts = wire_get_i64(p);
+    p += 8;
     p = get_i32s(p, out->bid_price);
     p = get_i32s(p, out->bid_qty);
     p = get_i32s(p, out->ask_price);

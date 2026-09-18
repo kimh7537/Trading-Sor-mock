@@ -67,6 +67,8 @@
  *                  leg_canceled:i32[2] leg_notional:i64[2]   (배열은 KRX, NXT 순)
  * BALANCE_REQ (12) account[12]
  * BALANCE_ACK (32) account[12] reason:i32 cash:i64 reserved:i64
+ * BOOK_FEED (177)  symbol[8] market:u8 feed_ts:i64 bid_price:i32[10]
+ *                  bid_qty:i32[10] ask_price:i32[10] ask_qty:i32[10]
  *
  * ===========================================================================
  * 요청과 응답
@@ -146,6 +148,20 @@
 #define MSG_BALANCE_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8)
 
 /*
+ * 호가 스냅샷 주입(T8-02). 바깥에서 받은 실호가를 원장 호가창에 심는다.
+ *
+ * 배치는 `BOOK_ACK`에 **피드 시각(i64)**을 더한 것이다 — 응답과 같은 모양이라
+ * 코덱이 같은 헬퍼를 쓴다. 시각을 싣는 이유는 원장이 시스템 시각을 읽지 않기
+ * 때문이다(CLAUDE.md 결정성). 스냅샷이 자기 시각을 들고 와야 리플레이(T8-06)가
+ * 같은 파일에서 같은 결과를 낸다.
+ *
+ * **단수는 10단 고정이되 모자라면 0으로 채우고 넘치면 자른다.** 토스 오픈 API의
+ * 호가 스키마에는 `maxItems`가 없고 예시가 3단·1단이라, 보내는 쪽이 단수를 맞춰
+ * 주리라 기대할 수 없다.
+ */
+#define MSG_BOOK_FEED_LEN (MSG_SYMBOL_LEN + 1 + 8 + MSG_BOOK_DEPTH * 4 * 4)
+
+/*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
  *
  * 코드는 0을 쓰지 않는다 — 0으로 초기화된 버퍼가 유효한 종별로 보이면 안 된다.
@@ -168,7 +184,8 @@
     X(MSG_DETAIL_REQ, 17, MSG_DETAIL_REQ_LEN, "주문 상세 요청")           \
     X(MSG_DETAIL_ACK, 18, MSG_DETAIL_ACK_LEN, "주문 상세 응답")           \
     X(MSG_BALANCE_REQ, 19, MSG_BALANCE_REQ_LEN, "잔고 조회 요청")         \
-    X(MSG_BALANCE_ACK, 20, MSG_BALANCE_ACK_LEN, "잔고 조회 응답")
+    X(MSG_BALANCE_ACK, 20, MSG_BALANCE_ACK_LEN, "잔고 조회 응답")            \
+    X(MSG_BOOK_FEED, 21, MSG_BOOK_FEED_LEN, "호가 스냅샷 주입")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -351,6 +368,20 @@ typedef struct {
 } msg_balance_ack_t;
 
 /*
+ * 바깥 시세를 원장 호가창에 심는다(T8-02). 모양은 `msg_book_ack_t` + 피드 시각.
+ * 응답은 심은 뒤의 호가창(`MSG_BOOK_ACK`)이다 — 보낸 쪽이 반영 결과를 바로 본다.
+ */
+typedef struct {
+    char    symbol[MSG_SYMBOL_LEN + 1];
+    uint8_t market;
+    ts_t    feed_ts;
+    price_t bid_price[MSG_BOOK_DEPTH];
+    qty_t   bid_qty[MSG_BOOK_DEPTH];
+    price_t ask_price[MSG_BOOK_DEPTH];
+    qty_t   ask_qty[MSG_BOOK_DEPTH];
+} msg_book_feed_t;
+
+/*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
  * 상태이지 전문의 내용이 아니다(T3-11이 맡는다).
@@ -378,6 +409,7 @@ int msg_encode_balance_req(const msg_balance_req_t *m, uint8_t *buf,
                            size_t cap);
 int msg_encode_balance_ack(const msg_balance_ack_t *m, uint8_t *buf,
                            size_t cap);
+int msg_encode_book_feed(const msg_book_feed_t *m, uint8_t *buf, size_t cap);
 
 /*
  * 디코딩 — 바디 길이가 규격과 **정확히 같아야** 한다. 짧으면 필드가 모자라고,
@@ -411,5 +443,6 @@ int msg_decode_balance_req(const uint8_t *buf, size_t len,
                            msg_balance_req_t *out);
 int msg_decode_balance_ack(const uint8_t *buf, size_t len,
                            msg_balance_ack_t *out);
+int msg_decode_book_feed(const uint8_t *buf, size_t len, msg_book_feed_t *out);
 
 #endif /* MINI_SOR_MSG_H */

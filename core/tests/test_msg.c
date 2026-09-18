@@ -37,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 20);
+    assert(TABLE_N == 21);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -75,6 +75,7 @@ static void test_type_table(void)
     assert(MSG_DETAIL_ACK_LEN == 91);
     assert(MSG_BALANCE_REQ_LEN == 12);
     assert(MSG_BALANCE_ACK_LEN == 32);
+    assert(MSG_BOOK_FEED_LEN == 177);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -115,6 +116,8 @@ static void test_reply_pairs(void)
     assert(msg_reply_type(MSG_MODIFY_REQ) == MSG_MODIFY_ACK);
     assert(msg_reply_type(MSG_QUERY_REQ) == MSG_QUERY_ACK);
     assert(msg_reply_type(MSG_BOOK_REQ) == MSG_BOOK_ACK);
+    /* 스냅샷 주입의 답은 심은 뒤의 호가창이다(T8-02). */
+    assert(msg_reply_type(MSG_BOOK_FEED) == MSG_BOOK_ACK);
     assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_DETAIL_REQ) == MSG_DETAIL_ACK);
     assert(msg_reply_type(MSG_BALANCE_REQ) == MSG_BALANCE_ACK);
@@ -246,6 +249,55 @@ static void test_book_ack_layout(void)
         assert(buf[first] == arr + 1 && buf[first + 3] == 0);
         assert(buf[last] == arr + 1 && buf[last + 3] == MSG_BOOK_DEPTH - 1);
     }
+}
+
+/*
+ * 호가 스냅샷 주입(T8-02). 호가 응답과 같은 배열 넷 앞에 **피드 시각 i64**가 끼어든다.
+ * 그 8바이트만큼 배열 전체가 밀리므로, 시각 바이트와 첫 배열의 시작 위치를 함께 본다.
+ */
+static void test_book_feed_layout(void)
+{
+    msg_book_feed_t m;
+    memset(&m, 0, sizeof(m));
+    snprintf(m.symbol, sizeof(m.symbol), "%s", "005930");
+    m.market = 1;
+    m.feed_ts = 0x0102030405060708LL;
+    for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+        m.bid_price[i] = 0x01000000 + i;
+        m.bid_qty[i] = 0x02000000 + i;
+        m.ask_price[i] = 0x03000000 + i;
+        m.ask_qty[i] = 0x04000000 + i;
+    }
+
+    uint8_t buf[MSG_BOOK_FEED_LEN];
+    assert(msg_encode_book_feed(&m, buf, sizeof(buf)) == MSG_BOOK_FEED_LEN);
+
+    static const uint8_t SYM[8] = {'0', '0', '5', '9', '3', '0', 0, 0};
+    assert(memcmp(buf, SYM, sizeof(SYM)) == 0);
+    assert(buf[8] == 1);
+    for (int i = 0; i < 8; i++) {
+        assert(buf[9 + i] == i + 1); /* 빅엔디언 i64 */
+    }
+    for (int arr = 0; arr < 4; arr++) {
+        size_t first = 17 + (size_t)arr * MSG_BOOK_DEPTH * 4;
+        size_t last = first + (MSG_BOOK_DEPTH - 1) * 4;
+        assert(buf[first] == arr + 1 && buf[first + 3] == 0);
+        assert(buf[last] == arr + 1 && buf[last + 3] == MSG_BOOK_DEPTH - 1);
+    }
+
+    /* 단수가 모자란 스냅샷 — 남는 단은 0이고 그대로 왕복한다. */
+    msg_book_feed_t few;
+    memset(&few, 0, sizeof(few));
+    snprintf(few.symbol, sizeof(few.symbol), "%s", "005930");
+    few.bid_price[0] = 69900;
+    few.bid_qty[0] = 12;
+    few.ask_price[0] = 70000;
+    few.ask_qty[0] = 7;
+    assert(msg_encode_book_feed(&few, buf, sizeof(buf)) == MSG_BOOK_FEED_LEN);
+    msg_book_feed_t back;
+    assert(msg_decode_book_feed(buf, MSG_BOOK_FEED_LEN, &back) ==
+           MSG_BOOK_FEED_LEN);
+    assert(memcmp(&few, &back, sizeof(few)) == 0);
 }
 
 /*
@@ -456,6 +508,15 @@ static void test_roundtrip_all(void)
                   in.ask_qty[0] = 1;
               });
 
+    ROUNDTRIP(msg_book_feed_t, msg_encode_book_feed, msg_decode_book_feed,
+              MSG_BOOK_FEED_LEN, {
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "005930");
+                  in.market = 1;
+                  in.feed_ts = INT64_MIN;
+                  in.bid_price[0] = INT32_MAX;
+                  in.ask_qty[9] = INT32_MIN;
+              });
+
     ROUNDTRIP(msg_detail_req_t, msg_encode_detail_req, msg_decode_detail_req,
               MSG_DETAIL_REQ_LEN, {
                   snprintf(in.account, sizeof(in.account), "%s", "123456789012");
@@ -588,6 +649,7 @@ static void test_decode_rejects_wrong_length(void)
     CHECK_LEN(msg_decode_detail_ack, msg_detail_ack_t, MSG_DETAIL_ACK_LEN);
     CHECK_LEN(msg_decode_balance_req, msg_balance_req_t, MSG_BALANCE_REQ_LEN);
     CHECK_LEN(msg_decode_balance_ack, msg_balance_ack_t, MSG_BALANCE_ACK_LEN);
+    CHECK_LEN(msg_decode_book_feed, msg_book_feed_t, MSG_BOOK_FEED_LEN);
 
 #undef CHECK_LEN
 }
@@ -647,6 +709,7 @@ int main(void)
     test_order_req_layout();
     test_fill_noti_layout();
     test_book_ack_layout();
+    test_book_feed_layout();
     test_detail_ack_layout();
     test_balance_ack_layout();
     test_roundtrip_all();

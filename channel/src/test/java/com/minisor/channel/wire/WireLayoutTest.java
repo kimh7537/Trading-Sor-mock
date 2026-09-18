@@ -50,7 +50,8 @@ class WireLayoutTest {
                     Map.entry(DetailReq.class, "MSG_DETAIL_REQ_LEN"),
                     Map.entry(DetailAck.class, "MSG_DETAIL_ACK_LEN"),
                     Map.entry(BalanceReq.class, "MSG_BALANCE_REQ_LEN"),
-                    Map.entry(BalanceAck.class, "MSG_BALANCE_ACK_LEN"));
+                    Map.entry(BalanceAck.class, "MSG_BALANCE_ACK_LEN"),
+                    Map.entry(BookFeed.class, "MSG_BOOK_FEED_LEN"));
 
     @Test
     void javaLayoutMatchesCHeader() throws IOException {
