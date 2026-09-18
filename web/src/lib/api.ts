@@ -1,4 +1,4 @@
-import type { Balance, Book, CancelResult, FeedStatus, OrderView } from "./types";
+import type { Balance, Book, CandleChart, CancelResult, FeedStatus, OrderView } from "./types";
 import { marketName } from "./wire";
 
 // 기본은 같은 출처. 개발 서버가 /api를 채널계로 넘긴다(vite.config.ts).
@@ -139,4 +139,18 @@ export async function setFeedMode(
   } catch {
     return { status: 0, feed: null };
   }
+}
+
+/**
+ * 캔들 차트(1분봉·일봉). 토스 설정이 없으면 409 — 화면은 그때 중간가 선으로 되돌아간다.
+ *
+ * **바깥 시장의 체결**을 집계한 것이고 이 프로젝트 원장의 호가창과는 별개다.
+ */
+export async function fetchCandles(
+  interval: "1m" | "1d",
+  count = 120,
+): Promise<CandleChart | null> {
+  const res = await fetch(`${BASE}/api/candles?interval=${interval}&count=${count}`);
+  if (!res.ok) return null;
+  return (await res.json()) as CandleChart;
 }

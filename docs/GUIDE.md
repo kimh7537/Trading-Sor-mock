@@ -6196,7 +6196,7 @@ ponytail 주석: 1초마다 읽는다. 원장 접속이 1개라 주문과 같은
 
 테스트는 `channel/`에서 `./mvnw.cmd test`로 돈다(Windows). JUnit 5(`@Test`)와 AssertJ(`assertThat(...)`)를 쓴다. 각 테스트 클래스 주석에 어느 태스크의 완료 조건을 옮긴 것인지 적혀 있다.
 
-모두 **49개**다(T7-03에서 40개 → 49개). `WireCodecTest` 10, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 2, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1.
+모두 **74개**다(T7-03에서 40 → 49, Phase 8에서 49 → 74). `WireCodecTest` 12, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 2, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1, `feed.SnapshotTest` 4, `feed.LiveFeedTest` 4, `feed.TossTokenSourceTest` 6, `feed.FeedReplayTest` 4, `feed.TossCandlesTest` 5.
 
 ##### 10.1 WireCodecTest — 코덱이 C와 같은 바이트를 만든다 (T4-02)
 
@@ -6837,7 +6837,7 @@ cmake --build build-asan && ctest --test-dir build-asan
 ```
 
 ```powershell
-# [Windows] 채널계 테스트 — 49개
+# [Windows] 채널계 테스트 — 74개
 cd channel
 ./mvnw.cmd test
 
@@ -6869,7 +6869,11 @@ npm run check    # 예상 체결 4경우 + 호가 단위 9경우 → "estimate.c
 
 ### 5.3 해 볼 것
 
-화면은 "거래" 한 화면이다. 왼쪽 두 시장 호가, 가운데 시장 비교와 미체결·주문 내역·체결 탭, 오른쪽 주문창, 맨 위에 잔고.
+화면은 증권사 앱(MTS) 모양이다. **넓은 창**에서는 왼쪽 호가, 가운데 차트와 미체결·주문 내역·체결 탭,
+오른쪽 주문창과 시장 비교가 나란히 놓인다. **좁은 창**에서는 `[호가] [차트] [주문] [체결·잔고] [시세 모드]` 탭으로
+하나씩 본다. 차트는 토스에서 받은 **1분봉·일봉**(OHLCV)이고, 키가 없으면 내 호가창의
+중간가 선으로 되돌아간다. 맨 위에 종목·최우선호가·잔고·시세 모드 배지가 늘 보이고, 오른쪽 위 ☀/☾로 라이트·다크를 바꾼다
+(운영체제 설정을 따르고 고른 값은 브라우저에 남는다).
 
 1. **SOR 자동 매수**: 시장 "SOR 자동", 가격 70000, 수량 100 → 주문창의 "주문 전 확인"에 예상 체결이 보인다.
    "매수 100주 주문"(또는 Ctrl+Enter) → "체결 · NXT 매수" 알림. NXT 70,000원 잔량이 100 줄어들고(깜빡이며 ▼),

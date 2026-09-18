@@ -267,6 +267,10 @@ $env:TOSS_ENABLED="true"; ./mvnw.cmd spring-boot:run
 
 - 채널계가 `spring.config.import`로 루트의 `.env`를 읽는다. 키가 비어 있으면 **붙지 않는다**
   (키 없이 뜬 채 403을 되풀이하는 것보다 낫다)
+- 연결이 **유휴 상태로 2분 48초**를 넘기면 서버가 끊는다. 30초마다 표준 Ping 프레임을 보내
+  유지하고, 끊기면 토큰을 새로 받아 다시 붙는다 — 끊긴 세션의 토큰으로는 재연결이 거부된다
+- **원장 기준가를 종목의 실제 가격에 맞춰야 한다.** 호가창은 기준가 ±30%만 펼치므로 그 밖의
+  실호가는 통째로 버려진다. `ledgerd 9100 --live 40 --ref-price 260000`처럼 준다
 - 장중에만 움직인다. **허용 IP를 등록해야 한다** — 미등록이면 토큰 발급이
   `403 {"error":"access_denied","error_description":"IP address not allowed"}`이고,
   화면의 "시세 모드와 가격" 칸에 그 문구가 그대로 뜬다. 지금 나가는 주소는
@@ -303,6 +307,18 @@ curl -X POST "http://localhost:8080/api/feed/mode?mode=live"
 
 붙지 못하면 `error`에 이유가 담기고 화면에도 그대로 나온다. 조용히 시뮬로 남아 있으면
 "켰는데 왜 안 바뀌지"를 알 길이 없다.
+
+**캔들 차트**(화면의 1분·1일 봉)는 따로 조회한다.
+
+```powershell
+curl "http://localhost:8080/api/candles?interval=1d&count=5"
+curl "http://localhost:8080/api/candles?interval=1m&count=120"
+# 409 = 토스 설정이 없다(화면은 이때 내 호가창의 중간가 선으로 되돌아간다)
+```
+
+봉은 **바깥 시장의 체결**을 집계한 것이고 이 프로젝트 원장의 호가창과는 별개다 — 시뮬 모드의
+가상 참가자가 만든 체결은 봉에 섞이지 않는다. 화면에도 그렇게 적혀 있다. 조회에는 별도
+레이트리밋(`MARKET_DATA_CHART`)이 걸려 있어 채널계가 1분봉 20초·일봉 5분 동안 캐시한다.
 
 바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
@@ -387,7 +403,7 @@ npm run check                # 예상 체결·호가 단위 계산 자체 점검
 | 종류 | 개수 | 어디 | 실행 | 걸리는 시간(점검 PC) |
 |---|---:|---|---|---|
 | C 단위·통합 테스트 | **58** | 각 모듈 `tests/test_*.c` | `ctest` | 빌드 포함 수 분, ASan이 가장 느리다 |
-| Java 테스트 | **69** (13개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
+| Java 테스트 | **74** (14개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
 | 화면 | 자체 점검 스크립트 1개 (13경우) | `web/scripts/estimate.check.ts` | `npm run build`, `npm run lint`, `npm run check` | 수 초 |
 
 **커밋 전 규칙**: C는 **Debug·Release·ASan 세 빌드에서 58개가 모두 통과**해야 한다. Release는 `assert`가 꺼지는
@@ -531,7 +547,7 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 
 > 벤치마크 실행 파일 4개(`bench_match` 등)는 오래 걸려 ctest에 넣지 않았다. 5장에서 따로 돌린다.
 
-### 4.4 Java 테스트 69개
+### 4.4 Java 테스트 74개
 
 | 클래스 | 개수 | 확인하는 것 |
 |---|---:|---|
@@ -548,6 +564,7 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 | `feed.LiveFeedTest` | 4 | 스냅샷이 `MSG_BOOK_FEED`로 원장까지, 심은 호가창 즉시 방송, **설정 없으면 실시세로 못 바꿈(409)**, 모드 전환 |
 | `feed.TossTokenSourceTest` | 6 | client credentials 폼, 토큰 캐시(재발급하면 이전 토큰이 죽으므로), **429의 `Retry-After`**, 403 본문 전달, **gzip 본문 해독**, 만료 전 재발급 |
 | `feed.FeedReplayTest` | 4 | 녹화 파일 왕복, 반쪽 줄 건너뛰기, **같은 파일 같은 결과**, 배속은 간격만 바꿈 |
+| `feed.TossCandlesTest` | 5 | 캔들 조회: **최신순 → 오래된 순으로 뒤집기**, 문자열 decimal → 정수, 못 읽는 봉 버리기, 캐시, 실패 본문 전달 |
 
 결과는 콘솔과 `channel/target/surefire-reports/*.txt`에 남는다:
 ```

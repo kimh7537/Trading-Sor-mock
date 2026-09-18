@@ -165,6 +165,12 @@ public class TossFeedClient implements AutoCloseable {
             } catch (Exception e) {
                 log.warn("실시세 끊김: {}", e.toString());
                 live.noteError(reason(e));
+                /*
+                 * **다음 시도는 새 토큰으로 한다.** client 당 토큰이 하나라 세션이 끊기면
+                 * 서버 쪽에서 그 토큰이 더는 통하지 않을 수 있는데, 이쪽 캐시는 "만료 전"이라
+                 * 같은 토큰을 계속 내준다. 그러면 재연결이 영영 거부된다.
+                 */
+                tokens.invalidate();
             }
             if (!running.get() || !sleep(backoff)) {
                 return;

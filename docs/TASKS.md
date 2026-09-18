@@ -1430,9 +1430,14 @@ UI/UX를 최적화하고 더 잘 만들고 예쁘게."
   채널은 `realtime-trade` / `realtime-orderbook` / `realtime-order`, `ping`/`pong` 있음
 - 레이트리밋: MARKET_DATA 15 TPS, WebSocket 동시 연결 2개·구독 100건
 
-**아직 모르는 것**
-- 허용 IP 등록 여부(미등록 IP는 403). **토큰 발급을 실제로 성공시킨 적이 없다** —
-  T8-04 착수 전에 사람이 직접 한 번 확인해야 한다
+**나중에 실제로 확인한 것 (2026-09-19)**
+- 허용 IP를 등록하니 **토큰 발급·WebSocket 구독·호가 수신까지 성공했다.**
+  미등록일 때는 `403 {"error":"access_denied","error_description":"IP address not allowed"}`
+- 구독 응답이 `{"type":"subscriptions","subscribed":[...],"rejected":[...]}`라 **토픽을 실험으로
+  확정할 수 있다**. `realtime-trade:kr`은 `invalid-type`, **`trade:kr`은 수락**
+- 토큰·오류 본문이 **gzip**으로 온다. JDK `HttpClient`는 스스로 풀지 않는다
+- 유휴 연결은 2분 48초 만에 끊긴다. **30초마다 ping**을 보내야 유지된다
+- 체결 메시지의 실제 모양은 **아직 못 봤다**(장중이 아니면 오지 않는다)
 
 ### T8-01 원장: `--live` 틱으로 호가창이 스스로 움직인다
 - [x] 의존: 없음

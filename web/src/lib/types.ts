@@ -119,3 +119,20 @@ export interface Tick {
   /** 이 점까지 사이에 체결된 내 주문 수량 */
   vol: number;
 }
+
+/** 봉 하나(OHLCV). 토스에서 받은 **바깥 시장**의 체결 집계다 — 내 원장과 별개다. */
+export interface Candle {
+  t: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface CandleChart {
+  symbol: string;
+  interval: "1m" | "1d";
+  candles: Candle[];
+  fetchedAt: number;
+}

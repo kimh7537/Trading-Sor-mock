@@ -52,6 +52,18 @@ public class TossTokenSource {
         this.http = http;
     }
 
+    /**
+     * 들고 있던 토큰을 버린다. 다음 {@link #token()}이 새로 받는다.
+     *
+     * <p><b>끊긴 뒤 다시 붙을 때 쓴다.</b> client 당 토큰이 하나라, 세션이 끊기면 서버 쪽에서
+     * 그 토큰이 더는 통하지 않을 수 있다. 그런데 이쪽 캐시는 "만료 전"이라 같은 토큰을 계속
+     * 내주고, 재연결이 영영 거부된다 — 실제로 20번 연속 실패했다.
+     */
+    public synchronized void invalidate() {
+        token = null;
+        expiresAtMs = 0;
+    }
+
     /** 살아 있는 토큰. 없거나 곧 만료면 새로 받는다. */
     public synchronized String token() throws IOException, InterruptedException {
         if (token != null && System.currentTimeMillis() < expiresAtMs - EARLY.toMillis()) {

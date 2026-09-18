@@ -267,14 +267,16 @@ kbd {
    * 차트가 주인공이라 남는 높이를 차트가 가져간다. 아래 칸은 최소 높이를 보장한다 —
    * 예전에는 차트 행이 `auto`라 내용만큼 다 차지해 미체결 칸이 몇십 픽셀만 남았다.
    */
-  grid-template-rows: minmax(0, 1fr) minmax(210px, 320px);
+  grid-template-rows: minmax(0, 1.55fr) minmax(190px, 0.75fr) auto;
   grid-template-areas:
     "book chart ticket"
-    "book activity ticket";
+    "book activity ticket"
+    "book mode ticket";
 }
 .area-book { grid-area: book; }
 .area-chart { grid-area: chart; }
 .area-activity { grid-area: activity; }
+.area-mode { grid-area: mode; }
 .area-ticket { grid-area: ticket; }
 
 /*
@@ -294,7 +296,8 @@ kbd {
   .workspace[data-pane="book"] .area-book,
   .workspace[data-pane="chart"] .area-chart,
   .workspace[data-pane="ticket"] .area-ticket,
-  .workspace[data-pane="activity"] .area-activity { display: flex; }
+  .workspace[data-pane="activity"] .area-activity,
+  .workspace[data-pane="mode"] .area-mode { display: flex; }
 }
 
 /* ───────── 패널 ───────── */
@@ -813,15 +816,58 @@ kbd {
  * 차트 칸: 위는 시세 모드(내용 높이), 아래 차트가 **남는 높이를 전부** 가져간다.
  * 예전에는 첫 자식(토글)이 늘어나 버튼이 화면 절반을 차지했다.
  */
-.area-chart .panel-body {
+.area-chart .panel-body { display: flex; flex-direction: column; padding: var(--s-3); }
+
+.chart-panel { display: flex; flex-direction: column; gap: var(--s-2); flex: 1; min-height: 0; }
+.chart-panel > .note { margin: 0; }
+.chart-panel > .stack { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) auto auto; }
+
+.chart-head {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--s-3);
+  flex-wrap: wrap;
 }
-.area-chart .panel-body > .stack:last-child {
+.chart-ohlc { display: flex; gap: var(--s-3); font-size: 11px; color: var(--text-dim); }
+
+/*
+ * 봉 단위 토글. **`.seg`를 쓰지 않는다** — 그 이름은 주문창의 매수·매도·시장·유형 토글이
+ * 이미 쓰고 있고(`grid-auto-columns: 1fr`로 균등 분배), 같은 이름으로 다시 정의했다가
+ * 주문 버튼이 글자 크기로 쪼그라들었다. 여기는 내용만큼만 차지하면 되므로 따로 둔다.
+ */
+.seg-iv {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.seg-iv button {
+  padding: 4px 12px;
+  border: none;
+  border-radius: calc(var(--r-sm) - 1px);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.seg-iv button[aria-pressed="true"] {
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.candles {
+  width: 100%;
   flex: 1;
-  min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  min-height: 200px;
+  display: block;
+  background: var(--bg-sunken, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
 }
 
 .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); margin: 0; }

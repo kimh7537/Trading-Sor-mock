@@ -14,18 +14,19 @@ import { Toasts } from "./components/Toasts";
 import { Strategies } from "./components/Strategies";
 import { Ops } from "./components/Ops";
 import { FeedMode } from "./components/FeedMode";
-import { PriceChart } from "./components/PriceChart";
+import { ChartPanel } from "./components/ChartPanel";
 
 type View = "trade" | "strategies" | "ops";
 
 /** 좁은 화면에서 한 번에 하나씩 보는 칸. 넓은 화면에서는 전부 나란히 놓인다 */
-type Pane = "book" | "chart" | "ticket" | "activity";
+type Pane = "book" | "chart" | "ticket" | "activity" | "mode";
 
 const PANES: { id: Pane; label: string }[] = [
   { id: "book", label: "호가" },
   { id: "chart", label: "차트" },
   { id: "ticket", label: "주문" },
   { id: "activity", label: "체결·잔고" },
+  { id: "mode", label: "시세 모드" },
 ];
 
 const VIEWS: { id: View; label: string }[] = [
@@ -148,11 +149,14 @@ export default function App() {
 
             <Panel
               className="area-chart"
-              title="시세 모드와 가격"
+              title="차트"
               sub={live ? "바깥 시세 · 주문은 모의" : "가상 참가자가 만드는 호가"}
             >
+              <ChartPanel ticks={t.ticks} feed={t.feed} />
+            </Panel>
+
+            <Panel className="area-mode" title="시세 모드">
               <FeedMode feed={t.feed} onChange={changeMode} busy={modeBusy} />
-              <PriceChart ticks={t.ticks} />
             </Panel>
 
             <Activity
