@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,11 @@
 struct listener {
     int      fd;
     uint16_t port;
+
+    /* 할 일이 없을 때 부르는 훅(T8-01). fn이 NULL이면 무한히 기다린다. */
+    listener_idle_fn idle_fn;
+    void            *idle_ctx;
+    int              idle_ms;
 };
 
 /*
@@ -162,6 +168,56 @@ void listener_close(listener_t *ln)
     free(ln);
 }
 
+void listener_set_idle(listener_t *ln, listener_idle_fn fn, void *ctx,
+                       int timeout_ms)
+{
+    if (ln == NULL) {
+        return;
+    }
+    if (fn == NULL || timeout_ms <= 0) {
+        ln->idle_fn = NULL;
+        ln->idle_ctx = NULL;
+        ln->idle_ms = 0;
+        return;
+    }
+    ln->idle_fn = fn;
+    ln->idle_ctx = ctx;
+    ln->idle_ms = timeout_ms;
+}
+
+/*
+ * fd가 읽을 수 있을 때까지 기다린다. 기다리는 동안 타임아웃이 만료되면 훅을 부른다.
+ *
+ * 반환: 0(읽을 수 있다), 1(멈추라고 했다), 음수 에러.
+ * 훅이 없으면 곧바로 0을 돌려준다 — 그러면 예전처럼 accept()/read()가 기다린다.
+ */
+static int wait_readable(listener_t *ln, int fd)
+{
+    if (ln == NULL || ln->idle_fn == NULL) {
+        return 0;
+    }
+
+    for (;;) {
+        if (listener_stopping()) {
+            return 1;
+        }
+
+        struct pollfd pfd = {.fd = fd, .events = POLLIN, .revents = 0};
+        int           r = poll(&pfd, 1, ln->idle_ms);
+        if (r > 0) {
+            return 0; /* POLLERR/POLLHUP도 read()/accept()가 알아서 받는다 */
+        }
+        if (r == 0) {
+            ln->idle_fn(ln->idle_ctx);
+            continue;
+        }
+        if (errno == EINTR) {
+            continue; /* 멈춤 여부는 루프 위에서 본다 */
+        }
+        return ERR_INVALID_ARG;
+    }
+}
+
 /*
  * n바이트를 채울 때까지 읽는다.
  *
@@ -212,7 +268,7 @@ static int write_exact(int fd, const uint8_t *buf, size_t n)
 }
 
 /* 접속 하나를 끝까지 다룬다. 처리한 전문 수를 반환한다. */
-static int serve_conn(int fd, frame_handler_fn fn, void *ctx)
+static int serve_conn(listener_t *ln, int fd, frame_handler_fn fn, void *ctx)
 {
     static uint8_t body[WIRE_BODY_MAX];
     static uint8_t out[WIRE_FRAME_MAX];
@@ -220,7 +276,19 @@ static int serve_conn(int fd, frame_handler_fn fn, void *ctx)
     int            handled = 0;
 
     for (;;) {
-        int r = read_exact(fd, hbuf, WIRE_HEADER_LEN);
+        /*
+         * **전문 사이에서만 기다린다.** 여기서 틱이 돈다 — 전문 한 개를 읽는
+         * 도중에 호가창을 움직이면 그 전문의 처리와 틱의 순서가 섞인다.
+         */
+        int r = wait_readable(ln, fd);
+        if (r > 0) {
+            return handled; /* 멈추라고 했다. 읽던 전문은 없다 */
+        }
+        if (r < 0) {
+            return r;
+        }
+
+        r = read_exact(fd, hbuf, WIRE_HEADER_LEN);
         if (r == 0) {
             return handled; /* 상대가 깨끗이 끊었다 */
         }
@@ -285,6 +353,14 @@ int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx,
 
     int cfd;
     for (;;) {
+        int w = wait_readable(ln, ln->fd);
+        if (w > 0) {
+            return 0; /* 멈추라고 했다 — 접속은 받지 않았다 */
+        }
+        if (w < 0) {
+            return w;
+        }
+
         cfd = accept(ln->fd, NULL, NULL);
         if (cfd >= 0) {
             break;
@@ -308,7 +384,7 @@ int listener_serve_one(listener_t *ln, frame_handler_fn fn, void *ctx,
         *accepted = true;
     }
 
-    int handled = serve_conn(cfd, fn, ctx);
+    int handled = serve_conn(ln, cfd, fn, ctx);
     close(cfd);
 
     return handled;

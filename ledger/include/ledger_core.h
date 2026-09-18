@@ -118,6 +118,21 @@ void           ledger_core_destroy(ledger_core_t *core);
 int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
                        uint8_t *out, size_t out_cap, void *ctx);
 
+/*
+ * 가상 참가자가 시장마다 주문 n건을 더 낸다(T8-01 실시세 모드의 "살아 있는 호가창").
+ *
+ * 시드 유동성을 만든 그 생성기가 이어서 뽑는다 — 같은 시드에 같은 틱 횟수면 같은
+ * 호가창이 된다. **부르지 않으면 아무 일도 없다.** 그래서 기존 테스트와 `bench`의
+ * 결정성은 그대로다.
+ *
+ * 미체결이 무한히 쌓이면 주문 풀이 마른다. 살아 있는 가상 주문이 설정한 시장당
+ * 유동성 수를 넘으면 **가장 오래된 것부터 취소한다** — 실제로도 호가는 걷힌다.
+ *
+ * 유동성 0으로 만든 코어면 생성기가 없으므로 ERR_NOT_SUPPORTED. n이 0 이하면
+ * ERR_INVALID_ARG.
+ */
+int ledger_core_tick(ledger_core_t *core, int32_t n);
+
 /* 시장의 호가창. 없는 시장이면 NULL. 테스트와 호가 조회(T6-04)가 쓴다. */
 const order_book_t *ledger_core_book(const ledger_core_t *core, market_t market);
 

@@ -613,6 +613,103 @@ static void test_signal_stops_accept(void)
 }
 
 /* 이미 멈춤 요청이 있으면 accept조차 하지 않는다. */
+/*
+ * T8-01 — 기다리는 동안 틱을 칠 틈이 있는가.
+ *
+ * `accept()`도 `read()`도 무한히 기다리므로 실시세 모드에서는 호가창을 움직일 곳이
+ * 없었다. `poll()` 타임아웃이 만료될 때마다 훅이 불리는지 두 자리에서 본다.
+ */
+static int g_idle_calls = 0;
+
+static void count_idle(void *ctx)
+{
+    int *limit = ctx;
+    g_idle_calls++;
+    if (*limit > 0 && g_idle_calls >= *limit) {
+        listener_request_stop();
+    }
+}
+
+/* 아무도 붙지 않는 동안 훅이 돈다. */
+static void test_idle_while_accepting(void)
+{
+    listener_reset_stop();
+    g_idle_calls = 0;
+
+    listener_t *ln = listener_open(0, 16);
+    assert(ln != NULL);
+
+    int limit = 3;
+    listener_set_idle(ln, count_idle, &limit, 5);
+
+    bool accepted = true;
+    assert(listener_serve_one(ln, on_frame, NULL, &accepted) == 0);
+    assert(!accepted); /* 접속을 받은 것이 아니라 멈춘 것이다 */
+    assert(g_idle_calls >= 3);
+
+    listener_close(ln);
+    listener_reset_stop();
+}
+
+/* 접속이 열려 있어도 전문과 전문 사이에서 훅이 돈다. */
+static void test_idle_between_frames(void)
+{
+    listener_reset_stop();
+    g_idle_calls = 0;
+
+    listener_t *ln = listener_open(0, 16);
+    assert(ln != NULL);
+    uint16_t port = listener_port(ln);
+
+    pid_t pid = fork();
+    assert(pid >= 0);
+
+    if (pid == 0) {
+        listener_close(ln);
+        int fd = dial(port);
+        if (fd < 0) {
+            _exit(1);
+        }
+        /* 붙기만 하고 잠시 가만히 있는다 — 그 사이에 훅이 돌아야 한다 */
+        struct timespec nap = {.tv_sec = 0, .tv_nsec = 120000000};
+        nanosleep(&nap, NULL);
+
+        uint8_t f[WIRE_HEADER_LEN + MSG_ORDER_REQ_LEN];
+        size_t  n = build_order_frame(f, sizeof(f), 77, 1, 9000);
+        send_all(fd, f, n);
+
+        uint8_t ack[WIRE_HEADER_LEN + MSG_ORDER_ACK_LEN];
+        size_t  got = 0;
+        while (got < sizeof(ack)) {
+            ssize_t r = read(fd, ack + got, sizeof(ack) - got);
+            if (r <= 0) {
+                break;
+            }
+            got += (size_t)r;
+        }
+        close(fd);
+        _exit(got == sizeof(ack) ? 0 : 2);
+    }
+
+    int limit = 0; /* 멈추라고 하지 않는다 — 자식이 끊으면 돌아온다 */
+    listener_set_idle(ln, count_idle, &limit, 10);
+
+    probe_t probe;
+    memset(&probe, 0, sizeof(probe));
+    probe.reply = true;
+
+    int handled = listener_serve_one(ln, on_frame, &probe, NULL);
+    assert(handled == 1);
+    assert(g_idle_calls > 0);
+
+    int status = 0;
+    waitpid(pid, &status, 0);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+
+    listener_close(ln);
+    listener_reset_stop();
+}
+
 static void test_stop_before_serve(void)
 {
     listener_reset_stop();
@@ -659,6 +756,8 @@ int main(void)
     STEP(test_truncated_header);
     STEP(test_clean_disconnect);
     STEP(test_signal_stops_accept);
+    STEP(test_idle_while_accepting);
+    STEP(test_idle_between_frames);
     STEP(test_stop_before_serve);
     STEP(test_args);
     return 0;

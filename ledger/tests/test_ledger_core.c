@@ -1046,6 +1046,176 @@ static void test_deterministic(void)
     ledger_core_destroy(b);
 }
 
+/*
+ * T8-01 — 틱을 치면 호가창이 움직이고, 치지 않으면 예전 그대로다.
+ */
+static void snapshot_book(ledger_core_t *c, price_t *bid, price_t *ask,
+                          qty_t *bid_qty, qty_t *ask_qty)
+{
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        const order_book_t *ob = ledger_core_book(c, (market_t)m);
+        assert(ob != NULL);
+        bid[m] = book_best_bid(ob);
+        ask[m] = book_best_ask(ob);
+        bid_qty[m] = book_qty_at(ob, SIDE_BUY, bid[m]);
+        ask_qty[m] = book_qty_at(ob, SIDE_SELL, ask[m]);
+    }
+}
+
+static void test_tick_moves_book(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    price_t b0[MARKET_COUNT], a0[MARKET_COUNT];
+    qty_t   bq0[MARKET_COUNT], aq0[MARKET_COUNT];
+    snapshot_book(c, b0, a0, bq0, aq0);
+
+    for (int i = 0; i < 20; i++) {
+        assert(ledger_core_tick(c, 5) == ERR_OK);
+    }
+
+    price_t b1[MARKET_COUNT], a1[MARKET_COUNT];
+    qty_t   bq1[MARKET_COUNT], aq1[MARKET_COUNT];
+    snapshot_book(c, b1, a1, bq1, aq1);
+
+    /* 시장마다 최우선호가나 그 잔량 중 하나는 달라져야 한다 */
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        assert(b1[m] != b0[m] || a1[m] != a0[m] || bq1[m] != bq0[m] ||
+               aq1[m] != aq0[m]);
+    }
+
+    ledger_core_destroy(c);
+}
+
+/* 같은 시드에 같은 틱 횟수면 같은 호가창이다 — 결정성은 그대로다. */
+static void test_tick_is_deterministic(void)
+{
+    ledger_core_t *a = liquid_core();
+    ledger_core_t *b = liquid_core();
+
+    for (int i = 0; i < 10; i++) {
+        assert(ledger_core_tick(a, 3) == ERR_OK);
+        assert(ledger_core_tick(b, 3) == ERR_OK);
+    }
+
+    price_t ba[MARKET_COUNT], aa[MARKET_COUNT], bb[MARKET_COUNT],
+        ab[MARKET_COUNT];
+    qty_t bqa[MARKET_COUNT], aqa[MARKET_COUNT], bqb[MARKET_COUNT],
+        aqb[MARKET_COUNT];
+    snapshot_book(a, ba, aa, bqa, aqa);
+    snapshot_book(b, bb, ab, bqb, aqb);
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        assert(ba[m] == bb[m] && aa[m] == ab[m]);
+        assert(bqa[m] == bqb[m] && aqa[m] == aqb[m]);
+    }
+
+    ledger_core_destroy(a);
+    ledger_core_destroy(b);
+}
+
+/* 틱을 치지 않은 코어는 시드 유동성 그대로다 — 기존 테스트와 bench의 전제. */
+static void test_no_tick_keeps_book(void)
+{
+    ledger_core_t *a = liquid_core();
+    ledger_core_t *b = liquid_core();
+    for (int i = 0; i < 10; i++) {
+        assert(ledger_core_tick(b, 3) == ERR_OK);
+    }
+    ledger_core_destroy(b);
+
+    /* b를 아무리 틱쳐도 a는 처음 그대로여야 한다 */
+    ledger_core_t *fresh = liquid_core();
+    price_t        ba[MARKET_COUNT], aa[MARKET_COUNT], bf[MARKET_COUNT],
+        af[MARKET_COUNT];
+    qty_t bqa[MARKET_COUNT], aqa[MARKET_COUNT], bqf[MARKET_COUNT],
+        aqf[MARKET_COUNT];
+    snapshot_book(a, ba, aa, bqa, aqa);
+    snapshot_book(fresh, bf, af, bqf, aqf);
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        assert(ba[m] == bf[m] && aa[m] == af[m]);
+        assert(bqa[m] == bqf[m] && aqa[m] == aqf[m]);
+    }
+
+    ledger_core_destroy(a);
+    ledger_core_destroy(fresh);
+}
+
+/* 오래 돌아도 주문 풀이 마르지 않는다 — 가장 오래된 가상 호가부터 걷는다. */
+static void test_tick_retires_old_orders(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 50;
+    cfg.order_capacity = 16;
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+
+    /* 유동성 수의 40배를 낸다. 걷지 않으면 풀(=50 + 16*다리 + 64)이 넘친다 */
+    for (int i = 0; i < 200; i++) {
+        assert(ledger_core_tick(c, 10) == ERR_OK);
+    }
+
+    /* 여전히 양쪽 호가가 살아 있어야 한다 */
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        const order_book_t *ob = ledger_core_book(c, (market_t)m);
+        assert(book_best_bid(ob) > 0);
+        assert(book_best_ask(ob) > 0);
+    }
+
+    ledger_core_destroy(c);
+}
+
+/* 유동성 0으로 만든 코어는 생성기가 없다. */
+static void test_tick_without_generator(void)
+{
+    ledger_core_t *c = empty_core(16);
+    assert(ledger_core_tick(c, 1) == ERR_NOT_SUPPORTED);
+    ledger_core_destroy(c);
+}
+
+/*
+ * 틱이 사용자 미체결을 체결시키면 조회와 정산에 반영된다.
+ *
+ * 가상 참가자는 **기준가를 넘지 않는다** — 매수는 기준가 아래, 매도는 위에 놓는다
+ * (`synthetic.c`의 price_at_offset). 그래서 기준가에 걸어 둔 매수가 기준가로
+ * 내려온 가상 매도에 맞는 경우가 이 계층에서 tick이 만드는 maker 체결이다.
+ * 실호가를 심는 T8-03에서는 교차하는 호가도 들어온다.
+ */
+static void test_tick_fills_resting_user_order(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 20; /* 앞에 선 가상 잔량을 적게 둔다 */
+    cfg.order_capacity = 64;
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, cfg.ref_price, 10, 900, &ack) ==
+           ERR_OK);
+    assert(ack.status == STATUS_NEW); /* 바로 체결되지 않고 걸렸다 */
+    order_id_t resting = ack.order_id;
+
+    int64_t cash0, res0;
+    balance(c, &cash0, &res0);
+    assert(res0 == (int64_t)cfg.ref_price * 10); /* 지정가 x 수량이 묶였다 */
+
+    for (int i = 0; i < 2000; i++) {
+        assert(ledger_core_tick(c, 2) == ERR_OK);
+
+        msg_query_ack_t q;
+        query(c, resting, &q);
+        if (q.filled_qty > 0) {
+            int64_t cash, res;
+            balance(c, &cash, &res);
+            /* 체결분만큼 예수금이 나가고 묶인 돈이 풀렸다 */
+            assert(cash == cash0 - (int64_t)cfg.ref_price * q.filled_qty);
+            assert(res == res0 - (int64_t)cfg.ref_price * q.filled_qty);
+            ledger_core_destroy(c);
+            return;
+        }
+    }
+    assert(0 && "가상 매도가 2000틱 안에 기준가까지 내려오지 않았다");
+}
+
 int main(void)
 {
     STEP(test_buy_takes_liquidity);
@@ -1071,5 +1241,11 @@ int main(void)
     STEP(test_balance_message);
     STEP(test_bad_body_drops);
     STEP(test_deterministic);
+    STEP(test_tick_moves_book);
+    STEP(test_tick_is_deterministic);
+    STEP(test_no_tick_keeps_book);
+    STEP(test_tick_retires_old_orders);
+    STEP(test_tick_without_generator);
+    STEP(test_tick_fills_resting_user_order);
     return 0;
 }

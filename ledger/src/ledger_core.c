@@ -76,6 +76,19 @@ struct ledger_core {
      * 매핑 반영은 집행기가 한다. 아니면 호가창에 있던 maker이므로 여기서 반영한다.
      */
     order_id_t submitting;
+
+    /*
+     * 가상 참가자(T8-01). 시드 유동성을 만든 그 생성기를 그대로 들고 있다가
+     * `ledger_core_tick()`에서 이어 뽑는다. 유동성 0이면 NULL이다.
+     *
+     * `synth_first`는 시장별 첫 가상 주문번호다. 생성기가 번호를 1씩 올리므로
+     * `synth_first + retired`가 곧 "가장 오래된, 아직 걷지 않은 주문"이다 —
+     * 번호를 따로 배열에 쌓아 둘 필요가 없다.
+     */
+    divergent_t *div;
+    order_id_t   synth_first[MARKET_COUNT];
+    int64_t      synth_issued[MARKET_COUNT];
+    int64_t      synth_retired[MARKET_COUNT];
 };
 
 /* --- 정산 --- */
@@ -625,13 +638,21 @@ static int seed_liquidity(ledger_core_t *c)
                 break;
             }
             o.market = (market_t)m;
+            if (i == 0) {
+                c->synth_first[m] = o.id;
+            }
+            c->synth_issued[m]++;
             (void)match_limit(c->eng[m], &o, &res);
             if (o.ts > c->clock) {
                 c->clock = o.ts; /* 사용자 주문은 유동성보다 뒤에 온 것으로 둔다 */
             }
         }
     }
-    divergent_destroy(div);
+    /*
+     * **생성기를 살려 둔다**(T8-01). 실시세 모드에서 여기서부터 이어 뽑아야
+     * 호가창이 계속 움직인다. 틱을 부르지 않으면 이 뒤로 아무 일도 없다.
+     */
+    c->div = div;
 
     /*
      * **유동성을 다 넣은 뒤에 콜백을 건다.** 먼저 걸어도 유동성끼리의 체결은
@@ -701,6 +722,7 @@ void ledger_core_destroy(ledger_core_t *c)
     if (c == NULL) {
         return;
     }
+    divergent_destroy(c->div);
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         match_engine_destroy(c->eng[m]);
     }
@@ -713,6 +735,55 @@ void ledger_core_destroy(ledger_core_t *c)
         shm_destroy(c->seg);
     }
     free(c);
+}
+
+int ledger_core_tick(ledger_core_t *c, int32_t n)
+{
+    if (c == NULL) {
+        return ERR_NULL_PTR;
+    }
+    if (n <= 0) {
+        return ERR_INVALID_ARG;
+    }
+    if (c->div == NULL) {
+        return ERR_NOT_SUPPORTED; /* 유동성 0으로 만든 코어 — 생성기가 없다 */
+    }
+
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        synth_gen_t *gen = divergent_gen(c->div, (market_t)m);
+        if (gen == NULL) {
+            continue;
+        }
+        for (int32_t i = 0; i < n; i++) {
+            order_t       o;
+            exec_result_t res;
+            if (synth_next(gen, &o) != ERR_OK) {
+                break;
+            }
+            o.market = (market_t)m;
+            c->synth_issued[m]++;
+
+            /*
+             * 살아 있는 가상 주문 수를 시장당 유동성 수로 묶는다. 넘으면 가장
+             * 오래된 번호를 걷는다. 이미 체결돼 없어진 번호면 ERR_NOT_FOUND가
+             * 오는데, 그것도 "더 이상 살아 있지 않다"는 뜻이라 그냥 넘긴다.
+             */
+            while (c->synth_issued[m] - c->synth_retired[m] >
+                   c->cfg.liquidity_per_market) {
+                exec_result_t cr;
+                order_id_t    old_id =
+                    c->synth_first[m] + (order_id_t)c->synth_retired[m];
+                (void)match_cancel(c->eng[m], old_id, o.ts, &cr);
+                c->synth_retired[m]++;
+            }
+
+            (void)match_limit(c->eng[m], &o, &res);
+            if (o.ts > c->clock) {
+                c->clock = o.ts;
+            }
+        }
+    }
+    return ERR_OK;
 }
 
 /* --- 보기 --- */

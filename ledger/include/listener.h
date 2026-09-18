@@ -80,6 +80,23 @@ int listener_fd(const listener_t *ln);
 void listener_close(listener_t *ln);
 
 /*
+ * 할 일이 없을 때 부를 훅(T8-01).
+ *
+ * `accept()`도 `read()`도 무한히 기다린다. 그래서 실시세 모드에서 "호가창을 한 틱
+ * 움직여라"를 끼워 넣을 틈이 없다 — 접속이 하나 붙어 조용히 열려 있으면 영원히
+ * 아무 일도 일어나지 않는다. 그래서 두 자리 모두 `poll()`로 바꾸고, 타임아웃이
+ * 만료되면 이 훅을 부른다.
+ *
+ * 훅은 **전문 사이에서만** 불린다. 전문 한 개를 읽는 도중에는 부르지 않는다.
+ * 걸지 않으면(기본값) 예전처럼 무한히 기다린다.
+ */
+typedef void (*listener_idle_fn)(void *ctx);
+
+/* timeout_ms가 0 이하이거나 fn이 NULL이면 훅을 떼고 무한 대기로 돌아간다. */
+void listener_set_idle(listener_t *ln, listener_idle_fn fn, void *ctx,
+                       int timeout_ms);
+
+/*
  * 접속을 하나 받아 끝까지 처리하고 닫는다.
  *
  * **한 번에 한 접속만 다룬다.** 동시 접속은 T3-04(워커 풀)의 일이다 — 여기서
