@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
@@ -48,6 +49,20 @@ public class TossFeedClient implements AutoCloseable {
 
     private static final long BACKOFF_MIN_MS = 1000;
     private static final long BACKOFF_MAX_MS = 60_000;
+
+    /*
+     * 이 간격으로 ping을 보낸다.
+     *
+     * **아무것도 보내지 않으면 서버가 끊는다.** 장이 닫히면 호가 변화가 없어 수신도 송신도
+     * 없는 유휴 상태가 되는데, 실제로 그 상태로 2분 48초 만에 끊겼다
+     * (`HTTP/1.1 header parser received no bytes`). 그 뒤 재연결은 한동안 거부됐다 —
+     * 동시 연결 수를 서버가 아직 붙들고 있기 때문으로 보인다.
+     *
+     * 텍스트로 `{"type":"ping"}`을 보내지 않는다. 서버는 모르는 `type`에 `invalid-type`
+     * 오류를 돌려준다(구독 토픽을 고를 때 확인했다). **표준 WebSocket Ping 프레임**이
+     * 프로토콜이 정한 방법이고 상대가 무엇을 기대하든 안전하다.
+     */
+    private static final long PING_SEC = 30;
 
     private final FeedProperties props;
     private final LiveFeed live;
@@ -181,8 +196,17 @@ public class TossFeedClient implements AutoCloseable {
          */
         primeFromRest(token);
 
-        closed.await();
+        /* 닫힐 때까지 기다리되, 조용한 동안 ping으로 연결을 살려 둔다 */
+        while (running.get() && !closed.await(PING_SEC, TimeUnit.SECONDS)) {
+            ws.sendPing(ByteBuffer.allocate(0));
+        }
+
         log.info("실시세 구독이 닫혔다. 받은 메시지 {}건", received.get());
+        /*
+         * **확실히 놓아 준다.** 그냥 버리면 서버가 그 연결을 한동안 붙들고, 동시 연결 수에
+         * 걸려 다시 붙지 못한다(재연결이 `WebSocketHandshakeException`으로 거부됐다).
+         */
+        ws.abort();
         socket = null;
         live.enterSim();
         throw new IllegalStateException("구독이 끊겼다");
@@ -268,8 +292,16 @@ public class TossFeedClient implements AutoCloseable {
      * {@code {"error":"access_denied","error_description":"IP address not allowed"}}이다.
      */
     static String reason(Throwable e) {
-        String m = e.getMessage();
-        return (m == null || m.isBlank()) ? e.toString() : m;
+        /*
+         * 껍질을 벗긴다. `CompletionException: IOException: ...`처럼 겹쳐 오면 화면에 자바
+         * 클래스 이름만 길게 남고 정작 무슨 일인지가 묻힌다.
+         */
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String m = root.getMessage();
+        return (m == null || m.isBlank()) ? root.getClass().getSimpleName() : m;
     }
 
     /**
