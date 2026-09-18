@@ -67,7 +67,7 @@
  *                  leg_canceled:i32[2] leg_notional:i64[2]   (배열은 KRX, NXT 순)
  * BALANCE_REQ (12) account[12]
  * BALANCE_ACK (32) account[12] reason:i32 cash:i64 reserved:i64
- * BOOK_FEED (177)  symbol[8] market:u8 feed_ts:i64 bid_price:i32[10]
+ * BOOK_FEED (178)  symbol[8] market:u8 flags:u8 feed_ts:i64 bid_price:i32[10]
  *                  bid_qty:i32[10] ask_price:i32[10] ask_qty:i32[10]
  *
  * ===========================================================================
@@ -159,7 +159,17 @@
  * 호가 스키마에는 `maxItems`가 없고 예시가 3단·1단이라, 보내는 쪽이 단수를 맞춰
  * 주리라 기대할 수 없다.
  */
-#define MSG_BOOK_FEED_LEN (MSG_SYMBOL_LEN + 1 + 8 + MSG_BOOK_DEPTH * 4 * 4)
+/*
+ * `flags`의 비트.
+ *
+ * **바깥 시세가 끝났다는 것을 원장이 스스로 알 수는 없다.** 스냅샷이 잠시 안 오는 것과
+ * 피드가 끝난 것은 겉으로 같다. 시간으로 어림하면 장 마감에 가상 참가자가 슬그머니
+ * 돌아와 "실시세인 척하는 시뮬"이 된다 — 실제로 그렇게 됐다. 그래서 **보내는 쪽이
+ * 명시적으로 끝을 알린다.**
+ */
+#define MSG_FEED_END 0x01
+
+#define MSG_BOOK_FEED_LEN (MSG_SYMBOL_LEN + 1 + 1 + 8 + MSG_BOOK_DEPTH * 4 * 4)
 
 /*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
@@ -374,6 +384,7 @@ typedef struct {
 typedef struct {
     char    symbol[MSG_SYMBOL_LEN + 1];
     uint8_t market;
+    uint8_t flags; /* MSG_FEED_END 등 */
     ts_t    feed_ts;
     price_t bid_price[MSG_BOOK_DEPTH];
     qty_t   bid_qty[MSG_BOOK_DEPTH];

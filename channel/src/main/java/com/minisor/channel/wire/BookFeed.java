@@ -25,19 +25,31 @@ public final class BookFeed {
     @WireField(order = 2, type = U8)
     public int market;
 
-    @WireField(order = 3, type = I64)
+    /**
+     * C의 {@code MSG_FEED_END}. 바깥 시세가 <b>끝났다</b>는 신호.
+     *
+     * <p>스냅샷이 잠시 안 오는 것(장 마감)과 피드가 끝난 것은 원장이 보기에 같다. 시간으로
+     * 어림해 풀면 장 마감에 가상 참가자가 슬그머니 돌아와 "실시세인 척하는 시뮬"이 된다.
+     * 그래서 <b>보내는 쪽이 끝을 알린다.</b>
+     */
+    public static final int FEED_END = 0x01;
+
+    @WireField(order = 3, type = U8)
+    public int flags;
+
+    @WireField(order = 4, type = I64)
     public long feedTs;
 
-    @WireField(order = 4, type = I32, count = DEPTH)
+    @WireField(order = 5, type = I32, count = DEPTH)
     public int[] bidPrice = new int[DEPTH];
 
-    @WireField(order = 5, type = I32, count = DEPTH)
+    @WireField(order = 6, type = I32, count = DEPTH)
     public int[] bidQty = new int[DEPTH];
 
-    @WireField(order = 6, type = I32, count = DEPTH)
+    @WireField(order = 7, type = I32, count = DEPTH)
     public int[] askPrice = new int[DEPTH];
 
-    @WireField(order = 7, type = I32, count = DEPTH)
+    @WireField(order = 8, type = I32, count = DEPTH)
     public int[] askQty = new int[DEPTH];
 
     /** 10단을 넘으면 자르고 모자라면 0으로 남긴다. {@code levels}는 {가격, 잔량} 쌍의 목록. */

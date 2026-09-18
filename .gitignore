@@ -21,3 +21,6 @@ dist/
 web/node_modules/
 web/dist/
 .env
+
+# ctest를 저장소 루트에서 돌리면 남는 임시 출력
+Testing/

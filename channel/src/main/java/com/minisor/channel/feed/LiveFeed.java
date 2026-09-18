@@ -10,6 +10,7 @@ import com.minisor.channel.wire.BookFeed;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -51,7 +52,14 @@ public class LiveFeed {
             long lastFeedTs,
             String note,
             /** 마지막으로 붙지 못한 이유. 붙어 있으면 null */
-            String error) {}
+            String error,
+            /**
+             * 마지막 스냅샷을 받은 <b>벽시계</b> 시각(ms). 0이면 아직 없다.
+             *
+             * <p>원장의 논리 시각과 달리 "얼마나 오래 조용한가"를 재는 데 쓴다 — 장이 닫히면
+             * 피드가 멈추고 호가창이 얼어붙는데, 그것을 화면이 말해 줘야 한다.
+             */
+            long lastFeedAt) {}
 
     private final LedgerGateway gateway;
     private final StreamHub hub;
@@ -60,6 +68,10 @@ public class LiveFeed {
 
     private final AtomicLong applied = new AtomicLong();
     private final AtomicLong lastFeedTs = new AtomicLong();
+    private final AtomicLong lastFeedAt = new AtomicLong();
+    /* 바깥에서 받은 체결. 보여 주기만 한다 — 원장에 넣지 않는다 */
+    private final AtomicLong tradeQty = new AtomicLong();
+    private final AtomicLong lastTradePrice = new AtomicLong();
     private volatile Mode mode = Mode.SIM;
     private volatile String source = "sim";
     /*
@@ -96,12 +108,67 @@ public class LiveFeed {
         BookFeed.fill(f.askPrice, f.askQty, s.asks());
 
         BookAck ack = gateway.call(f, BookAck.class);
+        checkPlanted(f, ack);
 
         applied.incrementAndGet();
         lastFeedTs.set(s.tsNanos());
+        lastFeedAt.set(System.currentTimeMillis());
         record(s);
         hub.broadcast(StreamEvent.book(BookController.BookDto.from(ack)));
         return ack;
+    }
+
+    /**
+     * 보낸 호가가 정말 심겼는지 본다.
+     *
+     * <p>원장 호가창은 <b>기준가 ±30%</b>(가격 제한폭)만 펼쳐 둔다. 종목의 실제 가격이
+     * 원장의 기준가와 멀면 모든 단이 그 범위 밖이라 <b>통째로 버려진다</b> — 스냅샷은
+     * 계속 들어가는데 호가창은 그대로다. 실제로 그렇게 됐다(실호가 260,000원대, 원장
+     * 기준가 70,000원).
+     *
+     * <p>응답은 심은 뒤의 호가창이므로, 보낸 최우선 가격이 그 안에 없으면 버려진 것이다.
+     * 조용히 넘기지 않고 화면까지 올린다.
+     */
+    private void checkPlanted(BookFeed sent, BookAck ack) {
+        int want = sent.bidPrice[0] > 0 ? sent.bidPrice[0] : sent.askPrice[0];
+        if (want <= 0) {
+            return; /* 빈 스냅샷 — 걷어내는 것이 목적이다 */
+        }
+        if (has(ack.bidPrice, want) || has(ack.askPrice, want)) {
+            lastError = null;
+            return;
+        }
+        noteError(
+                "원장이 이 가격대를 받지 못한다 — 실호가 "
+                        + want
+                        + "원, 원장 기준가가 다르다. ledgerd를 --ref-price "
+                        + want
+                        + " 로 띄워야 한다");
+    }
+
+    private static boolean has(int[] prices, int want) {
+        for (int p : prices) {
+            if (p == want) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 바깥에서 받은 <b>체결</b> 하나. 호가와 달리 원장에 넣지 않는다 — 내 호가창은 내
+     * 매칭 엔진이 채우고, 바깥 체결은 <b>보여 주기만</b> 한다.
+     *
+     * <p>넣으려 들면 "그 가격에 거래가 있었으니 내 주문도 체결"이라는 순진한 판정이 되어
+     * 체결률을 부풀린다. 그것이 이 프로젝트가 피하려는 바로 그 지점이다.
+     */
+    public void onTrade(int price, int qty) {
+        if (price <= 0 || qty <= 0) {
+            return;
+        }
+        tradeQty.addAndGet(qty);
+        lastTradePrice.set(price);
+        hub.broadcast(StreamEvent.trade(Map.of("price", price, "qty", qty)));
     }
 
     /** 녹화 중이면 적는다. 적다 실패해도 피드를 멈추지 않는다 — 녹화는 곁다리다. */
@@ -165,9 +232,28 @@ public class LiveFeed {
         hub.broadcast(new StreamEvent("feed-mode", status()));
     }
 
+    /**
+     * 시뮬로 돌아간다. <b>원장에 "피드가 끝났다"를 알린다.</b>
+     *
+     * <p>알리지 않으면 원장은 그 시장에서 손을 뗀 채로 남아 호가창이 영영 얼어붙는다.
+     * 마지막 실호가는 지우지 않는다 — 가상 참가자가 그 위에서 이어 간다.
+     */
     public void enterSim() {
+        boolean wasLive = mode == Mode.LIVE;
         this.source = "sim";
         this.mode = Mode.SIM;
+        if (wasLive) {
+            try {
+                BookFeed end = new BookFeed();
+                end.symbol = symbol;
+                end.market = props.market();
+                end.flags = BookFeed.FEED_END;
+                gateway.call(end, BookAck.class);
+            } catch (RuntimeException e) {
+                /* 원장이 답하지 않아도 화면의 모드는 바꾼다. 다음 전환에서 다시 알린다 */
+                lastError = "원장에 피드 종료를 알리지 못했다: " + e.getMessage();
+            }
+        }
         hub.broadcast(new StreamEvent("feed-mode", status()));
     }
 
@@ -219,6 +305,7 @@ public class LiveFeed {
                 applied.get(),
                 lastFeedTs.get(),
                 note,
-                lastError);
+                lastError,
+                lastFeedAt.get());
     }
 }

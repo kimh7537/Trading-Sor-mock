@@ -41,6 +41,8 @@ export function Header({
   books,
   feed,
   only,
+  theme,
+  onToggleTheme,
 }: {
   ws: { state: ConnState; attempt: number };
   ledgerDown: string | null;
@@ -50,6 +52,8 @@ export function Header({
   feed: FeedStatus | null;
   /** 실시세 모드에서 통합 시세를 심는 시장. 그때는 이 시장만 센다 */
   only?: Market;
+  theme: "dark" | "light";
+  onToggleTheme: () => void;
 }) {
   const live = feed?.mode === "live";
   const cells: [key: keyof Balance, label: string][] = [
@@ -107,6 +111,16 @@ export function Header({
             );
           })}
         </div>
+
+        <button
+          type="button"
+          className="theme-btn"
+          onClick={onToggleTheme}
+          aria-label={theme === "dark" ? "밝은 화면으로 바꾼다" : "어두운 화면으로 바꾼다"}
+          title={theme === "dark" ? "밝은 화면" : "어두운 화면"}
+        >
+          {theme === "dark" ? "☀" : "☾"}
+        </button>
 
         <span
           className={`mode-badge${live ? " live" : ""}`}

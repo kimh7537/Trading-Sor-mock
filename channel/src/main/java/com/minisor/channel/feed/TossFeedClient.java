@@ -4,12 +4,15 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +55,16 @@ public class TossFeedClient implements AutoCloseable {
     private final HttpClient http =
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
+    /*
+     * 붙은 뒤 처음 받는 몇 건은 **원문 그대로** 로그에 남긴다.
+     *
+     * 붙었는데 아무것도 오지 않을 때 원인이 둘이다 — 장이 닫혔거나, 구독 선언을 서버가
+     * 받아들이지 않았거나. 조용히 버리면 둘을 구분할 수 없다. 구독 확인이든 오류 응답이든
+     * 무엇이라도 오는지가 그 갈림길이다.
+     */
+    private static final int LOG_FIRST_MESSAGES = 5;
+
+    private final AtomicInteger received = new AtomicInteger();
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Thread loop;
     private volatile WebSocket socket;
@@ -156,14 +169,96 @@ public class TossFeedClient implements AutoCloseable {
                         .buildAsync(URI.create(props.wsUrl()), new Listener(closed))
                         .join();
         socket = ws;
-        ws.sendText(subscribeJson(props.symbol()), true);
+        String sub = subscribeJson(props.symbol());
+        received.set(0);
+        ws.sendText(sub, true);
         live.enterLive("toss");
-        log.info("실시세 구독: {} (시장 {})", props.symbol(), props.market());
+        log.info("실시세 구독 보냄: {} (시장 {})", sub, props.market());
+
+        /*
+         * 구독만으로는 **다음 호가 변화가 올 때까지** 화면이 빈 채로 있다. 장이 닫혀 있으면
+         * 영영 오지 않는다. REST로 지금 호가를 한 번 받아 채운다 — 붙자마자 보인다.
+         */
+        primeFromRest(token);
 
         closed.await();
+        log.info("실시세 구독이 닫혔다. 받은 메시지 {}건", received.get());
         socket = null;
         live.enterSim();
         throw new IllegalStateException("구독이 끊겼다");
+    }
+
+    /**
+     * 체결 한 건. <b>실물 메시지를 본 적이 없다</b> — 장중이 아니면 오지 않는다.
+     *
+     * <p>{@code trade:kr} 토픽이 유효하다는 것은 서버의 구독 응답으로 확인했다
+     * ({@code subscribed:["trade:kr:005930"]}). 필드 이름은 호가와 같은 규약
+     * ({@code price} / {@code volume})을 먼저 보고, 흔한 대안({@code quantity})도 본다.
+     * 읽지 못하면 <b>버린다</b> — 추측한 값을 화면에 올리지 않는다. 앞의 몇 건은 원문을
+     * 로그에 남기므로 장중에 한 번 보면 확정된다.
+     */
+    private void onTrade(JsonNode data) {
+        int price = intOf(data, "price");
+        int qty = intOf(data, "volume");
+        if (qty <= 0) {
+            qty = intOf(data, "quantity");
+        }
+        live.onTrade(price, qty);
+    }
+
+    private static int intOf(JsonNode data, String field) {
+        JsonNode v = data.path(field);
+        if (v.isMissingNode() || v.isNull()) {
+            return 0;
+        }
+        try {
+            return new java.math.BigDecimal(v.asString()).intValue();
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * 붙자마자 REST로 호가를 한 번 받아 원장에 심는다.
+     *
+     * <p>{@code GET /api/v1/orderbook}의 파라미터는 {@code symbol} 하나뿐이다 — 시장을 고르는
+     * 인자가 없다. "국내는 통합 시세(KRX+NXT)만"이 스펙 수준에서 확인되는 자리다.
+     *
+     * <p>실패해도 구독은 계속한다. 첫 화면을 채우려는 것이지 이것이 피드는 아니다.
+     */
+    private void primeFromRest(String token) {
+        try {
+            HttpRequest req =
+                    HttpRequest.newBuilder(
+                                    URI.create(
+                                            props.baseUrl()
+                                                    + "/api/v1/orderbook?symbol="
+                                                    + props.symbol()))
+                            .header("Authorization", "Bearer " + token)
+                            .header("Accept", "application/json")
+                            .timeout(Duration.ofSeconds(10))
+                            .GET()
+                            .build();
+
+            HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+            String body = TossTokenSource.text(res);
+            if (res.statusCode() / 100 != 2) {
+                log.warn("첫 호가 조회 실패 {}: {}", res.statusCode(), body);
+                return;
+            }
+            log.info(
+                    "첫 호가: {}",
+                    body.length() > 400 ? body.substring(0, 400) + "…" : body);
+
+            JsonNode n = JSON.readTree(body);
+            live.apply(
+                    Snapshot.fromToss(
+                            props.symbol(), n.path("result"), live.status().lastFeedTs()));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("첫 호가를 받지 못했다: {}", e.toString());
+        }
     }
 
     /**
@@ -177,9 +272,25 @@ public class TossFeedClient implements AutoCloseable {
         return (m == null || m.isBlank()) ? e.toString() : m;
     }
 
-    /** {@code [{"type":"orderbook:kr","codes":["005930"]}]} */
+    /**
+     * {@code [{"type":"orderbook:kr","codes":["005930"]}, …]}
+     *
+     * <p>체결 채널의 토픽 이름은 공개 스펙에 없다. 서버가 구독 응답에
+     * {@code subscribed}/{@code rejected}를 돌려주므로 <b>후보를 같이 보내고 어느 것이
+     * 받아들여지는지 본다</b> — 추측으로 하나만 적어 두는 것보다 확실하다.
+     */
     static String subscribeJson(String symbol) {
-        return "[{\"type\":\"orderbook:kr\",\"codes\":[\"" + symbol + "\"]}]";
+        StringBuilder b = new StringBuilder("[");
+        String[] types = {"orderbook:kr", "trade:kr"};
+        for (int i = 0; i < types.length; i++) {
+            b.append(i > 0 ? "," : "")
+                    .append("{\"type\":\"")
+                    .append(types[i])
+                    .append("\",\"codes\":[\"")
+                    .append(symbol)
+                    .append("\"]}");
+        }
+        return b.append("]").toString();
     }
 
     /** 참이면 계속 간다. 거짓이면 종료 중이다. */
@@ -233,6 +344,13 @@ public class TossFeedClient implements AutoCloseable {
 
     /** 패키지 밖에서 부르지 않는다. 시험이 메시지 한 건을 그대로 넣어 볼 수 있게 열어 둔다. */
     void handle(WebSocket ws, String text) {
+        int seq = received.incrementAndGet();
+        if (seq <= LOG_FIRST_MESSAGES) {
+            log.info(
+                    "실시세 수신 {}: {}",
+                    seq,
+                    text.length() > 400 ? text.substring(0, 400) + "…" : text);
+        }
         try {
             JsonNode n = JSON.readTree(text);
             String type = n.path("type").asText("");
@@ -246,8 +364,12 @@ public class TossFeedClient implements AutoCloseable {
                 return;
             }
             String topic = n.path("topic").asText("");
+            if (topic.startsWith("trade:")) {
+                onTrade(n.path("data"));
+                return;
+            }
             if (!topic.startsWith("orderbook:")) {
-                return; /* 체결(realtime-trade)은 호가에 이미 반영돼 온다 */
+                return;
             }
             live.apply(Snapshot.fromToss(props.symbol(), n.path("data"), live.status().lastFeedTs()));
         } catch (Exception e) {

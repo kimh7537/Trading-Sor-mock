@@ -1503,13 +1503,15 @@ static void test_feed_stops_ticks_on_that_market(void)
 }
 
 /*
- * **피드가 끊기면 가상 참가자가 돌아온다.**
+ * **가상 참가자는 `MSG_FEED_END`를 받아야 돌아온다.**
  *
- * 받은 시장에서 손을 떼는 것은 실호가 위에 가짜 주문을 얹지 않으려는 것이지, 피드가 멈춘
- * 뒤에도 그러라는 뜻이 아니다. 영구히 표시해 두면 재생이 끝나는 순간 그 시장 호가창이
- * 그대로 얼어붙는다 — 화면에서 시뮬로 되돌려도 죽은 호가가 남았다.
+ * 스냅샷이 잠시 안 오는 것(장 마감)과 피드가 끝난 것은 겉으로 같다. 시간으로 어림해
+ * 스스로 풀면 장 마감에 가상 참가자가 슬그머니 돌아와 **실시세인 척하는 시뮬**이 된다 —
+ * 화면에는 "실시세"라고 적혀 있는데 움직이는 것은 내 가짜 주문이다. 실제로 그렇게 됐다.
+ *
+ * 끝을 알리면 호가창은 **그대로 두고** 가상 참가자만 돌아온다.
  */
-static void test_ticks_resume_after_feed_stops(void)
+static void test_ticks_resume_only_on_feed_end(void)
 {
     ledger_core_t *c = liquid_core();
 
@@ -1524,37 +1526,30 @@ static void test_ticks_resume_after_feed_stops(void)
     book(c, "005930", MARKET_KRX, &frozen);
     assert(frozen.bid_price[0] == 69000 && frozen.bid_qty[0] == 11);
 
-    /* 스냅샷이 계속 오는 동안은 그대로다 */
-    for (int i = 0; i < 20; i++) {
+    /* **아무리 오래 조용해도** 스스로 풀리지 않는다 — 장 마감이 그렇게 보인다 */
+    for (int i = 0; i < 600; i++) {
         assert(ledger_core_tick(c, 1) == ERR_OK);
     }
     msg_book_ack_t still;
     book(c, "005930", MARKET_KRX, &still);
     assert(memcmp(&frozen, &still, sizeof(frozen)) == 0);
 
-    /* 한참 조용하면 가상 참가자가 돌아온다 */
-    for (int i = 0; i < 400; i++) {
+    /* 끝을 알리면 호가창은 그대로 두고 가상 참가자만 돌아온다 */
+    msg_book_feed_t end;
+    feed_init(&end, MARKET_KRX, 3000);
+    end.flags = MSG_FEED_END;
+    assert(ledger_core_apply_feed(c, &end) == ERR_OK);
+
+    msg_book_ack_t kept;
+    book(c, "005930", MARKET_KRX, &kept);
+    assert(memcmp(&frozen, &kept, sizeof(frozen)) == 0); /* 마지막 실호가가 남는다 */
+
+    for (int i = 0; i < 50; i++) {
         assert(ledger_core_tick(c, 1) == ERR_OK);
     }
     msg_book_ack_t alive;
     book(c, "005930", MARKET_KRX, &alive);
     assert(memcmp(&frozen, &alive, sizeof(frozen)) != 0);
-
-    /* 다시 스냅샷을 받으면 또 손을 뗀다 */
-    feed_init(&f, MARKET_KRX, 2000);
-    const price_t bp2[] = {69100};
-    const qty_t   bq2[] = {13};
-    fill_side(f.bid_price, f.bid_qty, bp2, bq2, 1);
-    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
-
-    msg_book_ack_t again;
-    book(c, "005930", MARKET_KRX, &again);
-    for (int i = 0; i < 20; i++) {
-        assert(ledger_core_tick(c, 1) == ERR_OK);
-    }
-    msg_book_ack_t held;
-    book(c, "005930", MARKET_KRX, &held);
-    assert(memcmp(&again, &held, sizeof(again)) == 0);
 
     ledger_core_destroy(c);
 }
@@ -1680,7 +1675,7 @@ int main(void)
     STEP(test_feed_is_deterministic);
     STEP(test_feed_rejections);
     STEP(test_feed_stops_ticks_on_that_market);
-    STEP(test_ticks_resume_after_feed_stops);
+    STEP(test_ticks_resume_only_on_feed_end);
     STEP(test_feed_clears_deep_levels);
     STEP(test_feed_message_answers_with_book);
     return 0;

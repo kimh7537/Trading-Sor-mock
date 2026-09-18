@@ -43,6 +43,46 @@
   color-scheme: dark;
 }
 
+/*
+ * 라이트 테마. **색 이름은 그대로 두고 값만 바꾼다** — 화면 코드가 테마를 몰라야
+ * 한쪽만 고치는 일이 안 생긴다.
+ *
+ * 매수 빨강 / 매도 파랑은 국내 관행이라 두 테마에서 같은 뜻을 유지하되, 밝은 배경에서
+ * 읽히도록 채도를 낮춘다. 색만으로 뜻을 전하지 않는 것은 그대로다 — 늘 글자를 같이 쓴다.
+ */
+:root[data-theme="light"] {
+  --bg:        #f4f6f9;
+  --bg-panel:  #ffffff;
+  --bg-raised: #f7f9fc;
+  --bg-hover:  #eef2f7;
+  --line:      #dde3ec;
+  --line-soft: #eaeef4;
+  --line-strong:#b8c2d1;
+
+  --text:      #131820;
+  --text-dim:  #55607180;
+  --text-dim:  #556071;
+  --text-faint:#8a94a4;
+
+  --buy:       #d6303f;
+  --buy-bg:    rgba(214, 48, 63, 0.10);
+  --sell:      #1662d4;
+  --sell-bg:   rgba(22, 98, 212, 0.10);
+
+  --krx:       #b5730a;
+  --nxt:       #0d8a7c;
+  --sor:       #6d4dd6;
+  --ok:        #15803d;
+  --ok-bg:     rgba(21, 128, 61, 0.10);
+  --warn:      #b45309;
+  --warn-bg:   rgba(180, 83, 9, 0.12);
+  --danger:    #c62828;
+  --danger-bg: rgba(198, 40, 40, 0.10);
+  --focus:     #2563eb;
+
+  color-scheme: light;
+}
+
 * { box-sizing: border-box; }
 
 html, body, #root { height: 100%; }
@@ -222,23 +262,40 @@ kbd {
   display: grid;
   gap: var(--s-3);
   height: 100%;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(320px, 360px);
+  grid-template-columns: minmax(280px, 0.95fr) minmax(0, 1.7fr) minmax(330px, 370px);
   /*
-   * 차트 행에 **상한**을 둔다. auto로 두면 시세 모드 칸과 차트가 내용만큼 다 차지해서
-   * 아래 미체결·주문 내역 칸이 몇십 픽셀만 남는다(실제로 그렇게 됐다). 넘치는 내용은
-   * 패널 본문이 스크롤한다.
+   * 차트가 주인공이라 남는 높이를 차트가 가져간다. 아래 칸은 최소 높이를 보장한다 —
+   * 예전에는 차트 행이 `auto`라 내용만큼 다 차지해 미체결 칸이 몇십 픽셀만 남았다.
    */
-  grid-template-rows: auto minmax(0, 350px) minmax(200px, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(210px, 320px);
   grid-template-areas:
-    "book compare ticket"
     "book chart ticket"
     "book activity ticket";
 }
 .area-book { grid-area: book; }
-.area-compare { grid-area: compare; }
 .area-chart { grid-area: chart; }
 .area-activity { grid-area: activity; }
 .area-ticket { grid-area: ticket; }
+
+/*
+ * 좁은 화면에서는 **탭 하나씩**. 증권사 앱처럼 호가·차트·주문·체결을 오가며 본다.
+ * 보이는 것만 CSS가 고른다 — 컴포넌트는 늘 그대로다.
+ */
+.pane-tabs { display: none; }
+
+@media (max-width: 1199px) {
+  .pane-tabs { display: flex; }
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "one";
+  }
+  .workspace > .panel { display: none; grid-area: one; }
+  .workspace[data-pane="book"] .area-book,
+  .workspace[data-pane="chart"] .area-chart,
+  .workspace[data-pane="ticket"] .area-ticket,
+  .workspace[data-pane="activity"] .area-activity { display: flex; }
+}
 
 /* ───────── 패널 ───────── */
 
@@ -635,19 +692,6 @@ kbd {
 /* ───────── 좁은 화면 ───────── */
 
 @media (max-width: 1180px) {
-  .app { height: auto; min-height: 100%; }
-  .page { overflow: visible; }
-  .workspace {
-    height: auto;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
-    grid-template-rows: auto;
-    grid-template-areas:
-      "book ticket"
-      "compare ticket"
-      "chart ticket"
-      "activity activity";
-  }
-  .area-activity .panel-body { max-height: 560px; }
   .balance { order: 5; width: 100%; justify-content: space-between; }
   .balance > div { align-items: flex-start; }
 }
@@ -657,10 +701,6 @@ kbd {
   .alert-bar { padding: 8px var(--s-3); }
   .tabs { padding: 0 var(--s-2); }
   .page { padding: var(--s-2); }
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "book" "ticket" "chart" "compare" "activity";
-  }
   .brand span { display: none; }
   .quote { width: 100%; justify-content: space-between; }
   .venues { grid-template-columns: minmax(0, 1fr); }
@@ -680,6 +720,33 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   .flash-up, .flash-down, .toast { animation: none; }
+}
+
+/* ───────── 좁은 화면 탭 ───────── */
+
+.pane-tabs {
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: var(--s-2);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.pane-tabs button {
+  flex: 1;
+  padding: 9px 6px;
+  border: none;
+  border-radius: calc(var(--r-md) - 2px);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pane-tabs button[aria-selected="true"] {
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 /* ───────── 시세 모드와 차트 (T8-05) ───────── */
@@ -733,11 +800,28 @@ kbd {
 
 .chart {
   width: 100%;
-  height: 110px;
+  /* 남는 높이를 차트가 가져간다. 패널이 커지면 차트도 같이 커진다 */
+  height: 100%;
+  min-height: 150px;
   display: block;
   background: var(--bg-sunken, transparent);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
+}
+
+/*
+ * 차트 칸: 위는 시세 모드(내용 높이), 아래 차트가 **남는 높이를 전부** 가져간다.
+ * 예전에는 첫 자식(토글)이 늘어나 버튼이 화면 절반을 차지했다.
+ */
+.area-chart .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.area-chart .panel-body > .stack:last-child {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto auto;
 }
 
 .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); margin: 0; }
@@ -755,3 +839,42 @@ kbd {
 .note { overflow-wrap: anywhere; }
 .warn-note { color: var(--warn, #fcd34d); }
 .err-note { color: #fca5a5; }
+
+/* ───────── 테마 토글 ───────── */
+
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--line-strong); }
+
+/* 한 패널 안에서 구역을 나눌 때 */
+.rule { height: 1px; margin: 0; border: none; background: var(--line); }
+.sub-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sub-head .muted { font-size: 11px; font-weight: 500; }
+
+/*
+ * 라이트 테마에서 호가 막대가 너무 옅어 잔량이 눈에 안 들어왔다. 배경 색만 조금 진하게
+ * 한다 — 글자 색과 ▲▼ 표시는 그대로라 색만으로 뜻을 전하지는 않는다.
+ */
+:root[data-theme="light"] .lvl.bid .bar { background: rgba(214, 48, 63, 0.16); }
+:root[data-theme="light"] .lvl.ask .bar { background: rgba(22, 98, 212, 0.16); }
+:root[data-theme="light"] .lvl:hover { background: var(--bg-hover); }

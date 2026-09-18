@@ -137,18 +137,21 @@ class WireCodecTest {
         BookFeed in = new BookFeed();
         in.symbol = "005930";
         in.market = 1;
+        in.flags = BookFeed.FEED_END;
         in.feedTs = 0x0102030405060708L;
         BookFeed.fill(in.bidPrice, in.bidQty, java.util.List.of(new int[] {69900, 12}));
         BookFeed.fill(in.askPrice, in.askQty, java.util.List.of(new int[] {70000, 7}));
 
         byte[] body = WireCodec.encodeBody(in);
-        assertThat(body).hasSize(177); // C의 MSG_BOOK_FEED_LEN
+        assertThat(body).hasSize(178); // C의 MSG_BOOK_FEED_LEN
         assertThat(body[8]).isEqualTo((byte) 1);
-        assertThat(java.nio.ByteBuffer.wrap(body, 9, 8).getLong()).isEqualTo(0x0102030405060708L);
-        assertThat(java.nio.ByteBuffer.wrap(body, 17, 4).getInt()).isEqualTo(69900);
-        assertThat(java.nio.ByteBuffer.wrap(body, 57, 4).getInt()).isEqualTo(12);
+        assertThat(body[9]).isEqualTo((byte) BookFeed.FEED_END);
+        assertThat(java.nio.ByteBuffer.wrap(body, 10, 8).getLong()).isEqualTo(0x0102030405060708L);
+        assertThat(java.nio.ByteBuffer.wrap(body, 18, 4).getInt()).isEqualTo(69900);
+        assertThat(java.nio.ByteBuffer.wrap(body, 58, 4).getInt()).isEqualTo(12);
 
         BookFeed out = WireCodec.decodeBody(BookFeed.class, body, 0, body.length);
+        assertThat(out.flags).isEqualTo(BookFeed.FEED_END);
         assertThat(out.feedTs).isEqualTo(0x0102030405060708L);
         assertThat(out.bidPrice[0]).isEqualTo(69900);
         assertThat(out.askQty[0]).isEqualTo(7);
@@ -168,7 +171,7 @@ class WireCodecTest {
         assertThat(in.askPrice[BookFeed.DEPTH - 1]).isEqualTo(70009);
         assertThat(in.askPrice).hasSize(BookFeed.DEPTH);
         in.symbol = "005930";
-        assertThat(WireCodec.encodeBody(in)).hasSize(177);
+        assertThat(WireCodec.encodeBody(in)).hasSize(178);
     }
 
     /**

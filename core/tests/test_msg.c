@@ -75,7 +75,7 @@ static void test_type_table(void)
     assert(MSG_DETAIL_ACK_LEN == 91);
     assert(MSG_BALANCE_REQ_LEN == 12);
     assert(MSG_BALANCE_ACK_LEN == 32);
-    assert(MSG_BOOK_FEED_LEN == 177);
+    assert(MSG_BOOK_FEED_LEN == 178);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -261,6 +261,7 @@ static void test_book_feed_layout(void)
     memset(&m, 0, sizeof(m));
     snprintf(m.symbol, sizeof(m.symbol), "%s", "005930");
     m.market = 1;
+    m.flags = MSG_FEED_END;
     m.feed_ts = 0x0102030405060708LL;
     for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
         m.bid_price[i] = 0x01000000 + i;
@@ -275,11 +276,12 @@ static void test_book_feed_layout(void)
     static const uint8_t SYM[8] = {'0', '0', '5', '9', '3', '0', 0, 0};
     assert(memcmp(buf, SYM, sizeof(SYM)) == 0);
     assert(buf[8] == 1);
+    assert(buf[9] == MSG_FEED_END);
     for (int i = 0; i < 8; i++) {
-        assert(buf[9 + i] == i + 1); /* 빅엔디언 i64 */
+        assert(buf[10 + i] == i + 1); /* 빅엔디언 i64 */
     }
     for (int arr = 0; arr < 4; arr++) {
-        size_t first = 17 + (size_t)arr * MSG_BOOK_DEPTH * 4;
+        size_t first = 18 + (size_t)arr * MSG_BOOK_DEPTH * 4;
         size_t last = first + (MSG_BOOK_DEPTH - 1) * 4;
         assert(buf[first] == arr + 1 && buf[first + 3] == 0);
         assert(buf[last] == arr + 1 && buf[last + 3] == MSG_BOOK_DEPTH - 1);
@@ -512,6 +514,7 @@ static void test_roundtrip_all(void)
               MSG_BOOK_FEED_LEN, {
                   snprintf(in.symbol, sizeof(in.symbol), "%s", "005930");
                   in.market = 1;
+                  in.flags = MSG_FEED_END;
                   in.feed_ts = INT64_MIN;
                   in.bid_price[0] = INT32_MAX;
                   in.ask_qty[9] = INT32_MIN;

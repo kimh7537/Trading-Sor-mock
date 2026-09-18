@@ -22,6 +22,14 @@ public record StreamEvent(String kind, Object payload) {
         return new StreamEvent("balance", p);
     }
 
+    /**
+     * 바깥 시장에서 일어난 체결(Phase 8). 내 주문의 체결({@link #fill})과 <b>다르다</b> —
+     * 이쪽은 시장 전체의 거래이고 내 계좌와 무관하다.
+     */
+    public static StreamEvent trade(Object p) {
+        return new StreamEvent("trade", p);
+    }
+
     public static StreamEvent book(Object p) {
         return new StreamEvent("book", p);
     }

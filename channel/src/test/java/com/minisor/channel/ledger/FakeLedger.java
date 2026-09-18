@@ -329,6 +329,18 @@ public final class FakeLedger implements AutoCloseable {
         lastFeed = f;
         feeds.incrementAndGet();
 
+        if ((f.flags & BookFeed.FEED_END) != 0) {
+            /* 끝 신호는 호가창을 바꾸지 않는다 — 진짜 원장과 같은 규약 */
+            BookAck keep = new BookAck();
+            keep.symbol = f.symbol;
+            keep.market = f.market;
+            keep.bidPrice = new int[BookAck.DEPTH];
+            keep.bidQty = new int[BookAck.DEPTH];
+            keep.askPrice = new int[BookAck.DEPTH];
+            keep.askQty = new int[BookAck.DEPTH];
+            return keep;
+        }
+
         BookAck ack = new BookAck();
         ack.symbol = f.symbol;
         ack.market = f.market;

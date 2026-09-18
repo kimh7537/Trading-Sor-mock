@@ -1,10 +1,15 @@
 /*
  * 원장 데몬.
  *
- *   ledgerd [포트] [--live <초당 주문 수>]
+ *   ledgerd [포트] [--live <초당 주문 수>] [--ref-price <원>]
  *
  * 포트를 안 주면 9100에서 기다린다(채널계 기본 설정과 같다). 0을 주면 커널이 고른
  * 포트를 쓰고 그 번호를 찍는다.
+
+ * `--ref-price`는 **호가창이 다룰 가격대**를 정한다. 호가창은 기준가 ±30%(가격 제한폭,
+ * docs/SPEC.md 3.1)만 펼쳐 두므로 그 밖의 가격은 받지 않는다. 실시세를 심을 때 종목의
+ * 실제 가격이 기본값(70,000원)과 멀면 **스냅샷이 통째로 버려진다** — 조용히 아무 일도
+ * 일어나지 않는다. 실시세 모드로 쓸 때는 그 종목의 실제 가격대를 줘야 한다.
  *
  * `--live`를 주면 가상 참가자가 계속 주문을 내 양 시장 호가창이 스스로 움직인다
  * (T8-01). **주지 않으면 예전과 똑같다** — 시드 유동성을 넣고 그대로 멈춰 있다.
@@ -59,6 +64,7 @@ int main(int argc, char **argv)
 {
     uint16_t port = LEDGERD_DEFAULT_PORT;
     long     live_rate = 0; /* 0이면 실시세 모드가 아니다 */
+    long     ref_price = 0; /* 0이면 기본 기준가를 쓴다 */
 
     for (int i = 1; i < argc; i++) {
         char *end = NULL;
@@ -71,6 +77,21 @@ int main(int argc, char **argv)
             if (end == argv[i + 1] || *end != '\0' || live_rate <= 0 ||
                 live_rate > 100000) {
                 fprintf(stderr, "--live는 1~100000 사이여야 한다\n");
+                return 2;
+            }
+            i++;
+            continue;
+        }
+        if (strcmp(argv[i], "--ref-price") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--ref-price 뒤에 가격이 와야 한다\n");
+                return 2;
+            }
+            ref_price = strtol(argv[i + 1], &end, 10);
+            if (end == argv[i + 1] || *end != '\0' ||
+                ref_price < (long)PRICE_MIN || ref_price > (long)PRICE_MAX) {
+                fprintf(stderr, "--ref-price는 %d~%d 사이여야 한다\n",
+                        (int)PRICE_MIN, (int)PRICE_MAX);
                 return 2;
             }
             i++;
@@ -89,7 +110,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    ledger_core_t *core = ledger_core_create(NULL);
+    ledger_core_config_t cfg_buf = LEDGER_CORE_DEFAULT;
+    if (ref_price > 0) {
+        cfg_buf.ref_price = (price_t)ref_price;
+    }
+
+    ledger_core_t *core = ledger_core_create(&cfg_buf);
     if (core == NULL) {
         fprintf(stderr, "원장 코어를 만들 수 없다\n");
         return 1;
@@ -102,11 +128,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    const ledger_core_config_t *cfg = &LEDGER_CORE_DEFAULT;
+    const ledger_core_config_t *cfg = &cfg_buf;
     printf("ledgerd 포트 %u 에서 대기 (SIGTERM/SIGINT로 종료)\n",
            (unsigned)listener_port(ln));
     printf("  계좌 %s, 예수금 %lld원, 종목 %s, 기준가 %d원\n", cfg->account,
            (long long)cfg->cash, cfg->symbol, cfg->ref_price);
+    /* 호가창이 받는 가격대. 실시세를 심을 때 이 밖의 가격은 버려진다 */
+    printf("  다루는 가격대 %d ~ %d원\n", cfg->ref_price - cfg->ref_price * 3 / 10,
+           cfg->ref_price + cfg->ref_price * 3 / 10);
 
     live_ctx_t live = {.core = core, .per_tick = 0};
     if (live_rate > 0) {

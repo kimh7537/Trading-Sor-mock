@@ -756,6 +756,7 @@ int msg_encode_book_feed(const msg_book_feed_t *m, uint8_t *buf, size_t cap)
     wire_put_str(p, MSG_SYMBOL_LEN, m->symbol);
     p += MSG_SYMBOL_LEN;
     wire_put_u8(p++, m->market);
+    wire_put_u8(p++, m->flags);
     wire_put_i64(p, m->feed_ts);
     p += 8;
     p = put_i32s(p, m->bid_price);
@@ -778,6 +779,7 @@ int msg_decode_book_feed(const uint8_t *buf, size_t len, msg_book_feed_t *out)
     wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
     p += MSG_SYMBOL_LEN;
     out->market = wire_get_u8(p++);
+    out->flags = wire_get_u8(p++);
     out->feed_ts = wire_get_i64(p);
     p += 8;
     p = get_i32s(p, out->bid_price);
