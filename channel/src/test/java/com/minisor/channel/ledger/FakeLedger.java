@@ -3,6 +3,7 @@ package com.minisor.channel.ledger;
 import com.minisor.channel.wire.BalanceAck;
 import com.minisor.channel.wire.BalanceReq;
 import com.minisor.channel.wire.BookAck;
+import com.minisor.channel.wire.BookFeed;
 import com.minisor.channel.wire.BookReq;
 import com.minisor.channel.wire.CancelAck;
 import com.minisor.channel.wire.CancelReq;
@@ -90,6 +91,19 @@ public final class FakeLedger implements AutoCloseable {
 
     /** 호가 매수 1단 수량에 더하는 값 — 호가 변화를 만든다. */
     private volatile int bookBump;
+
+    /** 마지막으로 받은 호가 스냅샷(T8-02). 받으면 그것을 호가창으로 삼아 답한다. */
+    private volatile BookFeed lastFeed;
+    private final AtomicInteger feeds = new AtomicInteger();
+
+    /** 지금까지 받은 스냅샷 주입 수. */
+    public int feeds() {
+        return feeds.get();
+    }
+
+    public BookFeed lastFeed() {
+        return lastFeed;
+    }
 
     public FakeLedger() throws IOException {
         server = new ServerSocket(0);
@@ -206,6 +220,9 @@ public final class FakeLedger implements AutoCloseable {
     }
 
     private Object answer(int type, byte[] body) {
+        if (type == WireCodec.typeCode(BookFeed.class)) {
+            return feed(WireCodec.decodeBody(BookFeed.class, body, 0, body.length));
+        }
         if (type == WireCodec.typeCode(BookReq.class)) {
             return book(WireCodec.decodeBody(BookReq.class, body, 0, body.length));
         }
@@ -301,6 +318,24 @@ public final class FakeLedger implements AutoCloseable {
             ack.canceledQty = w;
             ack.status = o.status();
         }
+        return ack;
+    }
+
+    /**
+     * 스냅샷을 받아 두고 **심은 뒤의 호가창**으로 답한다 — 진짜 원장과 같은 규약(T8-03).
+     * 매칭은 하지 않는다. 그것은 C 원장 시험의 몫이다.
+     */
+    private BookAck feed(BookFeed f) {
+        lastFeed = f;
+        feeds.incrementAndGet();
+
+        BookAck ack = new BookAck();
+        ack.symbol = f.symbol;
+        ack.market = f.market;
+        ack.bidPrice = f.bidPrice.clone();
+        ack.bidQty = f.bidQty.clone();
+        ack.askPrice = f.askPrice.clone();
+        ack.askQty = f.askQty.clone();
         return ack;
     }
 

@@ -30,7 +30,7 @@ public class BookController {
 
     public record BookDto(String symbol, int market, List<Level> bids, List<Level> asks) {
 
-        static BookDto from(BookAck ack) {
+        public static BookDto from(BookAck ack) {
             return new BookDto(
                     ack.symbol,
                     ack.market,
