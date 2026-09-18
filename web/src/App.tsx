@@ -61,7 +61,7 @@ export default function App() {
       setModeBusy(true);
       void t.setMode(mode).then((r) => {
         setModeBusy(false);
-        notify(r.ok ? "ok" : "warn", r.ok ? r.message : "모드를 바꾸지 못했다", r.message);
+        notify(r.ok ? "ok" : "warn", "시세 모드", r.message);
       });
     },
     [t, notify],

@@ -72,6 +72,8 @@ export function useTrading(): Trading {
   const fillSeq = useRef(0);
   /* 다음 차트 점에 실을 체결 수량. 점을 찍을 때 0으로 되돌린다 */
   const pendingVol = useRef(0);
+  /* 마지막으로 점을 찍을 때의 시세 모드. 바뀌면 그림을 새로 시작한다 */
+  const lastFeedKey = useRef("");
 
   const upsertOrder = useCallback((v: OrderView) => {
     setOrders((prev) => [v, ...prev.filter((o) => o.orderId !== v.orderId)].sort(byNewest));
@@ -205,26 +207,41 @@ export function useTrading(): Trading {
     return () => window.clearInterval(t);
   }, [refresh, state]);
 
+  const feedKey = `${feed?.mode ?? ""}:${feed?.source ?? ""}`;
+
   /*
-   * 호가가 바뀔 때마다 차트에 점 하나. **화면이 값을 지어내지 않는다** — 가격은 두 시장을
-   * 합친 최우선호가의 중간값이고, 막대는 방송으로 받은 내 체결 수량이다.
+   * 호가가 바뀔 때마다 차트에 점 하나. **화면이 값을 지어내지 않는다** — 가격은 그 시장
+   * 최우선호가의 중간값이고, 막대는 방송으로 받은 내 체결 수량이다.
+   *
+   * 두 시장을 합쳐서 재지 않는다. 합치면 한쪽의 최우선 매도와 다른 쪽의 최우선 매수가
+   * 기준가에서 맞물려 중간가가 기준가에 붙박이가 된다 — 선이 평평해서 아무것도 못 읽는다.
    */
   useEffect(() => {
     /* 실시세 모드에서는 시장이 하나다 — 통합 시세를 심는 그 시장만 센다 */
     const only = feed?.mode === "live" ? (marketName(feed.market) as Market) : null;
-    const src = only ? [books[only]] : [books.KRX, books.NXT];
-    const asks = (src.map((b) => b?.asks[0]?.price) as (number | undefined)[])
-      .filter((v): v is number => !!v);
-    const bids = (src.map((b) => b?.bids[0]?.price) as (number | undefined)[])
-      .filter((v): v is number => !!v);
-    if (asks.length === 0 && bids.length === 0) return;
-    const ask = asks.length ? Math.min(...asks) : 0;
-    const bid = bids.length ? Math.max(...bids) : 0;
-    const mid = ask && bid ? Math.round((ask + bid) / 2) : ask || bid;
+    const mid = (m: Market) => {
+      if (only && only !== m) return 0;
+      const ask = books[m]?.asks[0]?.price ?? 0;
+      const bid = books[m]?.bids[0]?.price ?? 0;
+      if (!ask && !bid) return 0;
+      return ask && bid ? Math.round((ask + bid) / 2) : ask || bid;
+    };
+    const krx = mid("KRX");
+    const nxt = mid("NXT");
+    if (!krx && !nxt) return;
     const vol = pendingVol.current;
     pendingVol.current = 0;
-    setTicks((prev) => [...prev, { t: Date.now(), mid, vol }].slice(-TICK_MAX));
-  }, [books, feed]);
+
+    /*
+     * **모드가 바뀌면 앞의 점을 버린다.** 시뮬의 중간가와 실시세의 중간가는 호가를 만드는
+     * 주체가 다르다. 한 그림에 이어 붙이면 모드를 바꾼 자리가 가격이 뛴 것처럼 보인다.
+     */
+    const fresh = lastFeedKey.current !== feedKey;
+    lastFeedKey.current = feedKey;
+    setTicks((prev) =>
+      [...(fresh ? [] : prev), { t: Date.now(), krx, nxt, vol }].slice(-TICK_MAX),
+    );
+  }, [books, feed, feedKey]);
 
   const setMode = useCallback(async (mode: "sim" | "live") => {
     const { status, feed: got } = await setFeedMode(mode);

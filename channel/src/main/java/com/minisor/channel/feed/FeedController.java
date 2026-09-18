@@ -31,6 +31,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class FeedController {
 
+    /** 토스가 붙는지 기다리는 시간. 버튼 하나에 이보다 오래 매달리게 두지 않는다. */
+    private static final long TOSS_WAIT_MS = 2500;
+
     private final LiveFeed live;
     private final TossFeedClient toss;
     private final FeedReplayer replay;
@@ -77,11 +80,23 @@ public class FeedController {
         }
 
         /*
-         * 토스는 **붙어 봐야 안다**. 시작했다는 것과 붙었다는 것은 다르므로 202로 답하고,
-         * 실제로 붙으면 `feed-mode` 방송이 화면을 바꾼다. 재생은 파일을 읽는 것이라
-         * 시작한 순간 이미 실시세다.
+         * 토스는 **붙어 봐야 안다**. 시작만 하고 답하면 붙지 못하는 설정에서는 버튼을 눌러도
+         * 아무 일이 일어나지 않으므로, 판가름 날 때까지 잠깐 기다린다(대개 1초 안이다).
+         *
+         *  - 붙었다 → 200
+         *  - 못 붙었고 재생이 있다 → 토스를 멈추고 재생으로 넘어간다(200)
+         *  - 못 붙었고 다른 수가 없다 → 202. 백오프를 돌며 계속 시도하고, 붙으면
+         *    `feed-mode` 방송이 화면을 바꾼다
          */
         if (toss.start()) {
+            if (live.awaitLive(TOSS_WAIT_MS)) {
+                return ResponseEntity.ok(live.status());
+            }
+            if (replay.usable()) {
+                toss.stop();
+                replay.start();
+                return ResponseEntity.ok(live.status());
+            }
             return ResponseEntity.accepted().body(live.status());
         }
         if (replay.start()) {

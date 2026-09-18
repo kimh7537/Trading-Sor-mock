@@ -175,6 +175,34 @@ public class LiveFeed {
         return mode;
     }
 
+    /**
+     * 실시세로 바뀌기를 잠깐 기다린다. 바뀌었으면 참, 실패했거나 시간이 다 됐으면 거짓.
+     *
+     * <p>토스는 <b>시작한 것과 붙은 것이 다르다.</b> 켜 달라는 요청에 시작만 하고 답하면,
+     * 붙지 못하는 설정(허용 IP 미등록 등)에서는 버튼을 눌러도 아무 일이 일어나지 않는다.
+     * 그래서 부르는 쪽이 짧게 기다렸다가 다른 수(녹화 재생)를 쓸 수 있게 한다.
+     *
+     * <p>실패가 먼저 오면 기다리지 않고 바로 돌아온다 — 대개 1초 안에 판가름 난다.
+     */
+    public boolean awaitLive(long ms) {
+        long end = System.currentTimeMillis() + ms;
+        while (System.currentTimeMillis() < end) {
+            if (mode == Mode.LIVE) {
+                return true;
+            }
+            if (lastError != null) {
+                return false;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return mode == Mode.LIVE;
+    }
+
     public Status status() {
         boolean canToss = props.usable();
         boolean canReplay = props.replaying();

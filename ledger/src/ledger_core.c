@@ -42,6 +42,15 @@
 /* 스냅샷을 맞출 때 훑는 단 수. 주입하는 10단보다 깊어질 수 있어 넉넉히 둔다. */
 #define LEDGER_FEED_SCAN_DEPTH 32
 
+/*
+ * 스냅샷이 끊긴 뒤 이만큼 틱이 지나면 가상 참가자가 그 시장으로 돌아온다.
+ *
+ * 받은 시장에서 손을 떼는 것은 실호가 위에 가짜 주문을 얹지 않으려는 것이지, 피드가
+ * 멈춘 뒤에도 그러라는 뜻이 아니다. **영구히 표시해 두면 재생이 끝나는 순간 그 시장
+ * 호가창이 그대로 얼어붙는다** — 화면에서 시뮬로 되돌려도 죽은 호가가 남았다.
+ */
+#define LEDGER_FEED_QUIET_TICKS 200
+
 const ledger_core_config_t LEDGER_CORE_DEFAULT = {
     .account = "123456789012",
     .cash = 100000000, /* 1억 원 */
@@ -102,10 +111,13 @@ struct ledger_core {
     /* 주입한 호가에 붙일 다음 번호(T8-03). 시장을 가리지 않고 하나로 센다 */
     order_id_t   next_feed_id;
     /*
-     * 이 시장이 바깥 시세를 받았는가(T8-03). 한 번 받으면 **가상 참가자가 그 시장에서
-     * 손을 뗀다** — 실호가 위에 가짜 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
+     * 스냅샷을 받은 뒤 지난 틱 수 + 1. 0이면 이 시장은 바깥 시세를 받고 있지 않다(T8-03).
+     *
+     * 받는 동안은 **가상 참가자가 그 시장에서 손을 뗀다** — 실호가 위에 가짜 주문을 계속
+     * 얹으면 그건 실시세도 시뮬도 아니다. 다만 피드가 끊기면 다시 돌아온다
+     * (`LEDGER_FEED_QUIET_TICKS`).
      */
-    bool         fed[MARKET_COUNT];
+    int64_t      fed_age[MARKET_COUNT];
     order_id_t   synth_first[MARKET_COUNT];
     int64_t      synth_issued[MARKET_COUNT];
     int64_t      synth_retired[MARKET_COUNT];
@@ -792,8 +804,16 @@ int ledger_core_tick(ledger_core_t *c, int32_t n)
 
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         synth_gen_t *gen = divergent_gen(c->div, (market_t)m);
-        if (gen == NULL || c->fed[m]) {
-            continue; /* 바깥 시세를 받는 시장에는 가상 참가자를 넣지 않는다 */
+        if (gen == NULL) {
+            continue;
+        }
+        if (c->fed_age[m] > 0) {
+            /* 바깥 시세를 받는 시장에는 가상 참가자를 넣지 않는다. 다만 조용해지면 돌아온다 */
+            if (c->fed_age[m] < LEDGER_FEED_QUIET_TICKS) {
+                c->fed_age[m]++;
+                continue;
+            }
+            c->fed_age[m] = 0;
         }
         for (int32_t i = 0; i < n; i++) {
             order_t       o;
@@ -922,7 +942,7 @@ int ledger_core_apply_feed(ledger_core_t *c, const msg_book_feed_t *f)
     }
 
     market_t m = (market_t)f->market;
-    c->fed[m] = true;
+    c->fed_age[m] = 1; /* 받는 중. 틱은 이 시장을 건너뛴다 */
     /* 스냅샷의 시각을 쓰되 뒤로 가지 않게 한다. 시스템 시각은 읽지 않는다. */
     ts_t ts = (f->feed_ts > c->clock) ? f->feed_ts : c->clock + 1;
     c->clock = ts;

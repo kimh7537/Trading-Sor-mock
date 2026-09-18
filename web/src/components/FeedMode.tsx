@@ -45,35 +45,16 @@ export function FeedMode({
       </div>
 
       {live ? (
-        <div className="alert-bar warn" role="status">
-          <b>시세는 실제, 주문은 모의</b> — 호가는 바깥에서 받아 온 것이고,
-          주문·체결·잔고는 전부 이 프로젝트의 원장 안에서만 일어난다. 바깥으로 주문이 나가지 않는다.
-        </div>
+        <p className="note warn-note">
+          <b>시세는 실제, 주문은 모의</b> — 호가는 바깥에서 받아 온 것이고, 주문·체결·잔고는
+          전부 이 프로젝트의 원장 안에서만 일어난다. 바깥으로 주문이 나가지 않는다.
+          {feed && ` 심는 시장 ${marketName(feed.market)}(통합 시세) · 받은 스냅샷 ${feed.applied}건.`}
+        </p>
       ) : (
         <p className="note">
-          가상 참가자가 양 시장에 주문을 낸다. 두 시장·SOR 배분·전략 비교를 볼 수 있는 것은
-          이 모드뿐이다.
-        </p>
-      )}
-
-      <dl className="kv num">
-        <div>
-          <dt>지금</dt>
-          <dd>{live ? `실시세 (${feed?.source})` : "시뮬"}</dd>
-        </div>
-        <div>
-          <dt>심는 시장</dt>
-          <dd>{live && feed ? `${marketName(feed.market)} (통합 시세)` : "KRX · NXT"}</dd>
-        </div>
-        <div>
-          <dt>받은 스냅샷</dt>
-          <dd>{feed?.applied ?? 0}건</dd>
-        </div>
-      </dl>
-
-      {!canLive && (
-        <p className="note">
-          실시세로 바꿀 수 없다 — {feed?.note ?? "채널계 상태를 읽지 못했다"}.
+          가상 참가자가 KRX·NXT 양 시장에 주문을 낸다. 두 시장·SOR 배분·전략 비교를 볼 수 있는
+          것은 이 모드뿐이다.
+          {!canLive && ` 실시세로 바꿀 수 없다 — ${feed?.note ?? "채널계 상태를 읽지 못했다"}.`}
         </p>
       )}
 
@@ -82,9 +63,9 @@ export function FeedMode({
         안 바뀌지"를 알 길이 없다. 실제로 허용 IP 미등록(403)으로 그렇게 됐다.
       */}
       {!live && feed?.error && (
-        <div className="alert-bar danger" role="alert">
+        <p className="note err-note" role="alert">
           <b>실시세에 붙지 못했다</b> — {feed.error}
-        </div>
+        </p>
       )}
     </div>
   );

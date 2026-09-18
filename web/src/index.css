@@ -223,7 +223,12 @@ kbd {
   gap: var(--s-3);
   height: 100%;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(320px, 360px);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  /*
+   * 차트 행에 **상한**을 둔다. auto로 두면 시세 모드 칸과 차트가 내용만큼 다 차지해서
+   * 아래 미체결·주문 내역 칸이 몇십 픽셀만 남는다(실제로 그렇게 됐다). 넘치는 내용은
+   * 패널 본문이 스크롤한다.
+   */
+  grid-template-rows: auto minmax(0, 350px) minmax(200px, 1fr);
   grid-template-areas:
     "book compare ticket"
     "book chart ticket"
@@ -728,7 +733,7 @@ kbd {
 
 .chart {
   width: 100%;
-  height: 150px;
+  height: 110px;
   display: block;
   background: var(--bg-sunken, transparent);
   border: 1px solid var(--line);
@@ -742,3 +747,11 @@ kbd {
 
 /* 실시세는 통합 시세라 시장이 하나다 — 빈 칸을 남기지 않는다(T8-05) */
 .book-cols.single { grid-template-columns: minmax(0, 1fr); }
+
+/*
+ * 안내·오류 문단. 원장이 돌려준 오류 본문(JSON)이 그대로 들어오므로 **어디서든 끊어**
+ * 줄을 넘긴다 — 그러지 않으면 긴 토막이 앞 글자를 밀어내 "붙지 못했 / 다"처럼 쪼개진다.
+ */
+.note { overflow-wrap: anywhere; }
+.warn-note { color: var(--warn, #fcd34d); }
+.err-note { color: #fca5a5; }
