@@ -1407,10 +1407,32 @@ UI/UX를 최적화하고 더 잘 만들고 예쁘게."
 교체 지점은 `sor/include/executor.h`의 `venues_t`와 `exec_submit()`/`exec_cancel()`
 두 함수뿐이다. 그 위(채널계·화면·전문·계좌·증거금)는 매칭 엔진의 존재를 모른다.
 
-**모르는 것 — T8-04 전에 확인해야 한다**
-- 토스 오픈 API 계좌 신청, 허용 IP 등록(미등록 IP는 403)
-- `openapi.json`/`asyncapi.json`의 실제 호가 필드 이름과 단수(10단인지)
+**스펙에서 확인한 것 (2026-09-18)**
+
+정본은 `https://openapi.tossinvest.com/openapi-docs/latest/openapi.json`과 같은 경로의
+`asyncapi.json`이다(`developers.tossinvest.com/llms.txt`가 가리킨다). 크리덴셜 없이 받을 수 있다.
+
+- 토큰: `POST /oauth2/token`, `application/x-www-form-urlencoded`,
+  `grant_type=client_credentials` + `client_id` + `client_secret`.
+  **client 당 유효한 토큰은 1개다. 재발급하면 이전 토큰이 즉시 무효가 된다** —
+  T8-04의 갱신 루프는 이걸 전제로 짜야 하고, 두 프로세스가 같은 키를 동시에 쓰면 서로 죽인다
+- 호가(REST): `GET /api/v1/orderbook`, **파라미터는 `symbol` 하나뿐**이다.
+  시장을 고르는 인자가 아예 없다 — "통합 시세만"이 스펙 수준에서 확인된다
+- 호가 필드: `result.timestamp`(ISO8601 `+09:00`, 장 시작 전 `null`), `result.currency`,
+  `result.asks[]` / `result.bids[]`, 각 항목은 `{price, volume}`.
+  **둘 다 문자열이다**(`format: decimal`, `maxLength: 30`). 파싱 때 정수 변환이 필요하다
+- **단수가 고정 10단이 아니다.** 스키마에 `maxItems`가 없고 예시는 3단·1단이다.
+  그래서 `MSG_BOOK_FEED`는 10단 고정으로 두되 **모자라면 0으로 채우고 넘치면 자른다**.
+  T8-02·T8-03 테스트에 빈 단수 케이스를 넣는다
+- WebSocket: `wss://openapi-ws.tossinvest.com/ws/v1`, 핸드셰이크에 `Authorization: Bearer`.
+  구독 선언은 `[{"type":"orderbook:kr","codes":["005930", ...]}]`,
+  수신은 `{"type":"message","topic":"orderbook:kr:005930","data":{…위와 같은 모양}}`.
+  채널은 `realtime-trade` / `realtime-orderbook` / `realtime-order`, `ping`/`pong` 있음
 - 레이트리밋: MARKET_DATA 15 TPS, WebSocket 동시 연결 2개·구독 100건
+
+**아직 모르는 것**
+- 허용 IP 등록 여부(미등록 IP는 403). **토큰 발급을 실제로 성공시킨 적이 없다** —
+  T8-04 착수 전에 사람이 직접 한 번 확인해야 한다
 
 ### T8-01 원장: `--live` 틱으로 호가창이 스스로 움직인다
 - [ ] 의존: 없음
