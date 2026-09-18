@@ -75,11 +75,15 @@ export function OrderBook({
   books,
   orders,
   onPick,
+  only,
 }: {
   books: Partial<Record<Market, Book>>;
   orders: OrderView[];
   onPick: (price: number, side: Side) => void;
+  /** 이 시장 하나만 보인다. 실시세 모드에서 통합 시세를 심는 시장이다(T8-05) */
+  only?: Market;
 }) {
+  const shown = only ? [only] : MARKETS;
   const mine = new Map<string, number>();
   for (const o of orders) {
     if (o.done) continue;
@@ -92,24 +96,24 @@ export function OrderBook({
     }
   }
 
-  const all = MARKETS.flatMap((m) => [
+  const all = shown.flatMap((m) => [
     ...(books[m]?.asks ?? []).map((l) => [key(m, true, l.price), l.qty] as [string, number]),
     ...(books[m]?.bids ?? []).map((l) => [key(m, false, l.price), l.qty] as [string, number]),
   ]);
   const flash = useFlash(all);
 
-  const asks = MARKETS.map((m) => books[m]?.asks[0]?.price).filter((p): p is number => !!p);
-  const bids = MARKETS.map((m) => books[m]?.bids[0]?.price).filter((p): p is number => !!p);
+  const asks = shown.map((m) => books[m]?.asks[0]?.price).filter((p): p is number => !!p);
+  const bids = shown.map((m) => books[m]?.bids[0]?.price).filter((p): p is number => !!p);
   const bestAsk = asks.length ? Math.min(...asks) : 0;
   const bestBid = bids.length ? Math.max(...bids) : 0;
   const max = Math.max(1, ...all.map(([, q]) => q));
   // 두 열의 가운데 줄이 같은 높이에 오도록 빈 줄로 채운다
-  const askDepth = Math.max(0, ...MARKETS.map((m) => books[m]?.asks.length ?? 0));
-  const bidDepth = Math.max(0, ...MARKETS.map((m) => books[m]?.bids.length ?? 0));
+  const askDepth = Math.max(0, ...shown.map((m) => books[m]?.asks.length ?? 0));
+  const bidDepth = Math.max(0, ...shown.map((m) => books[m]?.bids.length ?? 0));
 
   return (
-    <div className="book-cols">
-      {MARKETS.map((m) => {
+    <div className={"book-cols" + (only ? " single" : "")}>
+      {shown.map((m) => {
         const b = books[m];
         if (!b) {
           return (
@@ -146,7 +150,7 @@ export function OrderBook({
         return (
           <div key={m} className="book-col">
             <div className="book-head">
-              <span className={`tag ${m.toLowerCase()}`}>{m}</span>
+              <span className={`tag ${m.toLowerCase()}`}>{only ? `${m} · 통합 시세` : m}</span>
               <span className="num">스프레드 {spread === null ? "—" : won(spread)}</span>
             </div>
             <div role="group" aria-label={`${m} 매도호가`}>

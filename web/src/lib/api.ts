@@ -1,4 +1,4 @@
-import type { Balance, Book, CancelResult, OrderView } from "./types";
+import type { Balance, Book, CancelResult, FeedStatus, OrderView } from "./types";
 import { marketName } from "./wire";
 
 // 기본은 같은 출처. 개발 서버가 /api를 채널계로 넘긴다(vite.config.ts).
@@ -111,4 +111,25 @@ export async function fetchBalance(): Promise<Balance> {
   const res = await fetch(`${BASE}/api/balance`);
   if (!res.ok) throw new Error(`잔고 조회 실패 ${res.status}`);
   return (await res.json()) as Balance;
+}
+
+/** 지금 시뮬 모드인가 실시세 모드인가(T8-05) */
+export async function fetchFeed(): Promise<FeedStatus> {
+  const res = await fetch(`${BASE}/api/feed`);
+  if (!res.ok) throw new Error(`모드 조회 실패 ${res.status}`);
+  return (await res.json()) as FeedStatus;
+}
+
+/**
+ * 모드를 바꾼다. 채널계에 실시세 설정이 없으면 409가 오고 모드는 그대로다 —
+ * "켜졌다"고 표시해 놓고 아무 일도 일어나지 않는 것이 제일 나쁘다.
+ */
+export async function setFeedMode(mode: "sim" | "live"): Promise<{ ok: boolean; feed: FeedStatus | null }> {
+  try {
+    const res = await fetch(`${BASE}/api/feed/mode?mode=${mode}`, { method: "POST" });
+    const feed = (await res.json().catch(() => null)) as FeedStatus | null;
+    return { ok: res.ok, feed };
+  } catch {
+    return { ok: false, feed: null };
+  }
 }

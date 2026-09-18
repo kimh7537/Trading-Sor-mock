@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MARKET_AUTO, ORDER_LIMIT, SIDE_BUY, sideText, type Side } from "./lib/wire";
+import { MARKET_AUTO, ORDER_LIMIT, SIDE_BUY, marketName, sideText, type Side } from "./lib/wire";
 import { won, qty as fq } from "./lib/format";
 import { useTrading, type NewOrder } from "./lib/useTrading";
 import { useToasts } from "./lib/useToasts";
@@ -12,6 +12,8 @@ import { Activity } from "./components/Activity";
 import { Toasts } from "./components/Toasts";
 import { Strategies } from "./components/Strategies";
 import { Ops } from "./components/Ops";
+import { FeedMode } from "./components/FeedMode";
+import { PriceChart } from "./components/PriceChart";
 
 type View = "trade" | "strategies" | "ops";
 
@@ -32,6 +34,7 @@ export default function App() {
     price: 70000,
     qty: 10,
   });
+  const [modeBusy, setModeBusy] = useState(false);
   const patch = useCallback((p: Partial<NewOrder>) => setDraft((d) => ({ ...d, ...p })), []);
   const pick = useCallback((price: number, side: Side) => patch({ price, side }), [patch]);
 
@@ -49,9 +52,31 @@ export default function App() {
     }
   }, [t.fills, notify]);
 
+  const live = t.feed?.mode === "live";
+  /* 실시세는 통합 시세라 시장이 하나다. 그 시장만 보인다(T8-05) */
+  const only = live && t.feed ? (marketName(t.feed.market) as "KRX" | "NXT") : undefined;
+
+  const changeMode = useCallback(
+    (mode: "sim" | "live") => {
+      setModeBusy(true);
+      void t.setMode(mode).then((r) => {
+        setModeBusy(false);
+        notify(r.ok ? "ok" : "warn", r.ok ? r.message : "모드를 바꾸지 못했다", r.message);
+      });
+    },
+    [t, notify],
+  );
+
   return (
     <div className="app">
-      <Header ws={t.ws} ledgerDown={t.ledgerDown} balance={t.balance} books={t.books} />
+      <Header
+        ws={t.ws}
+        ledgerDown={t.ledgerDown}
+        balance={t.balance}
+        books={t.books}
+        feed={t.feed}
+        only={only}
+      />
 
       <nav className="tabs" role="tablist" aria-label="화면">
         {VIEWS.map((v) => (
@@ -70,7 +95,16 @@ export default function App() {
                   원장 호가를 읽지 못했다 — ledgerd와 채널계가 떠 있는지 확인
                 </div>
               )}
-              <OrderBook books={t.books} orders={t.orders} onPick={pick} />
+              <OrderBook books={t.books} orders={t.orders} onPick={pick} only={only} />
+            </Panel>
+
+            <Panel
+              className="area-chart"
+              title="시세 모드와 가격"
+              sub={live ? "바깥 시세 · 주문은 모의" : "가상 참가자가 만드는 호가"}
+            >
+              <FeedMode feed={t.feed} onChange={changeMode} busy={modeBusy} />
+              <PriceChart ticks={t.ticks} />
             </Panel>
 
             <Panel
@@ -78,7 +112,7 @@ export default function App() {
               title="시장 비교"
               sub={`${sideText(draft.side)} ${fq(draft.qty)}주 · ${won(draft.price)}원 기준 예상`}
             >
-              <MarketCompare books={t.books} draft={draft} orders={t.orders} />
+              <MarketCompare books={t.books} draft={draft} orders={t.orders} live={live} />
             </Panel>
 
             <Activity

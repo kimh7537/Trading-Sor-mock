@@ -82,3 +82,29 @@ export interface CancelResult {
   canceledQty: number;
   order: OrderView | null;
 }
+
+/**
+ * 지금 호가창을 무엇이 움직이고 있는가(T8-05).
+ *
+ * `sim`이면 가상 참가자, `live`면 바깥에서 받은 실호가다. `available`이 거짓이면
+ * 채널계에 실시세 설정(.env의 토스 키나 재생 파일)이 없어 바꿀 수 없다.
+ */
+export interface FeedStatus {
+  mode: "sim" | "live";
+  source: string;
+  available: boolean;
+  market: number;
+  symbol: string;
+  applied: number;
+  lastFeedTs: number;
+  note: string;
+}
+
+/** 차트 한 점. 호가가 바뀔 때마다 하나씩 쌓인다. */
+export interface Tick {
+  t: number;
+  /** 두 시장을 합친 최우선호가의 중간값 */
+  mid: number;
+  /** 이 점까지 사이에 체결된 내 주문 수량 */
+  vol: number;
+}

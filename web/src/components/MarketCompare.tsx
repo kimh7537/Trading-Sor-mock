@@ -22,11 +22,33 @@ export function MarketCompare({
   books,
   draft,
   orders,
+  live = false,
 }: {
   books: Partial<Record<Market, Book>>;
   draft: NewOrder;
   orders: OrderView[];
+  /** 실시세 모드인가. 통합 시세에는 나눌 시장이 없어 SOR이 할 일이 없다(T8-05) */
+  live?: boolean;
 }) {
+  if (live) {
+    return (
+      <div className="stack">
+        <div className="alert-bar warn" role="status">
+          <b>실시세 모드에서는 SOR이 할 일이 없다</b>
+        </div>
+        <p className="note">
+          바깥에서 받는 국내 호가는 <b>통합 시세(KRX+NXT)</b>다. 토스증권 Open API의 호가 조회는
+          파라미터가 종목 하나뿐이고 시장을 고르는 인자가 없다 — 나눌 시장이 없으니
+          배분할 것도 없다.
+        </p>
+        <p className="note">
+          두 시장·전략 4종·집행 품질 측정은 <b>시뮬 모드</b>에서만 볼 수 있고, 그것이 이
+          프로젝트의 논지다. 두 모드가 같은 원장·같은 전문·같은 매칭 엔진을 쓴다.
+        </p>
+      </div>
+    );
+  }
+
   const buy = draft.side === SIDE_BUY;
   const rows = OPTIONS.map((o) => ({
     ...o,

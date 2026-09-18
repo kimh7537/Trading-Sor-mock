@@ -5,14 +5,16 @@ import {
   cancelOrder,
   fetchBalance,
   fetchBook,
+  fetchFeed,
   fetchOrder,
   fetchOrders,
+  setFeedMode,
   submitOrder,
   type OrderRequest,
   type OrderResponse,
 } from "./api";
 import { useStream, type ConnState, type StreamEvent } from "./useStream";
-import type { Balance, Book, Fill, LocalReject, Market, OrderView } from "./types";
+import type { Balance, Book, FeedStatus, Fill, LocalReject, Market, OrderView, Tick } from "./types";
 import { MARKET_KRX, MARKET_NXT, marketName, reasonText, type Side } from "./wire";
 import { time } from "./format";
 
@@ -23,8 +25,14 @@ const RESYNC_MS = 20000;
 
 export type NewOrder = Pick<OrderRequest, "side" | "type" | "market" | "price" | "qty">;
 
+/** 차트에 남기는 점의 수. 1초에 한 점꼴이므로 4분쯤 */
+const TICK_MAX = 240;
+
 export interface Trading {
   ws: { state: ConnState; attempt: number };
+  feed: FeedStatus | null;
+  ticks: Tick[];
+  setMode: (mode: "sim" | "live") => Promise<{ ok: boolean; message: string }>;
   ledgerDown: string | null;
   books: Partial<Record<Market, Book>>;
   bookError: string | null;
@@ -58,14 +66,19 @@ export function useTrading(): Trading {
   const [ledgerDown, setLedgerDown] = useState<string | null>(null);
   const [events, setEvents] = useState(0);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [feed, setFeed] = useState<FeedStatus | null>(null);
+  const [ticks, setTicks] = useState<Tick[]>([]);
   const lastClOrdId = useRef(0);
   const fillSeq = useRef(0);
+  /* 다음 차트 점에 실을 체결 수량. 점을 찍을 때 0으로 되돌린다 */
+  const pendingVol = useRef(0);
 
   const upsertOrder = useCallback((v: OrderView) => {
     setOrders((prev) => [v, ...prev.filter((o) => o.orderId !== v.orderId)].sort(byNewest));
   }, []);
 
   const refresh = useCallback(() => {
+    void fetchFeed().then(setFeed).catch(() => undefined);
     void Promise.allSettled([
       fetchBook(MARKET_KRX),
       fetchBook(MARKET_NXT),
@@ -106,6 +119,9 @@ export function useTrading(): Trading {
         }
         case "balance":
           setBalance(e.payload as Balance);
+          break;
+        case "feed-mode":
+          setFeed(e.payload as FeedStatus);
           break;
         case "order-update":
           upsertOrder(e.payload as OrderView);
@@ -154,6 +170,7 @@ export function useTrading(): Trading {
             orderId: number;
           };
           fillSeq.current += 1;
+          pendingVol.current += p.qty;
           const id = `${p.orderId}-${fillSeq.current}`;
           setFills((prev) =>
             [
@@ -187,6 +204,37 @@ export function useTrading(): Trading {
     const t = window.setInterval(refresh, state === "open" ? RESYNC_MS : FALLBACK_POLL_MS);
     return () => window.clearInterval(t);
   }, [refresh, state]);
+
+  /*
+   * 호가가 바뀔 때마다 차트에 점 하나. **화면이 값을 지어내지 않는다** — 가격은 두 시장을
+   * 합친 최우선호가의 중간값이고, 막대는 방송으로 받은 내 체결 수량이다.
+   */
+  useEffect(() => {
+    /* 실시세 모드에서는 시장이 하나다 — 통합 시세를 심는 그 시장만 센다 */
+    const only = feed?.mode === "live" ? (marketName(feed.market) as Market) : null;
+    const src = only ? [books[only]] : [books.KRX, books.NXT];
+    const asks = (src.map((b) => b?.asks[0]?.price) as (number | undefined)[])
+      .filter((v): v is number => !!v);
+    const bids = (src.map((b) => b?.bids[0]?.price) as (number | undefined)[])
+      .filter((v): v is number => !!v);
+    if (asks.length === 0 && bids.length === 0) return;
+    const ask = asks.length ? Math.min(...asks) : 0;
+    const bid = bids.length ? Math.max(...bids) : 0;
+    const mid = ask && bid ? Math.round((ask + bid) / 2) : ask || bid;
+    const vol = pendingVol.current;
+    pendingVol.current = 0;
+    setTicks((prev) => [...prev, { t: Date.now(), mid, vol }].slice(-TICK_MAX));
+  }, [books, feed]);
+
+  const setMode = useCallback(async (mode: "sim" | "live") => {
+    const { ok, feed: got } = await setFeedMode(mode);
+    if (got) setFeed(got);
+    if (ok) return { ok: true, message: mode === "live" ? "실시세 모드" : "시뮬 모드" };
+    return {
+      ok: false,
+      message: got?.note ?? "채널계가 모드를 바꾸지 못했다",
+    };
+  }, []);
 
   const submit = useCallback(
     async (o: NewOrder) => {
@@ -227,6 +275,9 @@ export function useTrading(): Trading {
 
   return {
     ws: { state, attempt },
+    feed,
+    ticks,
+    setMode,
     ledgerDown,
     books,
     bookError,
