@@ -95,6 +95,12 @@ export function Strategies() {
           아니라 <b>더 많이 채우느라</b>(체결률 53% → 59%) 비싼 호가까지 갔기 때문이다.
           위 막대 옆 bp는 단가 차이가 아니라 슬리피지다.
         </span>
+        <br />
+        <span style={{ color: "var(--text-dim)" }}>
+          <b>시드 하나의 한 장면이다.</b> README의 표는 시드 30개를 돌린{" "}
+          <code>quality-2026-09-16.md</code>의 중앙값이라 수치가 다르다 — 같은 것을 두 번 잰
+          것이 아니라 서로 다른 측정이다.
+        </span>
       </p>
     </div>
   );

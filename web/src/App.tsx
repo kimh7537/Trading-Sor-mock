@@ -190,7 +190,10 @@ export default function App() {
 
         {view === "strategies" && (
           <div style={{ maxWidth: 880 }}>
-            <Panel title="전략별 집행 품질" sub="Phase 2 측정 결과">
+            <Panel
+              title="전략별 집행 품질"
+              sub="Phase 2 측정 · 시드 20260916 한 장면 (bench/results/strategies-2026-09-16.md)"
+            >
               <Strategies />
             </Panel>
           </div>
