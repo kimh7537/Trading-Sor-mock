@@ -75,8 +75,18 @@ export function PriceChart({ ticks }: { ticks: Tick[] }) {
         role="img"
         aria-label={`중간가 ${label}. 구간 ${won(min)}~${won(max)}원. 내 체결 ${fq(totalVol)}주`}
       >
-        {shown.map((m) => (
-          <path key={m} d={path(m)} fill="none" stroke={COLOR[m]} strokeWidth="1.5" />
+        {/*
+          두 시장의 중간가가 같으면 선이 완전히 겹친다. 나중에 그린 것만 보여 한쪽이
+          사라진 것처럼 읽히므로, 먼저 그리는 쪽을 굵게 둬서 테두리가 남게 한다.
+        */}
+        {shown.map((m, i) => (
+          <path
+            key={m}
+            d={path(m)}
+            fill="none"
+            stroke={COLOR[m]}
+            strokeWidth={i === 0 && shown.length > 1 ? 3.5 : 1.5}
+          />
         ))}
         {ticks.map((t, i) =>
           t.vol > 0 ? (
@@ -107,18 +117,16 @@ export function PriceChart({ ticks }: { ticks: Tick[] }) {
         </span>
       </div>
 
+      {/*
+        평평한 것이 고장으로 보이지 않게 이유를 적는다. 시뮬 모드의 가상 참가자는 기준가
+        근처에만 주문을 내므로 최우선호가가 거의 고정이고, 바뀌는 것은 잔량이다.
+      */}
       <p className="note">
-        선 = 시장별 최우선호가의 중간값 · 막대 = <b>내 주문의</b> 체결 수량(시장 전체
-        거래량이 아니다 — 원장은 내 주문에만 체결을 통보한다).
-        {/*
-          평평한 것이 고장으로 보이지 않게 이유를 적는다. 시뮬 모드의 가상 참가자는
-          기준가 근처에만 주문을 내므로 최우선호가가 거의 고정이고, 바뀌는 것은 잔량이다.
-        */}
+        선 = 시장별 중간가 · 막대 = <b>내 주문의</b> 체결 수량(시장 전체 거래량이 아니다).
         {flat && (
           <>
             {" "}
-            <b>지금은 변동이 없다</b> — 최우선호가가 고정이고 바뀌는 것은 잔량이다(호가창의
-            ▲▼). 실시세·재생 모드에서는 선이 움직인다.
+            <b>지금은 변동 없음</b> — 바뀌는 것은 잔량이다(호가창의 ▲▼).
           </>
         )}
       </p>
