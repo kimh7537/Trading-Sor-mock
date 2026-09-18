@@ -5,11 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,8 @@ class TossTokenSourceTest {
     private volatile int status = 200;
     private volatile String body = "{\"access_token\":\"tok-1\",\"expires_in\":3600}";
     private volatile String retryAfter;
+    /** 참이면 본문을 gzip으로 돌려준다 — 실제 토스 앞단이 그렇게 했다. */
+    private volatile boolean gzip;
 
     @BeforeEach
     void up() throws IOException {
@@ -43,6 +47,14 @@ class TossTokenSourceTest {
             ex.getResponseHeaders().add("Retry-After", retryAfter);
         }
         byte[] out = body.getBytes(StandardCharsets.UTF_8);
+        if (gzip) {
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            try (GZIPOutputStream z = new GZIPOutputStream(buf)) {
+                z.write(out);
+            }
+            out = buf.toByteArray();
+            ex.getResponseHeaders().add("Content-Encoding", "gzip");
+        }
         ex.sendResponseHeaders(status, out.length);
         ex.getResponseBody().write(out);
         ex.close();
@@ -121,6 +133,25 @@ class TossTokenSourceTest {
         assertThatThrownBy(() -> source().token())
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("403")
+                .hasMessageContaining("ip_not_allowed");
+    }
+
+    /**
+     * <b>gzip으로 온 응답을 푼다.</b>
+     *
+     * <p>JDK {@code HttpClient}는 {@code Content-Encoding}을 스스로 풀지 않는다. 실제로 붙어 보니
+     * 앞단이 403 본문을 gzip으로 돌려줬고, 그대로 읽으니 로그에 깨진 바이트만 남았다. 성공
+     * 응답도 같은 길로 오면 <b>토큰 파싱이 통째로 실패</b>하므로 둘 다 시험한다.
+     */
+    @Test
+    void readsGzippedBodies() throws Exception {
+        gzip = true;
+        assertThat(source().token()).isEqualTo("tok-1");
+
+        status = 403;
+        body = "{\"error\":\"ip_not_allowed\"}";
+        assertThatThrownBy(() -> source().token())
+                .isInstanceOf(IOException.class)
                 .hasMessageContaining("ip_not_allowed");
     }
 

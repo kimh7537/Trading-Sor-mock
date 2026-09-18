@@ -126,6 +126,7 @@ public class TossFeedClient implements AutoCloseable {
                 backoff = BACKOFF_MIN_MS; /* 한 번 붙었으면 간격을 되돌린다 */
             } catch (TossTokenSource.FeedBackoff b) {
                 log.warn("실시세: {}", b.getMessage());
+                live.noteError(b.getMessage());
                 if (!sleep(b.waitMs())) {
                     return;
                 }
@@ -135,6 +136,7 @@ public class TossFeedClient implements AutoCloseable {
                 return;
             } catch (Exception e) {
                 log.warn("실시세 끊김: {}", e.toString());
+                live.noteError(reason(e));
             }
             if (!running.get() || !sleep(backoff)) {
                 return;
@@ -162,6 +164,17 @@ public class TossFeedClient implements AutoCloseable {
         socket = null;
         live.enterSim();
         throw new IllegalStateException("구독이 끊겼다");
+    }
+
+    /**
+     * 화면에 보일 한 줄. 자바 예외 클래스 이름은 화면에서 뜻이 없다.
+     *
+     * <p>실제로 겪은 것: 허용 IP를 등록하지 않으면 토큰 발급이 403
+     * {@code {"error":"access_denied","error_description":"IP address not allowed"}}이다.
+     */
+    static String reason(Throwable e) {
+        String m = e.getMessage();
+        return (m == null || m.isBlank()) ? e.toString() : m;
     }
 
     /** {@code [{"type":"orderbook:kr","codes":["005930"]}]} */

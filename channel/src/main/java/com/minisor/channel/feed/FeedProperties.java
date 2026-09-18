@@ -1,6 +1,9 @@
 package com.minisor.channel.feed;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * 실시세 모드 설정 (T8-04).
@@ -30,10 +33,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param replayFile 재생할 파일. 비어 있으면 재생하지 않는다(T8-06)
  * @param replaySpeed 재생 배속. 1이면 실시간, 10이면 10배 빠르게
  */
+@Validated
 @ConfigurationProperties(prefix = "minisor.feed")
 public record FeedProperties(
         boolean enabled,
-        int market,
+        /*
+         * 설정이 틀렸으면 뜨는 순간 죽는 편이 낫다. 모르는 시장 번호를 그대로 두면 원장이
+         * 스냅샷을 조용히 버리고, 화면은 "실시세"라고 적힌 채 아무것도 움직이지 않는다.
+         */
+        @Min(0) @Max(1) int market,
         String symbol,
         String wsUrl,
         String baseUrl,

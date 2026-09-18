@@ -49,7 +49,9 @@ public class LiveFeed {
             String symbol,
             long applied,
             long lastFeedTs,
-            String note) {}
+            String note,
+            /** 마지막으로 붙지 못한 이유. 붙어 있으면 null */
+            String error) {}
 
     private final LedgerGateway gateway;
     private final StreamHub hub;
@@ -60,6 +62,12 @@ public class LiveFeed {
     private final AtomicLong lastFeedTs = new AtomicLong();
     private volatile Mode mode = Mode.SIM;
     private volatile String source = "sim";
+    /*
+     * 화면이 "켜졌다"고 표시해 놓고 아무 일도 일어나지 않는 것이 제일 나쁘다. 붙지 못한
+     * 이유를 여기 담아 상태에 실어 보낸다 — 실제로 허용 IP 미등록(403)으로 조용히 멈추는
+     * 상황을 겪었다.
+     */
+    private volatile String lastError;
     private volatile FeedFile recorder;
 
     public LiveFeed(
@@ -105,7 +113,8 @@ public class LiveFeed {
         try {
             f.write(s);
         } catch (UncheckedIOException e) {
-            recorder = null;
+            /* 더 적을 수 없다. 열어 둔 채 놓지 않는다 — 다시 켜면 새로 연다 */
+            stopRecording();
         }
     }
 
@@ -119,7 +128,7 @@ public class LiveFeed {
             startRecording(Path.of(props.recordFile()));
         } catch (IOException | RuntimeException e) {
             /* 녹화는 곁다리다. 못 열어도 시세 수신은 돈다 */
-            recorder = null;
+            stopRecording();
         }
     }
 
@@ -146,6 +155,13 @@ public class LiveFeed {
     public void enterLive(String source) {
         this.source = source;
         this.mode = Mode.LIVE;
+        this.lastError = null;
+        hub.broadcast(new StreamEvent("feed-mode", status()));
+    }
+
+    /** 붙지 못했다. 이유를 화면까지 올린다. */
+    public void noteError(String why) {
+        this.lastError = why;
         hub.broadcast(new StreamEvent("feed-mode", status()));
     }
 
@@ -174,6 +190,7 @@ public class LiveFeed {
                 symbol,
                 applied.get(),
                 lastFeedTs.get(),
-                note);
+                note,
+                lastError);
     }
 }

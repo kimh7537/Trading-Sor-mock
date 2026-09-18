@@ -1502,6 +1502,44 @@ static void test_feed_stops_ticks_on_that_market(void)
     ledger_core_destroy(c);
 }
 
+/*
+ * **깊은 곳에 묵은 호가가 남지 않는다.**
+ *
+ * 조회 응답은 10단뿐이라 그 아래에 남은 호가는 화면에 보이지 않는다. 나중에 실호가가
+ * 그쪽으로 내려오면 있지도 않은 체결이 난다. 그래서 조회가 아니라 **호가창 전체**를 본다.
+ *
+ * 훑는 상한(`LEDGER_FEED_SCAN_DEPTH`, 32단)이 모자랄 수 있으므로 `apply_feed`는 한 바퀴
+ * 걷고 다시 훑기를 되풀이한다. 지금 생성기로는 상한에 닿지 않는다 — 지수 분포가 기준가
+ * 근처로 몰려 시장당 6,000건을 넣어도 한 방향이 15단이었다. 되풀이를 남기는 이유는
+ * 그 사실이 생성기 설정에 달려 있고, 모자랄 때의 실패가 **조용하기** 때문이다.
+ */
+static void test_feed_clears_deep_levels(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT; /* ledgerd가 실제로 쓰는 설정 */
+    ledger_core_t       *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 9000);
+    const price_t bp[] = {69900};
+    const qty_t   bq[] = {7};
+    const price_t ap[] = {70100};
+    const qty_t   aq[] = {9};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    fill_side(f.ask_price, f.ask_qty, ap, aq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    /* 조회 응답(10단)이 아니라 **호가창 전체**를 본다 — 깊은 단이 남았는지가 요점이다 */
+    const order_book_t *book = ledger_core_book(c, MARKET_KRX);
+    level_view_t        view[256];
+    int                 n = book_snapshot(book, SIDE_BUY, 256, view);
+    assert(n == 1 && view[0].price == 69900 && view[0].total_qty == 7);
+    n = book_snapshot(book, SIDE_SELL, 256, view);
+    assert(n == 1 && view[0].price == 70100 && view[0].total_qty == 9);
+
+    ledger_core_destroy(c);
+}
+
 /* 전문으로 넣으면 **심은 뒤의 호가창**이 응답으로 온다. */
 static void test_feed_message_answers_with_book(void)
 {
@@ -1585,6 +1623,7 @@ int main(void)
     STEP(test_feed_is_deterministic);
     STEP(test_feed_rejections);
     STEP(test_feed_stops_ticks_on_that_market);
+    STEP(test_feed_clears_deep_levels);
     STEP(test_feed_message_answers_with_book);
     return 0;
 }

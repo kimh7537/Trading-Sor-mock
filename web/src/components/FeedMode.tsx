@@ -76,6 +76,16 @@ export function FeedMode({
           실시세로 바꿀 수 없다 — {feed?.note ?? "채널계 상태를 읽지 못했다"}.
         </p>
       )}
+
+      {/*
+        붙지 못한 이유를 그대로 보인다. 조용히 시뮬로 남아 있으면 사용자는 "켰는데 왜
+        안 바뀌지"를 알 길이 없다. 실제로 허용 IP 미등록(403)으로 그렇게 됐다.
+      */}
+      {!live && feed?.error && (
+        <div className="alert-bar danger" role="alert">
+          <b>실시세에 붙지 못했다</b> — {feed.error}
+        </div>
+      )}
     </div>
   );
 }

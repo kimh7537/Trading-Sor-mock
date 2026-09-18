@@ -930,16 +930,31 @@ int ledger_core_apply_feed(ledger_core_t *c, const msg_book_feed_t *f)
     const price_t *price[2] = {f->bid_price, f->ask_price};
     const qty_t   *qty[2] = {f->bid_qty, f->ask_qty};
 
-    /* 1단계 — 줄인다. 넣기 전에 끝내야 묵은 호가와 새 호가가 교차하지 않는다. */
+    /*
+     * 1단계 — 줄인다. 넣기 전에 끝내야 묵은 호가와 새 호가가 교차하지 않는다.
+     *
+     * 호가창을 한 번에 다 훑을 수는 없다(`book_snapshot`은 늘 최우선부터 준다). 그래서
+     * **한 바퀴 걷고 다시 훑기를 되풀이한다** — 걷힌 단이 사라지면 그다음 단이 최우선으로
+     * 올라온다. 훑은 단이 상한보다 적거나(그 방향이 끝났다) 이번 바퀴에 아무것도 걷지
+     * 못하면(남은 것이 전부 내 주문이다) 멈춘다. 상한을 믿고 한 바퀴만 돌면 깊은 곳에
+     * 묵은 호가가 남고, 나중에 실호가가 그쪽으로 내려오면 있지도 않은 체결이 난다.
+     */
     for (int32_t s = 0; s < 2; s++) {
-        level_view_t view[LEDGER_FEED_SCAN_DEPTH];
-        int          n = book_snapshot(match_book(c->eng[m]), (side_t)s,
-                                       LEDGER_FEED_SCAN_DEPTH, view);
-        for (int i = 0; i < n; i++) {
-            qty_t have = foreign_qty_at(c, m, (side_t)s, view[i].price);
-            qty_t want = feed_target(price[s], qty[s], view[i].price);
-            if (have > want) {
-                feed_shrink(c, m, (side_t)s, view[i].price, have - want, ts);
+        for (;;) {
+            level_view_t view[LEDGER_FEED_SCAN_DEPTH];
+            int          n = book_snapshot(match_book(c->eng[m]), (side_t)s,
+                                           LEDGER_FEED_SCAN_DEPTH, view);
+            bool         removed = false;
+            for (int i = 0; i < n; i++) {
+                qty_t have = foreign_qty_at(c, m, (side_t)s, view[i].price);
+                qty_t want = feed_target(price[s], qty[s], view[i].price);
+                if (have > want) {
+                    feed_shrink(c, m, (side_t)s, view[i].price, have - want, ts);
+                    removed = true;
+                }
+            }
+            if (n < LEDGER_FEED_SCAN_DEPTH || !removed) {
+                break;
             }
         }
     }

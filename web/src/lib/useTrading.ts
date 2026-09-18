@@ -227,13 +227,19 @@ export function useTrading(): Trading {
   }, [books, feed]);
 
   const setMode = useCallback(async (mode: "sim" | "live") => {
-    const { ok, feed: got } = await setFeedMode(mode);
+    const { status, feed: got } = await setFeedMode(mode);
     if (got) setFeed(got);
-    if (ok) return { ok: true, message: mode === "live" ? "실시세 모드" : "시뮬 모드" };
-    return {
-      ok: false,
-      message: got?.note ?? "채널계가 모드를 바꾸지 못했다",
-    };
+    if (status === 200) {
+      return { ok: true, message: mode === "live" ? "실시세 모드" : "시뮬 모드" };
+    }
+    if (status === 202) {
+      // 붙어 봐야 안다. 붙으면 방송이 화면을 바꾼다
+      return { ok: true, message: "실시세에 붙는 중 — 붙으면 호가창이 바뀐다" };
+    }
+    if (status === 409) {
+      return { ok: false, message: got?.note ?? "실시세 설정이 없다" };
+    }
+    return { ok: false, message: got?.error ?? "채널계가 모드를 바꾸지 못했다" };
   }, []);
 
   const submit = useCallback(

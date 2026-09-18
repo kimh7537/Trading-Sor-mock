@@ -8,8 +8,10 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.zip.GZIPInputStream;
 
 /**
  * OAuth 2.0 client credentials 토큰 (T8-04).
@@ -69,31 +71,63 @@ public class TossTokenSource {
         HttpRequest req =
                 HttpRequest.newBuilder(URI.create(props.baseUrl() + "/oauth2/token"))
                         .header("Content-Type", "application/x-www-form-urlencoded")
+                        .header("Accept", "application/json")
                         .timeout(Duration.ofSeconds(10))
                         .POST(HttpRequest.BodyPublishers.ofString(form, StandardCharsets.UTF_8))
                         .build();
 
-        HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
         if (res.statusCode() == 429) {
             throw new FeedBackoff(retryAfterMs(res), "토큰 발급 429");
         }
+        String body = text(res);
         if (res.statusCode() / 100 != 2) {
             /*
              * 403이면 허용 IP 미등록이 첫 번째 의심이다. 본문을 그대로 실어 올린다 —
              * 삼키면 "왜 안 붙지"를 밖에서 알 길이 없다.
              */
-            throw new IOException("토큰 발급 실패 " + res.statusCode() + ": " + res.body());
+            throw new IOException("토큰 발급 실패 " + res.statusCode() + ": " + body);
         }
 
-        JsonNode n = JSON.readTree(res.body());
+        JsonNode n = JSON.readTree(body);
         String got = n.path("access_token").asText(null);
         if (got == null || got.isBlank()) {
-            throw new IOException("토큰 응답에 access_token이 없다: " + res.body());
+            throw new IOException("토큰 응답에 access_token이 없다: " + body);
         }
         long ttl = n.path("expires_in").asLong(3600);
         token = got;
         expiresAtMs = System.currentTimeMillis() + ttl * 1000;
         return token;
+    }
+
+    /**
+     * 본문을 글자로 바꾼다. <b>gzip으로 오면 푼다.</b>
+     *
+     * <p>JDK의 {@code HttpClient}는 {@code Content-Encoding}을 스스로 풀지 않는다. 실제로 붙어 보니
+     * 앞단이 403 본문을 gzip으로 돌려줬고, 그대로 읽으니 로그에 깨진 바이트만 남았다. 오류 본문을
+     * 실어 올리는 이유가 "왜 안 붙는지 밖에서 보이게" 하려는 것이므로 그러면 뜻이 없다.
+     *
+     * <p>성공 응답도 같은 길로 올 수 있다 — 그때는 <b>토큰 파싱이 통째로 실패</b>한다. 그래서
+     * 헤더만 믿지 않고 gzip 매직 바이트({@code 1f 8b})도 함께 본다.
+     */
+    static String text(HttpResponse<byte[]> res) {
+        byte[] raw = res.body();
+        if (raw == null || raw.length == 0) {
+            return "";
+        }
+        boolean gzipHeader =
+                res.headers().firstValue("Content-Encoding").orElse("").toLowerCase().contains("gzip");
+        boolean gzipMagic =
+                raw.length > 1 && (raw[0] & 0xff) == 0x1f && (raw[1] & 0xff) == 0x8b;
+        if (!gzipHeader && !gzipMagic) {
+            return new String(raw, StandardCharsets.UTF_8);
+        }
+        try (GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(raw))) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            /* gzip이라고 했는데 풀리지 않는다. 있는 그대로라도 보여 준다 */
+            return new String(raw, StandardCharsets.UTF_8);
+        }
     }
 
     /** 헤더가 초 단위 숫자를 준다. 없거나 모르는 모양이면 30초. */

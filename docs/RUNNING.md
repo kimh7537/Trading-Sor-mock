@@ -267,7 +267,10 @@ $env:TOSS_ENABLED="true"; ./mvnw.cmd spring-boot:run
 
 - 채널계가 `spring.config.import`로 루트의 `.env`를 읽는다. 키가 비어 있으면 **붙지 않는다**
   (키 없이 뜬 채 403을 되풀이하는 것보다 낫다)
-- 장중에만 움직인다. 허용 IP를 등록해야 하고 미등록 IP는 403이다
+- 장중에만 움직인다. **허용 IP를 등록해야 한다** — 미등록이면 토큰 발급이
+  `403 {"error":"access_denied","error_description":"IP address not allowed"}`이고,
+  화면의 "시세 모드와 가격" 칸에 그 문구가 그대로 뜬다. 지금 나가는 주소는
+  `curl https://api.ipify.org`로 확인한다
 - **client 당 유효한 토큰이 하나다.** 같은 키로 프로세스를 둘 띄우면 서로의 토큰을 무효로 만든다
 - 읽기 경로만 만들었다. 주문 API는 호출하지 않는다
 
@@ -282,15 +285,24 @@ $env:FEED_REPLAY_SPEED="3"      # 3배속. 1이면 실시간
 
 `docs/samples/feed-sample.jsonl`은 키 없이 재생 경로를 볼 수 있게 만든 **합성 샘플**이다.
 실제 장은 `FEED_RECORD_FILE=../tape.jsonl`로 녹화해서 쓴다(한 줄에 스냅샷 하나, JSONL).
+녹화는 뜰 때 자동으로 시작하고 `POST /api/feed/record?on=false`로 멈춘다 — **적을 자리는
+설정이 정한다**(요청이 경로를 정하면 부를 수 있는 누구나 아무 자리에 파일을 만든다).
+
+**둘 다 설정했을 때**: 토스를 먼저 고른다. 토스가 붙지 못하고 있으면(허용 IP 미등록 등)
+실시세를 다시 요청할 때 **토스를 멈추고 재생으로 넘어간다** — 그러지 않으면 키는 있는데
+IP를 등록 못 한 사람이 실시세를 영영 못 본다.
 
 **확인**
 
 ```powershell
 curl http://localhost:8080/api/feed
-# {"mode":"sim","source":"sim","available":true,...}
+# {"mode":"sim","source":"sim","available":true,...,"error":null}
 curl -X POST "http://localhost:8080/api/feed/mode?mode=live"
-# {"mode":"live","source":"replay",...}   설정이 없으면 409
+# 200 바뀌었다(재생) / 202 붙는 중(토스) / 409 실시세 설정이 없다
 ```
+
+붙지 못하면 `error`에 이유가 담기고 화면에도 그대로 나온다. 조용히 시뮬로 남아 있으면
+"켰는데 왜 안 바뀌지"를 알 길이 없다.
 
 바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
@@ -375,7 +387,7 @@ npm run check                # 예상 체결·호가 단위 계산 자체 점검
 | 종류 | 개수 | 어디 | 실행 | 걸리는 시간(점검 PC) |
 |---|---:|---|---|---|
 | C 단위·통합 테스트 | **58** | 각 모듈 `tests/test_*.c` | `ctest` | 빌드 포함 수 분, ASan이 가장 느리다 |
-| Java 테스트 | **68** (13개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
+| Java 테스트 | **69** (13개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
 | 화면 | 자체 점검 스크립트 1개 (13경우) | `web/scripts/estimate.check.ts` | `npm run build`, `npm run lint`, `npm run check` | 수 초 |
 
 **커밋 전 규칙**: C는 **Debug·Release·ASan 세 빌드에서 58개가 모두 통과**해야 한다. Release는 `assert`가 꺼지는
@@ -519,7 +531,7 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 
 > 벤치마크 실행 파일 4개(`bench_match` 등)는 오래 걸려 ctest에 넣지 않았다. 5장에서 따로 돌린다.
 
-### 4.4 Java 테스트 68개
+### 4.4 Java 테스트 69개
 
 | 클래스 | 개수 | 확인하는 것 |
 |---|---:|---|
@@ -534,7 +546,7 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 | `stream.StreamTest` | 4 | 구독·방송, 원장 끊김 전파, 나간 구독자 정리, 많은 이벤트 |
 | `feed.SnapshotTest` | 4 | 바깥 시세 읽기: **문자열 decimal → 정수**, 시각 `null` 대체, 못 쓰는 단 버리기, 10단 넘으면 자르기 |
 | `feed.LiveFeedTest` | 4 | 스냅샷이 `MSG_BOOK_FEED`로 원장까지, 심은 호가창 즉시 방송, **설정 없으면 실시세로 못 바꿈(409)**, 모드 전환 |
-| `feed.TossTokenSourceTest` | 5 | client credentials 폼, 토큰 캐시(재발급하면 이전 토큰이 죽으므로), **429의 `Retry-After`**, 403 본문 전달, 만료 전 재발급 |
+| `feed.TossTokenSourceTest` | 6 | client credentials 폼, 토큰 캐시(재발급하면 이전 토큰이 죽으므로), **429의 `Retry-After`**, 403 본문 전달, **gzip 본문 해독**, 만료 전 재발급 |
 | `feed.FeedReplayTest` | 4 | 녹화 파일 왕복, 반쪽 줄 건너뛰기, **같은 파일 같은 결과**, 배속은 간격만 바꿈 |
 
 결과는 콘솔과 `channel/target/surefire-reports/*.txt`에 남는다:

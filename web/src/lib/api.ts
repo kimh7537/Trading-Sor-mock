@@ -121,15 +121,22 @@ export async function fetchFeed(): Promise<FeedStatus> {
 }
 
 /**
- * 모드를 바꾼다. 채널계에 실시세 설정이 없으면 409가 오고 모드는 그대로다 —
+ * 모드를 바꾼다. 상태 코드가 셋이다.
+ *
+ * - 200 바뀌었다 (녹화 파일 재생은 시작한 순간 이미 실시세다)
+ * - 202 붙는 중이다 (토스는 붙어 봐야 안다. 붙으면 `feed-mode` 방송이 화면을 바꾼다)
+ * - 409 실시세 설정이 없어 바꿀 수 없다
+ *
  * "켜졌다"고 표시해 놓고 아무 일도 일어나지 않는 것이 제일 나쁘다.
  */
-export async function setFeedMode(mode: "sim" | "live"): Promise<{ ok: boolean; feed: FeedStatus | null }> {
+export async function setFeedMode(
+  mode: "sim" | "live",
+): Promise<{ status: number; feed: FeedStatus | null }> {
   try {
     const res = await fetch(`${BASE}/api/feed/mode?mode=${mode}`, { method: "POST" });
     const feed = (await res.json().catch(() => null)) as FeedStatus | null;
-    return { ok: res.ok, feed };
+    return { status: res.status, feed };
   } catch {
-    return { ok: false, feed: null };
+    return { status: 0, feed: null };
   }
 }

@@ -158,6 +158,9 @@ FEED_RECORD_FILE=../tape.jsonl ./mvnw.cmd spring-boot:run
 `docs/samples/feed-sample.jsonl`은 **합성 샘플**이다(키 없이 재생 경로를 볼 수 있게 만들었다).
 실제 장을 보려면 `FEED_RECORD_FILE`로 녹화한 파일을 쓴다.
 
+토스에 붙지 못하면(허용 IP 미등록이면 `403 IP address not allowed`) 그 이유가 화면에
+그대로 뜨고, 재생 파일이 있으면 그쪽으로 넘어간다.
+
 바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
 

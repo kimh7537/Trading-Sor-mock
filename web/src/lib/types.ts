@@ -98,6 +98,8 @@ export interface FeedStatus {
   applied: number;
   lastFeedTs: number;
   note: string;
+  /** 마지막으로 붙지 못한 이유. 붙어 있으면 null */
+  error: string | null;
 }
 
 /** 차트 한 점. 호가가 바뀔 때마다 하나씩 쌓인다. */
