@@ -80,6 +80,15 @@ void match_set_rules(match_engine_t *eng, const market_rules_t *rules);
 const order_book_t *match_book(const match_engine_t *eng);
 
 /*
+ * 같은 호가창을 **고칠 수 있는 형태로** 준다(T8-03).
+ *
+ * 스냅샷 주입이 한 가격 레벨을 앞에서부터 훑어야 한다 — `book_front()`로 첫 주문을
+ * 잡고 `order_t.next`로 이어 간다. 그 통로가 const가 아니라서 따로 둔다.
+ * **매칭 엔진의 손님이 아니라 같은 프로세스 안의 원장만 쓴다.**
+ */
+order_book_t *match_book_mut(match_engine_t *eng);
+
+/*
  * 지정가 주문을 접수한다.
  *
  * req는 틀이다 — 엔진이 읽기만 하고 보관하지 않는다. id, side, price, qty, ts,

@@ -1,6 +1,7 @@
 #include "ledger_core.h"
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,7 @@
 #include "market_rules.h"
 #include "match.h"
 #include "msg.h"
+#include "order.h"
 #include "order_map.h"
 #include "order_validate.h"
 #include "routing_log.h"
@@ -28,6 +30,17 @@
  * (`COMPARE_LOGICAL_ID_BASE`).
  */
 #define LEDGER_LOGICAL_BASE ((order_id_t)200000000)
+
+/*
+ * 주입한 호가의 주문번호 시작값(T8-03).
+ *
+ * 유동성(KRX 1~, NXT 10억~)과 사용자 물리 번호(논리 2억 x 16 = 32억~) **사이의 빈
+ * 구간**이다. 겹치면 취소가 엉뚱한 주문을 걷는다.
+ */
+#define LEDGER_FEED_ID_BASE ((order_id_t)2000000000)
+
+/* 스냅샷을 맞출 때 훑는 단 수. 주입하는 10단보다 깊어질 수 있어 넉넉히 둔다. */
+#define LEDGER_FEED_SCAN_DEPTH 32
 
 const ledger_core_config_t LEDGER_CORE_DEFAULT = {
     .account = "123456789012",
@@ -86,6 +99,13 @@ struct ledger_core {
      * 번호를 따로 배열에 쌓아 둘 필요가 없다.
      */
     divergent_t *div;
+    /* 주입한 호가에 붙일 다음 번호(T8-03). 시장을 가리지 않고 하나로 센다 */
+    order_id_t   next_feed_id;
+    /*
+     * 이 시장이 바깥 시세를 받았는가(T8-03). 한 번 받으면 **가상 참가자가 그 시장에서
+     * 손을 뗀다** — 실호가 위에 가짜 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
+     */
+    bool         fed[MARKET_COUNT];
     order_id_t   synth_first[MARKET_COUNT];
     int64_t      synth_issued[MARKET_COUNT];
     int64_t      synth_retired[MARKET_COUNT];
@@ -564,6 +584,26 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
         m = msg_encode_book_ack(&ack, b, cap);
         break;
     }
+    /*
+     * 스냅샷을 심고 **심은 뒤의 호가창**을 돌려준다(T8-03). 심다가 실패해도 응답은
+     * 호가창이다 — 보낸 쪽이 "그래서 지금 어떻게 됐나"를 한 번에 본다.
+     */
+    case MSG_BOOK_FEED: {
+        msg_book_feed_t feed;
+        if (msg_decode_book_feed(body, hdr->body_len, &feed) < 0) {
+            return -1;
+        }
+        (void)ledger_core_apply_feed(c, &feed);
+
+        msg_book_req_t q;
+        memset(&q, 0, sizeof(q));
+        memcpy(q.symbol, feed.symbol, sizeof(q.symbol));
+        q.market = feed.market;
+        msg_book_ack_t ack;
+        query_book(c, &q, &ack);
+        m = msg_encode_book_ack(&ack, b, cap);
+        break;
+    }
     default:
         return 0;
     }
@@ -682,6 +722,7 @@ ledger_core_t *ledger_core_create(const ledger_core_config_t *cfg)
     }
     c->cfg = *cfg;
     c->next_logical = LEDGER_LOGICAL_BASE;
+    c->next_feed_id = LEDGER_FEED_ID_BASE;
     c->submitting = ORDER_ID_INVALID;
 
     const int32_t rec_count[SHM_REGION_COUNT] = {4, 4};
@@ -751,8 +792,8 @@ int ledger_core_tick(ledger_core_t *c, int32_t n)
 
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         synth_gen_t *gen = divergent_gen(c->div, (market_t)m);
-        if (gen == NULL) {
-            continue;
+        if (gen == NULL || c->fed[m]) {
+            continue; /* 바깥 시세를 받는 시장에는 가상 참가자를 넣지 않는다 */
         }
         for (int32_t i = 0; i < n; i++) {
             order_t       o;
@@ -780,6 +821,140 @@ int ledger_core_tick(ledger_core_t *c, int32_t n)
             (void)match_limit(c->eng[m], &o, &res);
             if (o.ts > c->clock) {
                 c->clock = o.ts;
+            }
+        }
+    }
+    return ERR_OK;
+}
+
+/* --- 호가 스냅샷 주입 (T8-03) --- */
+
+/* 이 주문이 원장 사용자의 것인가. 아니면 갈아끼울 상대 호가다. */
+static bool is_user_order(const ledger_core_t *c, order_id_t id)
+{
+    return omap_leg(c->map, id) != NULL;
+}
+
+/* 이 가격에 남아 있는 **상대 호가**의 잔량 합. 내 미체결은 빼고 센다. */
+static qty_t foreign_qty_at(ledger_core_t *c, market_t m, side_t side,
+                            price_t p)
+{
+    qty_t sum = 0;
+    for (order_t *o = book_front(match_book_mut(c->eng[m]), side, p); o != NULL;
+         o = o->next) {
+        if (!is_user_order(c, o->id)) {
+            sum += order_remaining_qty(o);
+        }
+    }
+    return sum;
+}
+
+/*
+ * 이 가격의 상대 호가를 drop만큼 **앞에서부터** 걷는다.
+ *
+ * 앞에서부터인 이유는 실제 장에서도 내 앞의 줄이 먼저 빠지기 때문이다. 다 걷지 못할
+ * 주문은 수량 감소 정정으로 줄인다 — 같은 가격의 수량 감소는 제자리를 지키므로
+ * 내 주문의 차례가 흐트러지지 않는다.
+ */
+static void feed_shrink(ledger_core_t *c, market_t m, side_t side, price_t p,
+                        qty_t drop, ts_t ts)
+{
+    order_t *o = book_front(match_book_mut(c->eng[m]), side, p);
+    while (o != NULL && drop > 0) {
+        /* 취소하면 o가 리스트에서 빠지므로 다음을 먼저 잡아 둔다. */
+        order_t *nx = o->next;
+        if (!is_user_order(c, o->id)) {
+            qty_t         rem = order_remaining_qty(o);
+            exec_result_t res;
+            if (rem <= drop) {
+                if (match_cancel(c->eng[m], o->id, ts, &res) == ERR_OK) {
+                    drop -= rem;
+                }
+            } else if (match_modify(c->eng[m], o->id, p, o->qty - drop, ts,
+                                    &res) == ERR_OK) {
+                drop = 0;
+            }
+        }
+        o = nx;
+    }
+}
+
+/* 이 가격에 상대 호가 q주를 새로 넣는다. 큐 뒤에 붙는다 — 내 주문 뒤다. */
+static void feed_insert(ledger_core_t *c, market_t m, side_t side, price_t p,
+                        qty_t q, ts_t ts)
+{
+    order_t o;
+    memset(&o, 0, sizeof(o));
+    o.id = c->next_feed_id++;
+    o.ts = ts;
+    o.price = p;
+    o.qty = q;
+    o.side = side;
+    o.type = ORDER_LIMIT;
+    o.market = m;
+
+    exec_result_t res;
+    /* 제한폭 밖·호가 단위 불일치는 그 단을 버린다. 바깥 시세를 되받을 수는 없다. */
+    (void)match_limit(c->eng[m], &o, &res);
+}
+
+/* 스냅샷이 말하는 이 가격의 목표 잔량. 없는 가격이면 0. */
+static qty_t feed_target(const price_t *price, const qty_t *qty, price_t p)
+{
+    for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+        if (price[i] == p) {
+            return qty[i] > 0 ? qty[i] : 0;
+        }
+    }
+    return 0;
+}
+
+int ledger_core_apply_feed(ledger_core_t *c, const msg_book_feed_t *f)
+{
+    if (c == NULL || f == NULL) {
+        return ERR_NULL_PTR;
+    }
+    if (f->market >= MARKET_COUNT) {
+        return ERR_INVALID_ARG;
+    }
+    if (strncmp(f->symbol, c->cfg.symbol, MSG_SYMBOL_LEN) != 0) {
+        return ERR_NOT_FOUND;
+    }
+
+    market_t m = (market_t)f->market;
+    c->fed[m] = true;
+    /* 스냅샷의 시각을 쓰되 뒤로 가지 않게 한다. 시스템 시각은 읽지 않는다. */
+    ts_t ts = (f->feed_ts > c->clock) ? f->feed_ts : c->clock + 1;
+    c->clock = ts;
+
+    const price_t *price[2] = {f->bid_price, f->ask_price};
+    const qty_t   *qty[2] = {f->bid_qty, f->ask_qty};
+
+    /* 1단계 — 줄인다. 넣기 전에 끝내야 묵은 호가와 새 호가가 교차하지 않는다. */
+    for (int32_t s = 0; s < 2; s++) {
+        level_view_t view[LEDGER_FEED_SCAN_DEPTH];
+        int          n = book_snapshot(match_book(c->eng[m]), (side_t)s,
+                                       LEDGER_FEED_SCAN_DEPTH, view);
+        for (int i = 0; i < n; i++) {
+            qty_t have = foreign_qty_at(c, m, (side_t)s, view[i].price);
+            qty_t want = feed_target(price[s], qty[s], view[i].price);
+            if (have > want) {
+                feed_shrink(c, m, (side_t)s, view[i].price, have - want, ts);
+            }
+        }
+    }
+
+    /* 2단계 — 모자란 만큼 넣는다. 빈 단(가격이나 잔량이 0)은 건너뛴다. */
+    for (int32_t s = 0; s < 2; s++) {
+        for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
+            price_t p = price[s][i];
+            qty_t   q = qty[s][i];
+            if (p <= 0 || q <= 0) {
+                continue;
+            }
+            qty_t have = foreign_qty_at(c, m, (side_t)s, p);
+            if (q > have) {
+                feed_insert(c, m, (side_t)s, p, q - have, ts);
             }
         }
     }

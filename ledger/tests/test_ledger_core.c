@@ -1216,6 +1216,336 @@ static void test_tick_fills_resting_user_order(void)
     assert(0 && "가상 매도가 2000틱 안에 기준가까지 내려오지 않았다");
 }
 
+/* --- 8. 호가 스냅샷 주입 (T8-03) --- */
+
+/* {가격, 잔량} 쌍을 스냅샷 한 면에 채운다. 남는 단은 0으로 둔다. */
+static void fill_side(price_t *price, qty_t *qty, const price_t *p,
+                      const qty_t *q, int n)
+{
+    for (int i = 0; i < n && i < MSG_BOOK_DEPTH; i++) {
+        price[i] = p[i];
+        qty[i] = q[i];
+    }
+}
+
+static void feed_init(msg_book_feed_t *f, uint8_t market, ts_t ts)
+{
+    memset(f, 0, sizeof(*f));
+    snprintf(f->symbol, sizeof(f->symbol), "%s", "005930");
+    f->market = market;
+    f->feed_ts = ts;
+}
+
+/*
+ * **상대 호가만 갈아끼우고 내 미체결은 그대로 둔다.**
+ *
+ * 스냅샷을 두 번 넣는 동안 내 주문이 살아 있어야 하고, 같은 가격의 잔량은
+ * "스냅샷이 말한 잔량 + 내 주문"이어야 한다.
+ */
+static void test_feed_keeps_my_order(void)
+{
+    ledger_core_t *c = empty_core(64);
+    msg_book_ack_t b;
+
+    /* 1) 첫 스냅샷 — 내 주문이 아직 없다 */
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    const price_t bp[] = {69900, 69800};
+    const qty_t   bq[] = {100, 50};
+    const price_t ap[] = {70000};
+    const qty_t   aq[] = {80};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 2);
+    fill_side(f.ask_price, f.ask_qty, ap, aq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 69900 && b.bid_qty[0] == 100);
+    assert(b.bid_price[1] == 69800 && b.bid_qty[1] == 50);
+    assert(b.ask_price[0] == 70000 && b.ask_qty[0] == 80);
+
+    /* 2) 내 주문을 같은 가격에 건다 — 기존 잔량 뒤에 선다 */
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 69900, 10, 800, &ack) == ERR_OK);
+    assert(ack.status == STATUS_NEW);
+    order_id_t mine = ack.order_id;
+
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 69900 && b.bid_qty[0] == 110); /* 100 + 내 10 */
+
+    /* 3) 두 번째 스냅샷 — 69,800이 사라지고 69,900은 그대로다 */
+    feed_init(&f, MARKET_KRX, 2000);
+    const price_t bp2[] = {69900};
+    const qty_t   bq2[] = {100};
+    fill_side(f.bid_price, f.bid_qty, bp2, bq2, 1);
+    fill_side(f.ask_price, f.ask_qty, ap, aq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 69900 && b.bid_qty[0] == 110); /* 내 주문 보존 */
+    assert(b.bid_price[1] == 0);                            /* 69,800은 걷혔다 */
+
+    msg_detail_ack_t d;
+    assert(detail(c, ACCT, mine, &d) == ERR_OK);
+    assert(d.working == 10 && d.filled == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **큐 위치가 유지된다.** 내 앞의 100주가 먼저 체결되고, 그것이 빠진 뒤에야
+ * 내 주문이 체결된다. 지웠다 다시 넣는 방식이면 내가 맨 앞에 서서 첫 매도
+ * 100주가 내 10주를 먼저 먹는다 — 그것이 체결률을 부풀리는 지점이다.
+ */
+static void test_feed_preserves_queue_position(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    const price_t bp[] = {69900};
+    const qty_t   bq[] = {100};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 69900, 10, 810, &ack) == ERR_OK);
+    order_id_t mine = ack.order_id;
+
+    /* 같은 스냅샷을 한 번 더 — 잔량이 같으므로 아무것도 건드리지 않는다 */
+    feed_init(&f, MARKET_KRX, 2000);
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    /* 앞 100주를 걷어 가는 매도 — 내 주문은 한 주도 체결되지 않아야 한다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 69900, 100, 811, &ack) ==
+           ERR_OK);
+    msg_detail_ack_t d;
+    assert(detail(c, ACCT, mine, &d) == ERR_OK);
+    assert(d.filled == 0 && d.working == 10);
+
+    msg_book_ack_t b;
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 69900 && b.bid_qty[0] == 10); /* 내 것만 남았다 */
+
+    /* 이제 내 차례다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 69900, 10, 812, &ack) == ERR_OK);
+    assert(detail(c, ACCT, mine, &d) == ERR_OK);
+    assert(d.filled == 10 && d.working == 0);
+
+    ledger_core_destroy(c);
+}
+
+/* 실호가가 내 미체결과 교차하면 그 자리에서 체결된다. */
+static void test_feed_crosses_my_order(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 10, 820, &ack) == ERR_OK);
+    assert(ack.status == STATUS_NEW);
+    order_id_t mine = ack.order_id;
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 3000);
+    const price_t bp[] = {70000};
+    const qty_t   bq[] = {30};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    msg_detail_ack_t d;
+    assert(detail(c, ACCT, mine, &d) == ERR_OK);
+    assert(d.filled == 10 && d.working == 0);
+
+    msg_book_ack_t b;
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.ask_price[0] == 0);                          /* 내 매도는 다 나갔다 */
+    assert(b.bid_price[0] == 70000 && b.bid_qty[0] == 20); /* 남은 20주가 선다 */
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **빈 스냅샷은 상대 호가를 전부 걷는다.** 단수가 10단 고정이 아니라는 것을
+ * 다루는 경계다 — 토스 호가 스키마에는 단수 상한이 없고 예시가 3단·1단이다.
+ * 내 주문은 그래도 남는다.
+ */
+static void test_feed_empty_clears_only_theirs(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    const price_t bp[] = {69900};
+    const qty_t   bq[] = {100};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 69800, 7, 830, &ack) == ERR_OK);
+
+    feed_init(&f, MARKET_KRX, 2000); /* 전부 0 */
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    msg_book_ack_t b;
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 69800 && b.bid_qty[0] == 7);
+    assert(b.bid_price[1] == 0 && b.ask_price[0] == 0);
+
+    ledger_core_destroy(c);
+}
+
+/* 시드 유동성도 상대 호가다 — 스냅샷이 그 자리를 넘겨받는다. */
+static void test_feed_replaces_seeded_liquidity(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_NXT, 5000);
+    const price_t bp[] = {69000};
+    const qty_t   bq[] = {11};
+    const price_t ap[] = {71000};
+    const qty_t   aq[] = {13};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    fill_side(f.ask_price, f.ask_qty, ap, aq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    msg_book_ack_t b;
+    book(c, "005930", MARKET_NXT, &b);
+    assert(b.bid_price[0] == 69000 && b.bid_qty[0] == 11);
+    assert(b.bid_price[1] == 0);
+    assert(b.ask_price[0] == 71000 && b.ask_qty[0] == 13);
+    assert(b.ask_price[1] == 0);
+
+    /* 다른 시장은 건드리지 않는다 */
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[1] != 0 || b.ask_price[1] != 0);
+
+    ledger_core_destroy(c);
+}
+
+/* 같은 스냅샷 묶음은 같은 호가창을 만든다 — 리플레이(T8-06)의 전제다. */
+static void test_feed_is_deterministic(void)
+{
+    ledger_core_t *a = empty_core(64);
+    ledger_core_t *c = empty_core(64);
+
+    for (int round = 0; round < 3; round++) {
+        msg_book_feed_t f;
+        feed_init(&f, MARKET_KRX, 1000 + round);
+        const price_t bp[] = {69900 - round * 100, 69800 - round * 100};
+        const qty_t   bq[] = {100 + round, 50};
+        fill_side(f.bid_price, f.bid_qty, bp, bq, 2);
+        assert(ledger_core_apply_feed(a, &f) == ERR_OK);
+        assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+    }
+
+    msg_book_ack_t ba, bc;
+    book(a, "005930", MARKET_KRX, &ba);
+    book(c, "005930", MARKET_KRX, &bc);
+    assert(memcmp(&ba, &bc, sizeof(ba)) == 0);
+
+    ledger_core_destroy(a);
+    ledger_core_destroy(c);
+}
+
+/* 모르는 시장·다루지 않는 종목은 거절한다. */
+static void test_feed_rejections(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_book_feed_t f;
+    feed_init(&f, 7, 1000);
+    assert(ledger_core_apply_feed(c, &f) == ERR_INVALID_ARG);
+
+    feed_init(&f, MARKET_KRX, 1000);
+    snprintf(f.symbol, sizeof(f.symbol), "%s", "000660");
+    assert(ledger_core_apply_feed(c, &f) == ERR_NOT_FOUND);
+
+    assert(ledger_core_apply_feed(NULL, &f) == ERR_NULL_PTR);
+    assert(ledger_core_apply_feed(c, NULL) == ERR_NULL_PTR);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **바깥 시세를 받은 시장에는 가상 참가자가 더 끼어들지 않는다.**
+ *
+ * 실호가 위에 가짜 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다. 스냅샷이 말한 잔량이
+ * 틱을 아무리 쳐도 그대로여야 하고, 스냅샷을 받지 않은 시장은 계속 움직여야 한다.
+ */
+static void test_feed_stops_ticks_on_that_market(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    const price_t bp[] = {69000};
+    const qty_t   bq[] = {11};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    msg_book_ack_t krx0, nxt0;
+    book(c, "005930", MARKET_KRX, &krx0);
+    book(c, "005930", MARKET_NXT, &nxt0);
+
+    for (int i = 0; i < 20; i++) {
+        assert(ledger_core_tick(c, 5) == ERR_OK);
+    }
+
+    msg_book_ack_t krx1, nxt1;
+    book(c, "005930", MARKET_KRX, &krx1);
+    book(c, "005930", MARKET_NXT, &nxt1);
+
+    assert(memcmp(&krx0, &krx1, sizeof(krx0)) == 0); /* 실호가는 그대로 */
+    assert(memcmp(&nxt0, &nxt1, sizeof(nxt0)) != 0); /* 안 받은 시장은 움직인다 */
+
+    ledger_core_destroy(c);
+}
+
+/* 전문으로 넣으면 **심은 뒤의 호가창**이 응답으로 온다. */
+static void test_feed_message_answers_with_book(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    const price_t bp[] = {69900};
+    const qty_t   bq[] = {40};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+
+    uint8_t body[MSG_BOOK_FEED_LEN];
+    assert(msg_encode_book_feed(&f, body, sizeof(body)) ==
+           (int)MSG_BOOK_FEED_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_BOOK_FEED;
+    h.body_len = MSG_BOOK_FEED_LEN;
+    h.seq = 77;
+
+    uint8_t out[WIRE_HEADER_LEN + MSG_BOOK_ACK_LEN];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_BOOK_ACK_LEN));
+
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_BOOK_ACK && rh.seq == 77);
+
+    msg_book_ack_t ack;
+    assert(msg_decode_book_ack(out + WIRE_HEADER_LEN, rh.body_len, &ack) ==
+           (int)MSG_BOOK_ACK_LEN);
+    assert(ack.market == MARKET_KRX);
+    assert(ack.bid_price[0] == 69900 && ack.bid_qty[0] == 40);
+
+    /* 길이가 규격과 다른 바디는 접속을 끊는다 */
+    h.body_len = MSG_BOOK_FEED_LEN - 1;
+    assert(ledger_core_handle(&h, body, out, sizeof(out), c) < 0);
+
+    ledger_core_destroy(c);
+}
+
+
 int main(void)
 {
     STEP(test_buy_takes_liquidity);
@@ -1247,5 +1577,14 @@ int main(void)
     STEP(test_tick_retires_old_orders);
     STEP(test_tick_without_generator);
     STEP(test_tick_fills_resting_user_order);
+    STEP(test_feed_keeps_my_order);
+    STEP(test_feed_preserves_queue_position);
+    STEP(test_feed_crosses_my_order);
+    STEP(test_feed_empty_clears_only_theirs);
+    STEP(test_feed_replaces_seeded_liquidity);
+    STEP(test_feed_is_deterministic);
+    STEP(test_feed_rejections);
+    STEP(test_feed_stops_ticks_on_that_market);
+    STEP(test_feed_message_answers_with_book);
     return 0;
 }

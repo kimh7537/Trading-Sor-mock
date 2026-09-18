@@ -46,6 +46,11 @@ const order_book_t *match_book(const match_engine_t *eng)
     return eng != NULL ? eng->book : NULL;
 }
 
+order_book_t *match_book_mut(match_engine_t *eng)
+{
+    return eng != NULL ? eng->book : NULL;
+}
+
 void match_set_sink(match_engine_t *eng, const event_sink_t *sink)
 {
     if (eng == NULL) {
