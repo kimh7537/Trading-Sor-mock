@@ -177,6 +177,21 @@ public class LiveFeed {
                      */
                     sim.reset();
                     log.info("원장을 {}원 가격대로 다시 열었다", done.refPrice);
+                    /*
+                     * **다시 연 호가창에 이 스냅샷을 곧바로 심는다.**
+                     *
+                     * 원장을 새로 열면 "이 시장은 피드가 맡는다"는 표시가 지워져 가상 참가자가
+                     * 그 시장에서 다시 주문을 낸다. 장이 닫혀 다음 스냅샷이 오지 않으면 아무도
+                     * 덮어쓰지 않으므로, 화면에는 "실시세"라고 적힌 채 움직이는 것은 내 가짜
+                     * 주문뿐이다 — 실제로 토요일에 그렇게 됐다. 심으면 표시가 다시 서고,
+                     * 호가창은 바깥 시장이 멈춘 자리에서 함께 멈춘다.
+                     */
+                    BookAck replanted = gateway.call(sent, BookAck.class);
+                    if (!has(replanted.bidPrice, want) && !has(replanted.askPrice, want)) {
+                        noteError("가격대를 다시 열었는데도 실호가가 심기지 않는다 — " + want + "원");
+                        return;
+                    }
+                    hub.broadcast(StreamEvent.book(BookController.BookDto.from(replanted)));
                     lastError = null;
                     return;
                 }

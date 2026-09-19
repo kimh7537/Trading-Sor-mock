@@ -160,7 +160,7 @@ export default function App() {
               title="차트"
               sub={live ? "바깥 시세 · 주문은 모의" : "가상 참가자가 만드는 호가"}
             >
-              <ChartPanel ticks={t.ticks} feed={t.feed} />
+              <ChartPanel key={t.symbol.code} ticks={t.ticks} feed={t.feed} />
             </Panel>
 
             <Panel className="area-mode" title="시세 모드">
