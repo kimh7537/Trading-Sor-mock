@@ -3,6 +3,7 @@ package com.minisor.channel.api;
 import static com.minisor.channel.wire.WireEnums.MARKET_KRX;
 import static com.minisor.channel.wire.WireEnums.MARKET_NXT;
 
+import com.minisor.channel.feed.SymbolState;
 import com.minisor.channel.ledger.LedgerException;
 import com.minisor.channel.wire.BookAck;
 import com.minisor.channel.wire.BookReq;
@@ -40,14 +41,24 @@ public class BookController {
     }
 
     private final LedgerGateway gateway;
+    private final SymbolState symbols;
 
-    public BookController(LedgerGateway gateway) {
+    public BookController(LedgerGateway gateway, SymbolState symbols) {
         this.gateway = gateway;
+        this.symbols = symbols;
     }
 
+    /**
+     * 한 시장의 호가 10단.
+     *
+     * <p>종목을 주지 않으면 <b>지금 보고 있는 종목</b>이다(T8-10). 전에는 005930이 박혀
+     * 있었는데, 종목을 바꾼 뒤 화면이 이 경로로 읽으면 원장이 <b>빈 호가창</b>을 돌려줬다 —
+     * 원장은 자기 종목에만 답한다.
+     */
     @GetMapping("/api/book")
     public ResponseEntity<BookDto> book(
-            @RequestParam int market, @RequestParam(defaultValue = "005930") String symbol) {
+            @RequestParam int market, @RequestParam(value = "symbol", required = false) String asked) {
+        String symbol = (asked == null || asked.isBlank()) ? symbols.code() : asked;
         if ((market != MARKET_KRX && market != MARKET_NXT) || symbol.isEmpty() || symbol.length() > 8) {
             return ResponseEntity.badRequest().build();
         }

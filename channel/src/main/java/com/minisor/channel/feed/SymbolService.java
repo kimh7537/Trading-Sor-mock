@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 
 /**
@@ -81,9 +83,15 @@ public class SymbolService {
      * 다른 종목으로 바뀌어 있을 수 있고, 그러면 모든 호가 조회가 빈 호가창을 돌려준다 —
      * 원장은 자기 종목에만 답한다. 기준가 0으로 보내면 바꾸지 않고 답만 온다.
      *
+     * <p><b>이름보다 코드가 먼저다.</b> 이름은 바깥에서 받아 오는 것이라 몇 초가 걸리는데,
+     * 그사이 화면이 읽으면 옛 종목과 빈 호가창을 본다. 코드를 먼저 세우고 이름은 나중에 채운다.
+     *
+     * <p>실시세 클라이언트보다 먼저 돌아야 한다({@link Order}) — 뒤면 옛 종목을 구독한다.
+     *
      * <p>테스트는 끈다({@code minisor.symbol.sync-on-start=false}) — 원장이 없는 테스트에서
      * 이 물음이 실패하면 게이트웨이가 "원장이 끊겼다"를 방송해, 방송을 세는 테스트가 깨진다.
      */
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     @EventListener(ApplicationReadyEvent.class)
     void syncFromLedger() {
         if (!syncOnStart) {
@@ -98,6 +106,8 @@ public class SymbolService {
                 state.set(state.code(), state.current().name(), now.refPrice);
                 return;
             }
+            /* 코드를 먼저 세운다 — 이름을 받는 동안에도 호가 조회가 맞는 종목을 본다 */
+            state.set(now.symbol, now.symbol, now.refPrice);
             String name = nameOf(now.symbol);
             state.set(now.symbol, name, now.refPrice);
             log.info("원장이 들고 있던 종목에 맞춘다: {} {} 기준가 {}원", now.symbol, name, now.refPrice);

@@ -113,7 +113,11 @@ public class TossFeedClient implements AutoCloseable {
      * 뜨자마자 붙는다 — 설정이 켜져 있을 때만. 기본은 꺼짐이라 아무 일도 하지 않는다.
      *
      * <p>앱이 다 뜬 뒤에 시작한다. 생성자에서 시작하면 원장 게이트웨이가 아직 없을 수 있다.
+     *
+     * <p><b>맨 나중이다.</b> 원장이 들고 있는 종목을 맞추기 전에 구독하면 옛 종목을 구독한다
+     * ({@code SymbolService#syncFromLedger}).
      */
+    @org.springframework.core.annotation.Order(org.springframework.core.Ordered.LOWEST_PRECEDENCE)
     @EventListener(ApplicationReadyEvent.class)
     void autoStart() {
         start();
