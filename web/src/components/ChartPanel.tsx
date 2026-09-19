@@ -12,8 +12,15 @@ const INTERVALS: { id: Interval; label: string }[] = [
   { id: "1d", label: "1일" },
 ];
 
-/** 봉을 다시 받는 간격. 1분봉은 20초, 일봉은 5분 — 채널계 캐시와 같은 눈금이다. */
+/** 실시세 봉을 다시 받는 간격. 1분봉은 20초, 일봉은 5분 — 채널계 캐시와 같은 눈금이다. */
 const REFRESH_MS: Record<Interval, number> = { "1m": 20_000, "1d": 300_000 };
+
+/**
+ * 시뮬 봉은 **내 원장에서 만들어진다.** 채널계가 원장을 1초마다 읽어 진행 중인 봉을 그때마다
+ * 고쳐 쓰므로, 화면도 같은 눈금으로 받아야 MTS처럼 보인다 — 지금 봉이 체결을 따라 자라다가
+ * 1분이 지나면 그 자리에 굳고 다음 봉이 열린다. 20초로 받으면 봉이 뚝뚝 끊겨 보인다.
+ */
+const SIM_REFRESH_MS = 1_000;
 
 /**
  * 차트 칸.
@@ -60,12 +67,12 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
         });
     };
     run();
-    const t = window.setInterval(run, REFRESH_MS[shown]);
+    const t = window.setInterval(run, live ? REFRESH_MS[shown] : SIM_REFRESH_MS);
     return () => {
       alive = false;
       window.clearInterval(t);
     };
-  }, [shown]);
+  }, [shown, live]);
 
   const pick = (iv: Interval) => {
     if (iv === interval) return;
