@@ -26,6 +26,20 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
   const [interval, setInterval] = useState<Interval>("1m");
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "none">("loading");
+
+  /*
+   * 봉은 두 모드가 **서로 다른 데이터**다.
+   *
+   * 실시세에서는 토스가 준 바깥 시장의 봉이고, 시뮬에서는 채널계가 내 원장의 체결을 1분씩
+   * 묶은 봉이다(가상 참가자끼리도 실제로 체결이 난다). 섞으면 위 차트와 아래 호가가 따로
+   * 논다 — 같은 시장의 두 모습이라고 읽히기 때문이다. 고르는 일은 채널계가 한다.
+   *
+   * 시뮬에는 일봉이 없다. 하루치를 모으려면 하루를 돌려야 하고 원장을 다시 띄우면 처음부터다.
+   */
+  const live = feed?.mode === "live";
+  /* 실시세를 끄면 일봉이 없다. 고른 단위가 무엇이든 시뮬에서는 1분봉을 본다 */
+  const shown: Interval = live ? interval : "1m";
+
   /*
    * 봉을 받아 오고, 단위마다 정해진 간격으로 다시 받는다.
    *
@@ -35,7 +49,7 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
   useEffect(() => {
     let alive = true;
     const run = () => {
-      fetchCandles(interval)
+      fetchCandles(shown)
         .then((got) => {
           if (!alive) return;
           setCandles(got?.candles ?? null);
@@ -46,12 +60,12 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
         });
     };
     run();
-    const t = window.setInterval(run, REFRESH_MS[interval]);
+    const t = window.setInterval(run, REFRESH_MS[shown]);
     return () => {
       alive = false;
       window.clearInterval(t);
     };
-  }, [interval]);
+  }, [shown]);
 
   const pick = (iv: Interval) => {
     if (iv === interval) return;
@@ -67,18 +81,24 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
   return (
     <div className="chart-panel">
       <div className="chart-head">
-        <div className="seg-iv" role="group" aria-label="봉 단위">
-          {INTERVALS.map((iv) => (
-            <button
-              key={iv.id}
-              type="button"
-              aria-pressed={interval === iv.id}
-              onClick={() => pick(iv.id)}
-            >
-              {iv.label}
-            </button>
-          ))}
-        </div>
+        {live ? (
+          <div className="seg-iv" role="group" aria-label="봉 단위">
+            {INTERVALS.map((iv) => (
+              <button
+                key={iv.id}
+                type="button"
+                aria-pressed={interval === iv.id}
+                onClick={() => pick(iv.id)}
+              >
+                {iv.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="muted" style={{ fontSize: 12 }}>
+            시뮬 · 1분봉
+          </span>
+        )}
 
         {last && (
           <div className="chart-ohlc num">
@@ -99,8 +119,8 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
         )}
       </div>
 
-      {state === "ok" && candles ? (
-        <CandleChart candles={candles} interval={interval} />
+      {state === "ok" && candles && candles.length > 1 ? (
+        <CandleChart candles={candles} interval={shown} />
       ) : state === "loading" ? (
         <div className="empty">봉을 받는 중…</div>
       ) : (
@@ -108,19 +128,26 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
       )}
 
       <p className="note">
-        {state === "ok" ? (
+        {state === "ok" && live ? (
           <>
-            <b>바깥 시장의 봉</b>이다(토스증권 {interval === "1d" ? "일봉" : "1분봉"}, 005930).
-            아래 호가창·체결은 이 프로젝트의 원장에서 일어난 것이라 <b>서로 다른 데이터</b>다 —
-            시뮬 모드의 가상 참가자가 만든 체결은 이 봉에 섞이지 않는다.
+            <b>바깥 시장의 봉</b>이다(토스증권 {shown === "1d" ? "일봉" : "1분봉"}). 아래 호가창은
+            이 봉과 같은 시세를 심은 것이고, 주문·체결·잔고는 이 프로젝트의 원장에서만 일어난다.
           </>
-        ) : state === "none" ? (
+        ) : state === "ok" ? (
           <>
-            봉을 받을 수 없어 <b>내 호가창의 중간가</b>를 그린다. 실제 시장의 봉을 보려면
-            {" "}<code>.env</code>에 토스 키를 넣고 실시세를 켠다{feed?.error ? ` — ${feed.error}` : ""}.
+            <b>이 원장에서 실제로 난 체결</b>을 1분씩 묶은 봉이다. 가상 참가자끼리의 거래도
+            거래량에 들어간다 — 바깥 시장과는 무관한, 이 시뮬만의 시세다.
+          </>
+        ) : live ? (
+          <>
+            봉을 받지 못해 <b>내 호가창의 중간가</b>를 그린다
+            {feed?.error ? ` — ${feed.error}` : ""}.
           </>
         ) : (
-          "…"
+          <>
+            봉을 만들 만큼 체결이 쌓이지 않아 <b>내 호가창의 중간가</b>를 그린다. 1분쯤 지나면
+            봉으로 바뀐다.
+          </>
         )}
       </p>
     </div>

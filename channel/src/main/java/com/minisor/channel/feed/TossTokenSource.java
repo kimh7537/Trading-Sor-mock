@@ -12,6 +12,8 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.zip.GZIPInputStream;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 /**
  * OAuth 2.0 client credentials 토큰 (T8-04).
@@ -20,7 +22,8 @@ import java.util.zip.GZIPInputStream;
  *
  * 토스 스펙에 적혀 있다 — <b>재발급하면 이전 토큰이 즉시 무효가 된다.</b> 그래서
  * <ul>
- *   <li>여기서만 발급한다. 쓰는 쪽은 {@link #token()}으로 받아 간다
+ *   <li>여기서만 발급한다. 쓰는 쪽은 {@link #token()}으로 받아 간다. <b>빈 하나를 나눠 쓴다</b> —
+ *       쓰는 쪽마다 새로 만들면 서로의 토큰을 무효로 만든다(실시세와 차트 조회가 그랬다)
  *   <li><b>만료 전에 미리</b> 바꾼다. 만료된 뒤에 바꾸면 그사이 수신이 끊긴다
  *   <li>같은 키로 프로세스를 둘 띄우면 서로 죽인다. 막을 방법이 이쪽에 없으므로 문서에 적는다
  * </ul>
@@ -30,6 +33,7 @@ import java.util.zip.GZIPInputStream;
  * {@code Retry-After}를 따른다. 스스로 자지 않고 {@link FeedBackoff}에 담아 올린다 —
  * 얼마나 기다릴지는 알지만 <b>언제 다시 부를지는 부르는 쪽의 결정</b>이다(종료 중일 수도 있다).
  */
+@Component
 public class TossTokenSource {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -43,6 +47,7 @@ public class TossTokenSource {
     private String token;
     private long expiresAtMs;
 
+    @Autowired
     public TossTokenSource(FeedProperties props) {
         this(props, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
     }

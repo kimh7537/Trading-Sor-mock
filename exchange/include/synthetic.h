@@ -63,4 +63,19 @@ int synth_next(synth_gen_t *gen, order_t *out);
 /* 지금까지 만든 주문 수. */
 int64_t synth_count(const synth_gen_t *gen);
 
+/*
+ * 기준가를 옮긴다 — 이격의 중심이 바뀐다.
+ *
+ * **시장이 실제로 움직이려면 중심이 표류해야 한다.** 기준가를 고정해 두면 최우선호가가
+ * 붙박이가 되어 잔량만 출렁인다(실측: 20초 동안 잔량은 계속 바뀌는데 가격은 260,000 /
+ * 259,500에서 한 번도 움직이지 않았다). 그러면 "가격 차트"가 평평해서 아무것도 읽을 수 없다.
+ *
+ * 난수를 쓰지 않는다 — **부르는 쪽이 얼마로 옮길지 정한다.** 그래야 표류도 결정적이다.
+ * 설정한 [price_low, price_high] 밖이면 그 경계로 자른다. gen이 NULL이면 ERR_NULL_PTR.
+ */
+int synth_set_ref_price(synth_gen_t *gen, price_t ref);
+
+/* 지금 기준가. 표류한 값을 읽는다. */
+price_t synth_ref_price(const synth_gen_t *gen);
+
 #endif /* MINI_SOR_SYNTHETIC_H */

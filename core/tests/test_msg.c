@@ -37,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 21);
+    assert(TABLE_N == 23);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -70,12 +70,14 @@ static void test_type_table(void)
     assert(MSG_RESEND_REQ_LEN == 8);
     assert(MSG_GAP_FILL_LEN == 8);
     assert(MSG_BOOK_REQ_LEN == 9);
-    assert(MSG_BOOK_ACK_LEN == 169);
+    assert(MSG_BOOK_ACK_LEN == 181);
     assert(MSG_DETAIL_REQ_LEN == 20);
     assert(MSG_DETAIL_ACK_LEN == 91);
     assert(MSG_BALANCE_REQ_LEN == 12);
     assert(MSG_BALANCE_ACK_LEN == 32);
     assert(MSG_BOOK_FEED_LEN == 178);
+    assert(MSG_SYMBOL_SET_LEN == 12);
+    assert(MSG_SYMBOL_ACK_LEN == 16);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -118,6 +120,9 @@ static void test_reply_pairs(void)
     assert(msg_reply_type(MSG_BOOK_REQ) == MSG_BOOK_ACK);
     /* 스냅샷 주입의 답은 심은 뒤의 호가창이다(T8-02). */
     assert(msg_reply_type(MSG_BOOK_FEED) == MSG_BOOK_ACK);
+    /* 종목 전환은 바뀐 결과를 따로 답한다(T8-10). */
+    assert(msg_reply_type(MSG_SYMBOL_SET) == MSG_SYMBOL_ACK);
+    assert(msg_reply_type(MSG_SYMBOL_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_DETAIL_REQ) == MSG_DETAIL_ACK);
     assert(msg_reply_type(MSG_BALANCE_REQ) == MSG_BALANCE_ACK);
@@ -306,6 +311,37 @@ static void test_book_feed_layout(void)
  * 주문 상세 응답(T7-02). 앞쪽 고정 필드 뒤에 시장별 배열 넷이 온다 — 배열 원소가 KRX(0)·NXT(1)
  * 순서인지, i64 배열이 8바이트씩 놓이는지를 바이트 위치로 대조한다.
  */
+/* 종목 전환 전문의 바이트 배치(T8-10). */
+static void test_symbol_set_layout(void)
+{
+    msg_symbol_set_t m;
+    memset(&m, 0, sizeof(m));
+    snprintf(m.symbol, sizeof(m.symbol), "%s", "000660");
+    m.ref_price = 0x01020304;
+
+    uint8_t buf[MSG_SYMBOL_SET_LEN];
+    assert(msg_encode_symbol_set(&m, buf, sizeof(buf)) == MSG_SYMBOL_SET_LEN);
+
+    static const uint8_t SYM[8] = {'0', '0', '0', '6', '6', '0', 0, 0};
+    assert(memcmp(buf, SYM, sizeof(SYM)) == 0);
+    assert(buf[8] == 0x01 && buf[9] == 0x02 && buf[10] == 0x03 &&
+           buf[11] == 0x04); /* 빅엔디언 i32 */
+
+    msg_symbol_ack_t a;
+    memset(&a, 0, sizeof(a));
+    snprintf(a.symbol, sizeof(a.symbol), "%s", "000660");
+    a.ref_price = 260000;
+    a.code = -7;
+
+    uint8_t abuf[MSG_SYMBOL_ACK_LEN];
+    assert(msg_encode_symbol_ack(&a, abuf, sizeof(abuf)) == MSG_SYMBOL_ACK_LEN);
+    assert(memcmp(abuf, SYM, sizeof(SYM)) == 0);
+    msg_symbol_ack_t back;
+    assert(msg_decode_symbol_ack(abuf, MSG_SYMBOL_ACK_LEN, &back) ==
+           MSG_SYMBOL_ACK_LEN);
+    assert(back.code == -7 && back.ref_price == 260000);
+}
+
 static void test_detail_ack_layout(void)
 {
     msg_detail_ack_t m;
@@ -508,6 +544,8 @@ static void test_roundtrip_all(void)
                   in.bid_qty[9] = INT32_MIN;
                   in.ask_price[5] = 70100;
                   in.ask_qty[0] = 1;
+                  in.last_price = 69950;
+                  in.traded_qty = INT64_MAX;
               });
 
     ROUNDTRIP(msg_book_feed_t, msg_encode_book_feed, msg_decode_book_feed,
@@ -518,6 +556,19 @@ static void test_roundtrip_all(void)
                   in.feed_ts = INT64_MIN;
                   in.bid_price[0] = INT32_MAX;
                   in.ask_qty[9] = INT32_MIN;
+              });
+
+    ROUNDTRIP(msg_symbol_set_t, msg_encode_symbol_set, msg_decode_symbol_set,
+              MSG_SYMBOL_SET_LEN, {
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "000660");
+                  in.ref_price = INT32_MAX;
+              });
+
+    ROUNDTRIP(msg_symbol_ack_t, msg_encode_symbol_ack, msg_decode_symbol_ack,
+              MSG_SYMBOL_ACK_LEN, {
+                  snprintf(in.symbol, sizeof(in.symbol), "%s", "000660");
+                  in.ref_price = 260000;
+                  in.code = INT32_MIN;
               });
 
     ROUNDTRIP(msg_detail_req_t, msg_encode_detail_req, msg_decode_detail_req,
@@ -653,6 +704,8 @@ static void test_decode_rejects_wrong_length(void)
     CHECK_LEN(msg_decode_balance_req, msg_balance_req_t, MSG_BALANCE_REQ_LEN);
     CHECK_LEN(msg_decode_balance_ack, msg_balance_ack_t, MSG_BALANCE_ACK_LEN);
     CHECK_LEN(msg_decode_book_feed, msg_book_feed_t, MSG_BOOK_FEED_LEN);
+    CHECK_LEN(msg_decode_symbol_set, msg_symbol_set_t, MSG_SYMBOL_SET_LEN);
+    CHECK_LEN(msg_decode_symbol_ack, msg_symbol_ack_t, MSG_SYMBOL_ACK_LEN);
 
 #undef CHECK_LEN
 }
@@ -713,6 +766,7 @@ int main(void)
     test_fill_noti_layout();
     test_book_ack_layout();
     test_book_feed_layout();
+    test_symbol_set_layout();
     test_detail_ack_layout();
     test_balance_ack_layout();
     test_roundtrip_all();

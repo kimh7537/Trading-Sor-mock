@@ -58,8 +58,9 @@
  * RESEND_REQ (8)  from_seq:u64   (from_seq부터 지금까지 전부 다시)
  * GAP_FILL (8)     next_seq:u64   (그 앞은 더 없다. next_seq부터 이어라)
  * BOOK_REQ (9)     symbol[8] market:u8
- * BOOK_ACK (169)   symbol[8] market:u8 bid_price:i32[10] bid_qty:i32[10]
- *                  ask_price:i32[10] ask_qty:i32[10]   (없는 단은 0)
+ * BOOK_ACK (181)   symbol[8] market:u8 bid_price:i32[10] bid_qty:i32[10]
+ *                  ask_price:i32[10] ask_qty:i32[10] last_price:i32
+ *                  traded_qty:i64   (없는 단은 0)
  * DETAIL_REQ (20)  account[12] order_id:u64
  * DETAIL_ACK (91)  order_id:u64 cl_ord_id:u64 reason:i32 side:u8 status:u8
  *                  market:u8 price:i32 qty:i32 filled:i32 canceled:i32
@@ -127,7 +128,17 @@
  */
 #define MSG_BOOK_DEPTH 10
 #define MSG_BOOK_REQ_LEN (MSG_SYMBOL_LEN + 1)
-#define MSG_BOOK_ACK_LEN (MSG_SYMBOL_LEN + 1 + MSG_BOOK_DEPTH * 4 * 4)
+/*
+ * 호가 응답에 **마지막 체결가와 누적 체결 수량**을 함께 싣는다(T8-09).
+ *
+ * 봉(OHLCV)은 체결을 묶은 것이라 호가만으로는 만들 수 없다. 체결을 건건이 실어 보내는
+ * 테이프 전문을 따로 두는 대신, 이미 주기적으로 읽고 있는 호가 응답에 두 값을 얹는다 —
+ * 부르는 쪽이 그 표본을 모으면 봉이 된다. 1초에 한 번 읽으면 1분봉에 60 표본이다.
+ *
+ * `traded_qty`는 **그 시장에서 지금까지 체결된 총 수량**이다. 차이를 내면 구간 거래량이
+ * 나온다. 한 체결은 사는 쪽과 파는 쪽 양쪽에 이벤트가 오므로 **한 번만 센다**.
+ */
+#define MSG_BOOK_ACK_LEN (MSG_SYMBOL_LEN + 1 + MSG_BOOK_DEPTH * 4 * 4 + 4 + 8)
 
 /*
  * 주문 상세와 잔고 조회(T7-02). 화면의 미체결 목록·잔고가 원장의 실제 상태를 따르게 한다.
@@ -172,6 +183,23 @@
 #define MSG_BOOK_FEED_LEN (MSG_SYMBOL_LEN + 1 + 1 + 8 + MSG_BOOK_DEPTH * 4 * 4)
 
 /*
+ * 종목 전환(T8-10).
+ *
+ * **호가창은 기준가 ±30%(가격 제한폭)만 펼쳐 둔다.** 그래서 다루는 종목을 바꾸려면
+ * 그 종목의 가격대를 같이 줘야 한다 — 89,000원짜리 호가창에 260,000원 호가를 심으면
+ * 통째로 버려지고 화면에서는 아무 일도 일어나지 않는다. 실제로 그렇게 됐다(T8-05).
+ *
+ * 원장은 이 전문을 받으면 **그 종목의 원장을 새로 연다.** 미체결 주문과 잔고는
+ * 초기화된다 — 이 원장은 한 종목짜리이고, 앞 종목의 주문을 다른 종목의 호가창에
+ * 남겨 둘 자리가 없다. 응답의 `code`가 0이면 바뀐 것이고 음수면 그대로다.
+ *
+ * **기준가 0은 묻기만 하는 것이다.** 아무것도 바꾸지 않고 지금 종목과 기준가를 답한다 —
+ * 채널계가 다시 떴을 때 원장이 무엇을 다루고 있는지 맞추는 데 쓴다.
+ */
+#define MSG_SYMBOL_SET_LEN (MSG_SYMBOL_LEN + 4)
+#define MSG_SYMBOL_ACK_LEN (MSG_SYMBOL_LEN + 4 + 4)
+
+/*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
  *
  * 코드는 0을 쓰지 않는다 — 0으로 초기화된 버퍼가 유효한 종별로 보이면 안 된다.
@@ -190,12 +218,16 @@
     X(MSG_LOGIN_ACK, 11, MSG_LOGIN_ACK_LEN, "로그인 응답")                 \
     X(MSG_HEARTBEAT, 12, MSG_HEARTBEAT_LEN, "하트비트")                      \
     X(MSG_RESEND_REQ, 13, MSG_RESEND_REQ_LEN, "재전송 요청")                 \
-    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")                      X(MSG_BOOK_REQ, 15, MSG_BOOK_REQ_LEN, "호가 조회 요청")                   X(MSG_BOOK_ACK, 16, MSG_BOOK_ACK_LEN, "호가 조회 응답")               \
+    X(MSG_GAP_FILL, 14, MSG_GAP_FILL_LEN, "갭 건너뛰기")                 \
+    X(MSG_BOOK_REQ, 15, MSG_BOOK_REQ_LEN, "호가 조회 요청")              \
+    X(MSG_BOOK_ACK, 16, MSG_BOOK_ACK_LEN, "호가 조회 응답")              \
     X(MSG_DETAIL_REQ, 17, MSG_DETAIL_REQ_LEN, "주문 상세 요청")           \
     X(MSG_DETAIL_ACK, 18, MSG_DETAIL_ACK_LEN, "주문 상세 응답")           \
     X(MSG_BALANCE_REQ, 19, MSG_BALANCE_REQ_LEN, "잔고 조회 요청")         \
     X(MSG_BALANCE_ACK, 20, MSG_BALANCE_ACK_LEN, "잔고 조회 응답")            \
-    X(MSG_BOOK_FEED, 21, MSG_BOOK_FEED_LEN, "호가 스냅샷 주입")
+    X(MSG_BOOK_FEED, 21, MSG_BOOK_FEED_LEN, "호가 스냅샷 주입")           \
+    X(MSG_SYMBOL_SET, 22, MSG_SYMBOL_SET_LEN, "종목 전환 요청")           \
+    X(MSG_SYMBOL_ACK, 23, MSG_SYMBOL_ACK_LEN, "종목 전환 응답")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -339,6 +371,10 @@ typedef struct {
     qty_t   bid_qty[MSG_BOOK_DEPTH];
     price_t ask_price[MSG_BOOK_DEPTH];
     qty_t   ask_qty[MSG_BOOK_DEPTH];
+    /* 마지막 체결가. 아직 한 건도 없으면 0 */
+    price_t last_price;
+    /* 이 시장에서 지금까지 체결된 총 수량. 차이가 구간 거래량이다 */
+    int64_t traded_qty;
 } msg_book_ack_t;
 
 typedef struct {
@@ -392,6 +428,17 @@ typedef struct {
     qty_t   ask_qty[MSG_BOOK_DEPTH];
 } msg_book_feed_t;
 
+typedef struct {
+    char    symbol[MSG_SYMBOL_LEN + 1];
+    price_t ref_price; /* 그 종목의 현재가. 호가창이 펼칠 가격대의 중심 */
+} msg_symbol_set_t;
+
+typedef struct {
+    char    symbol[MSG_SYMBOL_LEN + 1]; /* 바뀐 뒤의 종목. 실패하면 그대로인 종목 */
+    price_t ref_price;
+    int32_t code; /* 0이면 바뀌었다. 음수면 errors.h의 에러코드 */
+} msg_symbol_ack_t;
+
 /*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
@@ -420,6 +467,11 @@ int msg_encode_balance_req(const msg_balance_req_t *m, uint8_t *buf,
                            size_t cap);
 int msg_encode_balance_ack(const msg_balance_ack_t *m, uint8_t *buf,
                            size_t cap);
+int msg_encode_symbol_set(const msg_symbol_set_t *m, uint8_t *buf, size_t cap);
+int msg_decode_symbol_set(const uint8_t *buf, size_t len, msg_symbol_set_t *out);
+int msg_encode_symbol_ack(const msg_symbol_ack_t *m, uint8_t *buf, size_t cap);
+int msg_decode_symbol_ack(const uint8_t *buf, size_t len, msg_symbol_ack_t *out);
+
 int msg_encode_book_feed(const msg_book_feed_t *m, uint8_t *buf, size_t cap);
 
 /*

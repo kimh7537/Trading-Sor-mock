@@ -4,9 +4,65 @@ import { marketName } from "./wire";
 // 기본은 같은 출처. 개발 서버가 /api를 채널계로 넘긴다(vite.config.ts).
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
-/** 원장 데몬의 데모 계좌·종목(ledger/src/ledger_core.c의 기본값) */
+/** 원장 데몬의 데모 계좌(ledger/src/ledger_core.c의 기본값) */
 export const ACCOUNT = "123456789012";
+
+/**
+ * 처음 종목. **그 뒤로는 사용자가 고른 것을 쓴다**(T8-10).
+ *
+ * 종목을 바꾸면 채널계가 원장에 전문을 보내 그 종목의 호가창을 새로 연다 — 호가창은
+ * 기준가 ±30%만 펼쳐 두므로 가격대가 다른 종목은 같은 호가창에 담기지 않는다.
+ */
 export const SYMBOL = "005930";
+
+export interface CurrentSymbol {
+  code: string;
+  name: string;
+  /** 원장이 호가창을 연 기준가(원). 0이면 아직 바깥 값을 받은 적이 없다 */
+  refPrice: number;
+}
+
+export interface StockHit {
+  symbol: string;
+  name: string;
+  market: string;
+}
+
+export async function fetchSymbol(): Promise<CurrentSymbol> {
+  const res = await fetch(`${BASE}/api/symbol`);
+  if (!res.ok) throw new Error("종목을 읽지 못했다");
+  return (await res.json()) as CurrentSymbol;
+}
+
+/** 이름·코드로 찾는다. 실시세 설정이 없으면 빈 목록과 이유를 돌려준다. */
+export async function searchStocks(
+  q: string,
+): Promise<{ stocks: StockHit[]; error: string | null }> {
+  const res = await fetch(`${BASE}/api/stocks?q=${encodeURIComponent(q)}`);
+  const body = (await res.json().catch(() => null)) as
+    | { stocks?: StockHit[]; error?: string }
+    | null;
+  if (!res.ok) return { stocks: [], error: body?.error ?? "종목을 찾지 못했다" };
+  return { stocks: body?.stocks ?? [], error: null };
+}
+
+/** 종목을 바꾼다. **원장이 새로 열려 미체결 주문과 잔고가 초기화된다.** */
+export async function switchSymbol(
+  code: string,
+): Promise<{ ok: boolean; symbol: CurrentSymbol | null; message: string }> {
+  const res = await fetch(`${BASE}/api/symbol`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol: code }),
+  });
+  const body = (await res.json().catch(() => null)) as
+    | (CurrentSymbol & { error?: string })
+    | null;
+  if (!res.ok) {
+    return { ok: false, symbol: null, message: body?.error ?? "종목을 바꾸지 못했다" };
+  }
+  return { ok: true, symbol: body as CurrentSymbol, message: "" };
+}
 
 export type Outcome = "ACCEPTED" | "REJECTED" | "IN_DOUBT";
 

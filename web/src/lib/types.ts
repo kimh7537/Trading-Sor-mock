@@ -95,6 +95,8 @@ export interface FeedStatus {
   available: boolean;
   market: number;
   symbol: string;
+  /** 종목 이름. 화면이 "삼성전자"라고 보여 준다 */
+  symbolName: string;
   applied: number;
   lastFeedTs: number;
   note: string;

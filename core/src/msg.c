@@ -61,6 +61,8 @@ msg_type_t msg_reply_type(uint8_t req_type)
      */
     case MSG_BOOK_FEED:
         return MSG_BOOK_ACK;
+    case MSG_SYMBOL_SET:
+        return MSG_SYMBOL_ACK;
     case MSG_DETAIL_REQ:
         return MSG_DETAIL_ACK;
     case MSG_BALANCE_REQ:
@@ -687,6 +689,76 @@ int msg_decode_book_req(const uint8_t *buf, size_t len, msg_book_req_t *out)
     return (int)(p - buf);
 }
 
+/* --- 종목 전환 (T8-10) --- */
+
+int msg_encode_symbol_set(const msg_symbol_set_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_SYMBOL_SET_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_SYMBOL_LEN, m->symbol);
+    p += MSG_SYMBOL_LEN;
+    wire_put_i32(p, m->ref_price);
+    p += 4;
+    return (int)(p - buf);
+}
+
+int msg_decode_symbol_set(const uint8_t *buf, size_t len, msg_symbol_set_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_SYMBOL_SET_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
+    p += MSG_SYMBOL_LEN;
+    out->ref_price = wire_get_i32(p);
+    p += 4;
+    return (int)(p - buf);
+}
+
+int msg_encode_symbol_ack(const msg_symbol_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_SYMBOL_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_SYMBOL_LEN, m->symbol);
+    p += MSG_SYMBOL_LEN;
+    wire_put_i32(p, m->ref_price);
+    p += 4;
+    wire_put_i32(p, m->code);
+    p += 4;
+    return (int)(p - buf);
+}
+
+int msg_decode_symbol_ack(const uint8_t *buf, size_t len, msg_symbol_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_SYMBOL_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_SYMBOL_LEN, out->symbol);
+    p += MSG_SYMBOL_LEN;
+    out->ref_price = wire_get_i32(p);
+    p += 4;
+    out->code = wire_get_i32(p);
+    p += 4;
+    return (int)(p - buf);
+}
+
 static uint8_t *put_i32s(uint8_t *p, const int32_t *v)
 {
     for (int i = 0; i < MSG_BOOK_DEPTH; i++) {
@@ -720,6 +792,10 @@ int msg_encode_book_ack(const msg_book_ack_t *m, uint8_t *buf, size_t cap)
     p = put_i32s(p, m->bid_qty);
     p = put_i32s(p, m->ask_price);
     p = put_i32s(p, m->ask_qty);
+    wire_put_i32(p, m->last_price);
+    p += 4;
+    wire_put_i64(p, m->traded_qty);
+    p += 8;
     return (int)(p - buf);
 }
 
@@ -740,6 +816,10 @@ int msg_decode_book_ack(const uint8_t *buf, size_t len, msg_book_ack_t *out)
     p = get_i32s(p, out->bid_qty);
     p = get_i32s(p, out->ask_price);
     p = get_i32s(p, out->ask_qty);
+    out->last_price = wire_get_i32(p);
+    p += 4;
+    out->traded_qty = wire_get_i64(p);
+    p += 8;
     return (int)(p - buf);
 }
 

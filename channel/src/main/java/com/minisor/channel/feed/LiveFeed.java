@@ -7,6 +7,8 @@ import com.minisor.channel.stream.StreamEvent;
 import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.BookAck;
 import com.minisor.channel.wire.BookFeed;
+import com.minisor.channel.wire.SymbolAck;
+import com.minisor.channel.wire.SymbolSet;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
@@ -33,6 +35,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class LiveFeed {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LiveFeed.class);
+
     /** 지금 호가창을 무엇이 움직이고 있는가. */
     public enum Mode {
         /** 가상 참가자(시드 유동성 + {@code ledgerd --live} 틱). */
@@ -48,6 +52,7 @@ public class LiveFeed {
             boolean available,
             int market,
             String symbol,
+            String symbolName,
             long applied,
             long lastFeedTs,
             String note,
@@ -64,7 +69,7 @@ public class LiveFeed {
     private final LedgerGateway gateway;
     private final StreamHub hub;
     private final FeedProperties props;
-    private final String symbol;
+    private final SymbolState symbols;
 
     private final AtomicLong applied = new AtomicLong();
     private final AtomicLong lastFeedTs = new AtomicLong();
@@ -83,14 +88,11 @@ public class LiveFeed {
     private volatile FeedFile recorder;
 
     public LiveFeed(
-            LedgerGateway gateway,
-            StreamHub hub,
-            FeedProperties props,
-            @Value("${minisor.symbol:005930}") String symbol) {
+            LedgerGateway gateway, StreamHub hub, FeedProperties props, SymbolState symbols) {
         this.gateway = gateway;
         this.hub = hub;
         this.props = props;
-        this.symbol = symbol;
+        this.symbols = symbols;
     }
 
     /**
@@ -101,7 +103,7 @@ public class LiveFeed {
      */
     public BookAck apply(Snapshot s) {
         BookFeed f = new BookFeed();
-        f.symbol = symbol;
+        f.symbol = symbols.code();
         f.market = props.market();
         f.feedTs = s.tsNanos();
         BookFeed.fill(f.bidPrice, f.bidQty, s.bids());
@@ -129,6 +131,11 @@ public class LiveFeed {
      * <p>응답은 심은 뒤의 호가창이므로, 보낸 최우선 가격이 그 안에 없으면 버려진 것이다.
      * 조용히 넘기지 않고 화면까지 올린다.
      */
+    /** 가격대를 다시 여는 일을 이 간격 안에 한 번만 한다. 되풀이하면 원장이 계속 초기화된다. */
+    private static final long REBASE_QUIET_MS = 30_000;
+
+    private volatile long lastRebaseAt;
+
     private void checkPlanted(BookFeed sent, BookAck ack) {
         int want = sent.bidPrice[0] > 0 ? sent.bidPrice[0] : sent.askPrice[0];
         if (want <= 0) {
@@ -138,12 +145,36 @@ public class LiveFeed {
             lastError = null;
             return;
         }
-        noteError(
-                "원장이 이 가격대를 받지 못한다 — 실호가 "
-                        + want
-                        + "원, 원장 기준가가 다르다. ledgerd를 --ref-price "
-                        + want
-                        + " 로 띄워야 한다");
+        /*
+         * **버려졌다면 원장을 그 가격대로 다시 연다**(T8-10).
+         *
+         * 예전에는 "ledgerd를 --ref-price 로 다시 띄워라"라고만 적었다. 그런데 그 상태의
+         * 화면은 실시세라고 적힌 채 호가창이 텅 비어 있고, 사용자가 할 수 있는 일은 서버를
+         * 손으로 다시 띄우는 것뿐이었다. 가격대를 아는 쪽이 여기이므로 여기서 고친다.
+         *
+         * 미체결 주문과 잔고가 초기화되지만, 애초에 이 상태에서는 아무것도 체결되지 않는다.
+         * 되풀이를 막으려고 {@link #REBASE_QUIET_MS} 안에는 한 번만 시도한다.
+         */
+        long now = System.currentTimeMillis();
+        if (now - lastRebaseAt > REBASE_QUIET_MS) {
+            lastRebaseAt = now;
+            try {
+                SymbolSet req = new SymbolSet();
+                req.symbol = symbols.code();
+                req.refPrice = want;
+                SymbolAck done = gateway.call(req, SymbolAck.class);
+                if (done.code == 0) {
+                    symbols.set(symbols.code(), symbols.current().name(), done.refPrice);
+                    log.info("원장을 {}원 가격대로 다시 열었다", done.refPrice);
+                    lastError = null;
+                    return;
+                }
+            } catch (RuntimeException e) {
+                log.warn("가격대를 맞추지 못했다: {}", e.toString());
+            }
+        }
+
+        noteError("원장이 이 가격대를 받지 못한다 — 실호가 " + want + "원, 원장 기준가가 다르다");
     }
 
     private static boolean has(int[] prices, int want) {
@@ -245,7 +276,7 @@ public class LiveFeed {
         if (wasLive) {
             try {
                 BookFeed end = new BookFeed();
-                end.symbol = symbol;
+                end.symbol = symbols.code();
                 end.market = props.market();
                 end.flags = BookFeed.FEED_END;
                 gateway.call(end, BookAck.class);
@@ -301,7 +332,8 @@ public class LiveFeed {
                 source,
                 canToss || canReplay,
                 props.market(),
-                symbol,
+                symbols.code(),
+                symbols.current().name(),
                 applied.get(),
                 lastFeedTs.get(),
                 note,

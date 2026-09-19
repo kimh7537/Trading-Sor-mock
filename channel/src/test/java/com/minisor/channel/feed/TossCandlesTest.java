@@ -73,7 +73,7 @@ class TossCandlesTest {
                         "",
                         "",
                         1);
-        return new TossCandles(p);
+        return new TossCandles(p, new TossTokenSource(p));
     }
 
     private static String candle(String ts, String o, String h, String l, String c, String v) {
@@ -102,7 +102,7 @@ class TossCandlesTest {
                         + candle("2026-09-17T00:00:00+09:00", "251500", "259000", "251000", "256000", "16971358")
                         + "]}}";
 
-        TossCandles.Chart chart = candles().fetch("1d", 2);
+        TossCandles.Chart chart = candles().fetch("005930", "1d", 2);
 
         assertThat(chart.candles()).hasSize(2);
         assertThat(chart.candles().get(0).close()).isEqualTo(256000); // 9/17이 먼저
@@ -119,7 +119,7 @@ class TossCandlesTest {
                         + candle("2026-09-18T09:01:00+09:00", "260000.0", "260500", "259500", "260000", "70029")
                         + "]}}";
 
-        TossCandles.Candle c = candles().fetch("1m", 1).candles().get(0);
+        TossCandles.Candle c = candles().fetch("005930", "1m", 1).candles().get(0);
         assertThat(c.open()).isEqualTo(260000);
         assertThat(c.high()).isEqualTo(260500);
         assertThat(c.low()).isEqualTo(259500);
@@ -138,7 +138,7 @@ class TossCandlesTest {
                         + candle("2026-09-16T00:00:00+09:00", "0", "0", "0", "0", "0")
                         + "]}}";
 
-        assertThat(candles().fetch("1d", 3).candles()).hasSize(1);
+        assertThat(candles().fetch("005930", "1d", 3).candles()).hasSize(1);
     }
 
     /** 차트 조회에는 별도 레이트리밋이 있다. 같은 요청은 캐시가 답한다. */
@@ -150,12 +150,12 @@ class TossCandlesTest {
                         + "]}}";
 
         TossCandles c = candles();
-        c.fetch("1d", 1);
-        c.fetch("1d", 1);
+        c.fetch("005930", "1d", 1);
+        c.fetch("005930", "1d", 1);
         assertThat(calls.get()).isEqualTo(1);
 
         /* 다른 요청은 따로 받는다 */
-        c.fetch("1m", 1);
+        c.fetch("005930", "1m", 1);
         assertThat(calls.get()).isEqualTo(2);
     }
 
@@ -164,7 +164,7 @@ class TossCandlesTest {
     void surfacesFailure() {
         status = 500;
         body = "{\"error\":\"boom\"}";
-        assertThatThrownBy(() -> candles().fetch("1d", 1))
+        assertThatThrownBy(() -> candles().fetch("005930", "1d", 1))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("500")
                 .hasMessageContaining("boom");

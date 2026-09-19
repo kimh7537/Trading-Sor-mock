@@ -2,8 +2,11 @@ package com.minisor.channel.api;
 
 import com.minisor.channel.ledger.LedgerException;
 import com.minisor.channel.stream.StreamEvent;
+import com.minisor.channel.feed.SimCandles;
+import com.minisor.channel.feed.SymbolState;
 import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.BalanceAck;
+import com.minisor.channel.wire.BookAck;
 import com.minisor.channel.wire.DetailAck;
 import com.minisor.channel.wire.DetailReq;
 import java.util.HashMap;
@@ -42,8 +45,9 @@ public class LedgerPoller {
     private final LedgerGateway gateway;
     private final OrderRegistry registry;
     private final StreamHub hub;
+    private final SimCandles sim;
     private final String account;
-    private final String symbol;
+    private final SymbolState symbols;
     private final boolean enabled;
 
     private final Map<Integer, BookController.BookDto> lastBooks = new HashMap<>();
@@ -53,14 +57,16 @@ public class LedgerPoller {
             LedgerGateway gateway,
             OrderRegistry registry,
             StreamHub hub,
+            SimCandles sim,
+            SymbolState symbols,
             @Value("${minisor.account}") String account,
-            @Value("${minisor.symbol:005930}") String symbol,
             @Value("${minisor.poller.enabled:true}") boolean enabled) {
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
+        this.sim = sim;
         this.account = account;
-        this.symbol = symbol;
+        this.symbols = symbols;
         this.enabled = enabled;
     }
 
@@ -85,14 +91,20 @@ public class LedgerPoller {
     }
 
     private void books() {
+        BookAck[] raw = new BookAck[2];
         for (int market = 0; market <= 1; market++) {
-            BookController.BookDto now =
-                    BookController.BookDto.from(BookController.fetch(gateway, symbol, market));
+            raw[market] = BookController.fetch(gateway, symbols.code(), market);
+            BookController.BookDto now = BookController.BookDto.from(raw[market]);
             if (!now.equals(lastBooks.get(market))) {
                 lastBooks.put(market, now);
                 hub.broadcast(StreamEvent.book(now));
             }
         }
+        /*
+         * 호가 응답에 실려 온 체결로 시뮬 봉을 쌓는다(T8-09). 호가가 바뀌지 않아도 체결은
+         * 났을 수 있으므로 **방송 여부와 무관하게** 표본을 넘긴다.
+         */
+        sim.sample(raw[0], raw[1]);
     }
 
     private void balance() {

@@ -166,6 +166,26 @@ int synth_next(synth_gen_t *gen, order_t *out)
     return ERR_OK;
 }
 
+int synth_set_ref_price(synth_gen_t *gen, price_t ref)
+{
+    if (gen == NULL) {
+        return ERR_NULL_PTR;
+    }
+    if (ref < gen->cfg.price_low) {
+        ref = gen->cfg.price_low;
+    }
+    if (ref > gen->cfg.price_high) {
+        ref = gen->cfg.price_high;
+    }
+    gen->cfg.ref_price = ref;
+    return ERR_OK;
+}
+
+price_t synth_ref_price(const synth_gen_t *gen)
+{
+    return gen != NULL ? gen->cfg.ref_price : 0;
+}
+
 int64_t synth_count(const synth_gen_t *gen)
 {
     return gen != NULL ? gen->count : 0;

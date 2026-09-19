@@ -1,6 +1,7 @@
 import type { ConnState } from "../lib/useStream";
 import type { Balance, Book, FeedStatus, Market } from "../lib/types";
-import { ACCOUNT } from "../lib/api";
+import { SymbolPicker } from "./SymbolPicker";
+import { ACCOUNT, type CurrentSymbol } from "../lib/api";
 import { won } from "../lib/format";
 import { useFlash } from "../lib/useFlash";
 
@@ -41,6 +42,8 @@ export function Header({
   books,
   feed,
   only,
+  symbol,
+  onPickSymbol,
   theme,
   onToggleTheme,
 }: {
@@ -52,6 +55,9 @@ export function Header({
   feed: FeedStatus | null;
   /** 실시세 모드에서 통합 시세를 심는 시장. 그때는 이 시장만 센다 */
   only?: Market;
+  /** 지금 다루는 종목. 고르면 원장이 그 종목으로 새로 열린다(T8-10) */
+  symbol: CurrentSymbol;
+  onPickSymbol: (code: string) => Promise<{ ok: boolean; message: string }>;
   theme: "dark" | "light";
   onToggleTheme: () => void;
 }) {
@@ -73,8 +79,8 @@ export function Header({
           <span>KRX·NXT 복수시장 주문 집행</span>
         </div>
         <div className="symbol">
-          <b>삼성전자</b>
-          <span className="num">005930 · 계좌 {ACCOUNT}</span>
+          <SymbolPicker current={symbol} onPick={onPickSymbol} />
+          <span className="num">계좌 {ACCOUNT}</span>
         </div>
         <div className="quote">
           <div>

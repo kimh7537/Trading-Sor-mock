@@ -27,6 +27,8 @@
 #include "errors.h"
 #include "ledger_core.h"
 #include "listener.h"
+#include "msg.h"
+#include "wire.h"
 
 #define LEDGERD_DEFAULT_PORT 9100
 
@@ -37,8 +39,10 @@
 #define LEDGERD_TICK_MIN_MS 10
 
 typedef struct {
-    ledger_core_t *core;
-    int32_t        per_tick;
+    ledger_core_t       *core;
+    ledger_core_config_t cfg;
+    char                 symbol[MSG_SYMBOL_LEN + 1];
+    int32_t              per_tick;
 } live_ctx_t;
 
 /* 기다리다 심심하면 호가창을 한 틱 움직인다(T8-01). */
@@ -46,6 +50,97 @@ static void on_idle(void *ctx)
 {
     live_ctx_t *lc = ctx;
     (void)ledger_core_tick(lc->core, lc->per_tick);
+}
+
+/*
+ * 종목을 바꾼다(T8-10) — **그 종목의 원장을 새로 연다.**
+ *
+ * 호가창은 만들 때 정한 기준가 ±30%(가격 제한폭)만 펼쳐 둔다. 그래서 다루는 가격대를
+ * 바꾸는 방법은 호가창을 다시 만드는 것뿐이다. 미체결 주문과 잔고는 초기화된다 — 이
+ * 원장은 한 종목짜리이고, 앞 종목의 주문을 다른 종목의 호가창에 남겨 둘 자리가 없다.
+ *
+ * **새 코어를 먼저 만들고 성공했을 때만 갈아끼운다.** 먼저 부수면 만들기가 실패했을 때
+ * 돌아갈 곳이 없다. 공유 메모리는 익명 매핑이라 둘이 동시에 있어도 부딪히지 않는다.
+ */
+static int rebase_symbol(live_ctx_t *lc, const char *symbol, price_t ref_price)
+{
+    if (symbol[0] == '\0' || ref_price < PRICE_MIN || ref_price > PRICE_MAX) {
+        return ERR_INVALID_ARG;
+    }
+
+    char prev[MSG_SYMBOL_LEN + 1];
+    price_t prev_ref = lc->cfg.ref_price;
+    snprintf(prev, sizeof(prev), "%s", lc->symbol);
+
+    snprintf(lc->symbol, sizeof(lc->symbol), "%s", symbol);
+    lc->cfg.symbol = lc->symbol;
+    lc->cfg.ref_price = ref_price;
+
+    ledger_core_t *fresh = ledger_core_create(&lc->cfg);
+    if (fresh == NULL) {
+        snprintf(lc->symbol, sizeof(lc->symbol), "%s", prev);
+        lc->cfg.ref_price = prev_ref;
+        return ERR_INVALID_ARG;
+    }
+
+    ledger_core_destroy(lc->core);
+    lc->core = fresh;
+    printf("종목 전환: %s -> %s, 기준가 %d원 (가격대 %d ~ %d원)\n", prev, lc->symbol,
+           ref_price, ref_price - ref_price * 3 / 10,
+           ref_price + ref_price * 3 / 10);
+    fflush(stdout);
+    return ERR_OK;
+}
+
+/*
+ * 전문 하나를 처리한다. 종목 전환만 여기서 답하고 나머지는 코어에 넘긴다 — 코어를
+ * **통째로 갈아끼우는** 일이라 코어 안에서 자기를 부술 수는 없다.
+ */
+static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
+                  size_t out_cap, void *ctx)
+{
+    live_ctx_t *lc = ctx;
+
+    if (hdr->type == MSG_SYMBOL_SET) {
+        msg_symbol_set_t req;
+        if (msg_decode_symbol_set(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+
+        /*
+         * **기준가 0은 "지금 무엇을 다루고 있나"를 묻는 것이다.** 바꾸지 않는다.
+         *
+         * 채널계가 다시 뜨면 설정에 적힌 종목을 들고 시작하는데, 그사이 원장은 다른 종목으로
+         * 바뀌어 있을 수 있다. 그러면 모든 호가 조회가 빈 호가창을 돌려준다 — 원장은 자기
+         * 종목에만 답하기 때문이다. 물어볼 자리가 있어야 그것을 맞출 수 있다.
+         */
+        msg_symbol_ack_t ack;
+        memset(&ack, 0, sizeof(ack));
+        ack.code = (req.ref_price == 0) ? ERR_OK
+                                        : rebase_symbol(lc, req.symbol, req.ref_price);
+        snprintf(ack.symbol, sizeof(ack.symbol), "%s", lc->symbol);
+        ack.ref_price = lc->cfg.ref_price;
+
+        /* 시퀀스·시각은 요청이 들고 온 것을 그대로 쓴다(원장 코어와 같다) */
+        wire_header_t h;
+        memset(&h, 0, sizeof(h));
+        h.type = MSG_SYMBOL_ACK;
+        h.body_len = MSG_SYMBOL_ACK_LEN;
+        h.seq = hdr->seq;
+        h.ts = hdr->ts;
+
+        int n = wire_encode_header(&h, out, out_cap);
+        if (n < 0) {
+            return -1;
+        }
+        int m = msg_encode_symbol_ack(&ack, out + n, out_cap - (size_t)n);
+        if (m < 0) {
+            return -1;
+        }
+        return n + m;
+    }
+
+    return ledger_core_handle(hdr, body, out, out_cap, lc->core);
 }
 
 /* 초당 주문 수에서 "몇 ms마다 몇 건"을 정한다. */
@@ -137,7 +232,9 @@ int main(int argc, char **argv)
     printf("  다루는 가격대 %d ~ %d원\n", cfg->ref_price - cfg->ref_price * 3 / 10,
            cfg->ref_price + cfg->ref_price * 3 / 10);
 
-    live_ctx_t live = {.core = core, .per_tick = 0};
+    live_ctx_t live = {.core = core, .cfg = cfg_buf, .per_tick = 0};
+    snprintf(live.symbol, sizeof(live.symbol), "%s", cfg_buf.symbol);
+    live.cfg.symbol = live.symbol;
     if (live_rate > 0) {
         int tick_ms = 0;
         live_pace(live_rate, &tick_ms, &live.per_tick);
@@ -151,10 +248,10 @@ int main(int argc, char **argv)
      * **접속을 한 번에 하나씩 끝까지 처리한다.** 호가창이 하나여야 해서다
      * (`ledger_core.h`의 설명). 채널계는 접속 풀을 1로 두고 쓴다.
      */
-    int conns = listener_run(ln, ledger_core_handle, core);
+    int conns = listener_run(ln, on_msg, &live);
 
     printf("접속 %d건 처리 후 종료\n", conns);
     listener_close(ln);
-    ledger_core_destroy(core);
+    ledger_core_destroy(live.core);
     return 0;
 }

@@ -13,7 +13,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -52,12 +51,7 @@ public class TossCandles {
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
-    @Autowired
-    public TossCandles(FeedProperties props) {
-        this(props, new TossTokenSource(props));
-    }
-
-    TossCandles(FeedProperties props, TossTokenSource tokens) {
+    public TossCandles(FeedProperties props, TossTokenSource tokens) {
         this.props = props;
         this.tokens = tokens;
     }
@@ -77,8 +71,9 @@ public class TossCandles {
      * <p>토스가 최신순으로 주는 것을 <b>오래된 것부터</b>로 뒤집어 돌려준다 — 화면은 왼쪽이
      * 과거다. 뒤집는 자리를 한 곳으로 모아 두면 화면이 순서를 다시 고민하지 않는다.
      */
-    public Chart fetch(String interval, int count) throws IOException, InterruptedException {
-        String key = interval + ":" + count;
+    public Chart fetch(String symbol, String interval, int count)
+            throws IOException, InterruptedException {
+        String key = symbol + ":" + interval + ":" + count;
         Cached c = cache.get(key);
         long now = System.currentTimeMillis();
         if (c != null && now < c.until()) {
@@ -90,7 +85,7 @@ public class TossCandles {
                 URI.create(
                         props.baseUrl()
                                 + "/api/v1/candles?symbol="
-                                + props.symbol()
+                                + symbol
                                 + "&interval="
                                 + interval
                                 + "&count="
@@ -126,10 +121,15 @@ public class TossCandles {
         /* 최신순으로 오므로 뒤집는다 — 화면은 왼쪽이 과거다 */
         java.util.Collections.reverse(out);
 
-        Chart chart = new Chart(props.symbol(), interval, List.copyOf(out), now);
+        Chart chart = new Chart(symbol, interval, List.copyOf(out), now);
         cache.put(key, new Cached(chart, now + ttlMs(interval)));
         log.debug("캔들 {} {}개", interval, out.size());
         return chart;
+    }
+
+    /** 종목이 바뀌면 앞 종목의 봉을 돌려주지 않는다(T8-10). */
+    public void clear() {
+        cache.clear();
     }
 
     /** 읽지 못하는 봉은 버린다 — 추측한 값을 차트에 올리지 않는다. */

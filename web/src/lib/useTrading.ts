@@ -3,6 +3,9 @@ import {
   ACCOUNT,
   SYMBOL,
   cancelOrder,
+  fetchSymbol,
+  switchSymbol,
+  type CurrentSymbol,
   fetchBalance,
   fetchBook,
   fetchFeed,
@@ -31,6 +34,9 @@ const TICK_MAX = 240;
 export interface Trading {
   ws: { state: ConnState; attempt: number };
   feed: FeedStatus | null;
+  /** 지금 다루는 종목. 바꾸면 원장이 그 종목으로 새로 열린다(T8-10) */
+  symbol: CurrentSymbol;
+  pickSymbol: (code: string) => Promise<{ ok: boolean; message: string }>;
   ticks: Tick[];
   setMode: (mode: "sim" | "live") => Promise<{ ok: boolean; message: string }>;
   ledgerDown: string | null;
@@ -75,12 +81,20 @@ export function useTrading(): Trading {
   /* 마지막으로 점을 찍을 때의 시세 모드. 바뀌면 그림을 새로 시작한다 */
   const lastFeedKey = useRef("");
 
+  const [symbol, setSymbol] = useState<CurrentSymbol>({
+    code: SYMBOL,
+    name: "삼성전자",
+    refPrice: 0,
+  });
+
   const upsertOrder = useCallback((v: OrderView) => {
     setOrders((prev) => [v, ...prev.filter((o) => o.orderId !== v.orderId)].sort(byNewest));
   }, []);
 
   const refresh = useCallback(() => {
     void fetchFeed().then(setFeed).catch(() => undefined);
+    /* 새로고침해도 지금 종목을 그대로 보여 준다 — 설정값이 아니라 원장이 든 것을 읽는다 */
+    void fetchSymbol().then(setSymbol).catch(() => undefined);
     void Promise.allSettled([
       fetchBook(MARKET_KRX),
       fetchBook(MARKET_NXT),
@@ -99,6 +113,23 @@ export function useTrading(): Trading {
       if (ords.status === "fulfilled") setOrders([...ords.value].sort(byNewest));
     });
   }, []);
+
+  /*
+   * 종목을 바꾼다 — **원장이 새로 열린다.** 주문·잔고가 초기화되므로 바뀐 뒤에 전체를
+   * 다시 읽는다. 이쪽 상태는 채널계가 성공을 돌려준 뒤에만 바꾼다.
+   */
+  const pickSymbol = useCallback(
+    async (code: string) => {
+      const res = await switchSymbol(code);
+      if (!res.ok || !res.symbol) return { ok: false, message: res.message };
+      setSymbol(res.symbol);
+      setTicks([]);
+      setOrders([]);
+      refresh();
+      return { ok: true, message: `${res.symbol.name}(${res.symbol.code})으로 바꿨다` };
+    },
+    [refresh],
+  );
 
   const onEvent = useCallback(
     (e: StreamEvent) => {
@@ -124,6 +155,13 @@ export function useTrading(): Trading {
           break;
         case "feed-mode":
           setFeed(e.payload as FeedStatus);
+          break;
+        /* 다른 화면에서 종목을 바꿨다 — 이 화면도 따라간다 */
+        case "symbol":
+          setSymbol(e.payload as CurrentSymbol);
+          setTicks([]);
+          setOrders([]);
+          refresh();
           break;
         case "order-update":
           upsertOrder(e.payload as OrderView);
@@ -267,7 +305,7 @@ export function useTrading(): Trading {
       const res = await submitOrder({
         ...o,
         account: ACCOUNT,
-        symbol: SYMBOL,
+        symbol: symbol.code,
         clOrdId: lastClOrdId.current,
       });
       if (res.outcome === "ACCEPTED") {
@@ -277,7 +315,7 @@ export function useTrading(): Trading {
       }
       return res;
     },
-    [upsertOrder],
+    [symbol.code, upsertOrder],
   );
 
   const cancel = useCallback(
@@ -299,6 +337,8 @@ export function useTrading(): Trading {
   return {
     ws: { state, attempt },
     feed,
+    symbol,
+    pickSymbol,
     ticks,
     setMode,
     ledgerDown,

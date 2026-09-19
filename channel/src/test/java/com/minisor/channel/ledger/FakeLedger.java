@@ -92,6 +92,9 @@ public final class FakeLedger implements AutoCloseable {
     /** 호가 매수 1단 수량에 더하는 값 — 호가 변화를 만든다. */
     private volatile int bookBump;
 
+    /** 호가를 부를 때마다 조금씩 늘어나는 누적 체결 수량(T8-09). */
+    private volatile long tradedQty;
+
     /** 마지막으로 받은 호가 스냅샷(T8-02). 받으면 그것을 호가창으로 삼아 답한다. */
     private volatile BookFeed lastFeed;
     private final AtomicInteger feeds = new AtomicInteger();
@@ -377,6 +380,10 @@ public final class FakeLedger implements AutoCloseable {
             ack.askPrice[i] = 70100 + 100 * i;
             ack.askQty[i] = 20 + i;
         }
+        /* 체결 테이프(T8-09). 부를 때마다 조금씩 쌓여 봉을 만들 수 있게 한다 */
+        ack.lastPrice = 70000 + bookBump;
+        tradedQty += 10;
+        ack.tradedQty = tradedQty;
         return ack;
     }
 

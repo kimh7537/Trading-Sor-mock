@@ -110,11 +110,17 @@ class WireCodecTest {
         // bidQty, askPrice는 비워 둔다 — 0으로 나가야 한다
 
         byte[] body = WireCodec.encodeBody(in);
-        assertThat(body).hasSize(169); // C의 MSG_BOOK_ACK_LEN
+        assertThat(body).hasSize(181); // C의 MSG_BOOK_ACK_LEN
         assertThat(body[8]).isEqualTo((byte) 1);
         assertThat(java.nio.ByteBuffer.wrap(body, 9, 4).getInt()).isEqualTo(70000);
         assertThat(body[165]).isEqualTo((byte) 0x01);
         assertThat(body[168]).isEqualTo((byte) 0x04);
+        /* 배열 뒤에 마지막 체결가(i32)와 누적 체결량(i64)이 온다 */
+        in.lastPrice = 69950;
+        in.tradedQty = 1234567890123L;
+        byte[] withTape = WireCodec.encodeBody(in);
+        assertThat(java.nio.ByteBuffer.wrap(withTape, 169, 4).getInt()).isEqualTo(69950);
+        assertThat(java.nio.ByteBuffer.wrap(withTape, 173, 8).getLong()).isEqualTo(1234567890123L);
 
         BookAck out = WireCodec.decodeBody(BookAck.class, body, 0, body.length);
         assertThat(out.bidPrice[0]).isEqualTo(70000);

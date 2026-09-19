@@ -16,7 +16,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -67,6 +66,7 @@ public class TossFeedClient implements AutoCloseable {
     private final FeedProperties props;
     private final LiveFeed live;
     private final TossTokenSource tokens;
+    private final SymbolState symbols;
     private final HttpClient http =
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
@@ -84,15 +84,25 @@ public class TossFeedClient implements AutoCloseable {
     private volatile Thread loop;
     private volatile WebSocket socket;
 
-    @Autowired
-    public TossFeedClient(FeedProperties props, LiveFeed live) {
-        this(props, live, new TossTokenSource(props));
-    }
-
-    TossFeedClient(FeedProperties props, LiveFeed live, TossTokenSource tokens) {
+    public TossFeedClient(
+            FeedProperties props, LiveFeed live, TossTokenSource tokens, SymbolState symbols) {
         this.props = props;
         this.live = live;
         this.tokens = tokens;
+        this.symbols = symbols;
+    }
+
+    /**
+     * 종목이 바뀌었다 — <b>연결을 놓는다</b>(T8-10).
+     *
+     * <p>구독을 따로 갈아끼우지 않는다. 끊기면 루프가 알아서 다시 붙고, 그때 새 종목으로
+     * 구독한다. 구독 해제 전문을 따로 다루는 것보다 경로가 하나 적다.
+     */
+    public void resubscribe() {
+        WebSocket ws = socket;
+        if (ws != null) {
+            ws.abort();
+        }
     }
 
     public boolean usable() {
@@ -190,7 +200,7 @@ public class TossFeedClient implements AutoCloseable {
                         .buildAsync(URI.create(props.wsUrl()), new Listener(closed))
                         .join();
         socket = ws;
-        String sub = subscribeJson(props.symbol());
+        String sub = subscribeJson(symbols.code());
         received.set(0);
         ws.sendText(sub, true);
         live.enterLive("toss");
@@ -263,7 +273,7 @@ public class TossFeedClient implements AutoCloseable {
                                     URI.create(
                                             props.baseUrl()
                                                     + "/api/v1/orderbook?symbol="
-                                                    + props.symbol()))
+                                                    + symbols.code()))
                             .header("Authorization", "Bearer " + token)
                             .header("Accept", "application/json")
                             .timeout(Duration.ofSeconds(10))
@@ -283,7 +293,7 @@ public class TossFeedClient implements AutoCloseable {
             JsonNode n = JSON.readTree(body);
             live.apply(
                     Snapshot.fromToss(
-                            props.symbol(), n.path("result"), live.status().lastFeedTs()));
+                            symbols.code(), n.path("result"), live.status().lastFeedTs()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
@@ -409,7 +419,8 @@ public class TossFeedClient implements AutoCloseable {
             if (!topic.startsWith("orderbook:")) {
                 return;
             }
-            live.apply(Snapshot.fromToss(props.symbol(), n.path("data"), live.status().lastFeedTs()));
+            live.apply(
+                    Snapshot.fromToss(symbols.code(), n.path("data"), live.status().lastFeedTs()));
         } catch (Exception e) {
             log.warn("실시세 메시지를 읽지 못했다: {}", e.toString());
         }

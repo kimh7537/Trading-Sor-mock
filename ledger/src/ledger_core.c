@@ -21,6 +21,7 @@
 #include "shm_segment.h"
 #include "strategy.h"
 #include "synthetic.h"
+#include "tick_size.h"
 
 /*
  * 사용자 논리 주문번호의 시작값.
@@ -41,6 +42,41 @@
 
 /* 스냅샷을 맞출 때 훑는 단 수. 주입하는 10단보다 깊어질 수 있어 넉넉히 둔다. */
 #define LEDGER_FEED_SCAN_DEPTH 32
+
+/*
+ * 가상 참가자의 기준가를 몇 틱마다 한 번 옮기는가(T8-08).
+ *
+ * **기준가를 고정해 두면 최우선호가가 붙박이가 된다.** 잔량만 출렁이고 가격은 한 번도
+ * 움직이지 않는다 — 실측으로 확인했다(20초 동안 260,000 / 259,500 그대로). 그러면
+ * "가격 차트"가 평평해서 시장이 죽은 것처럼 보인다.
+ *
+ * `ledgerd --live 40`이면 25ms마다 한 틱이므로 100틱은 약 2.5초다.
+ *
+ * **더 빨리 움직이면 호가가 못 따라온다.** 1초에 한 호가로 뒀더니 상승 구간에서 매도
+ * 최우선이 위로 밀리며 스프레드가 5,000원까지 벌어졌다 — 기준가가 옮겨 간 자리를 새 주문이
+ * 채우기 전에 다음 표류가 와서다. 유동성이 따라올 만큼 늦춘다. `--live` 값을 바꾸면 체감
+ * 속도도 같이 바뀐다(틱 수로 세기 때문이다. 시스템 시각을 읽지 않는다).
+ */
+#define LEDGER_DRIFT_EVERY 100
+
+/*
+ * 방향을 몇 번에 한 번 뒤집는가.
+ *
+ * **매번 방향을 새로 뽑으면 제자리걸음만 한다.** 처음에 그렇게 짰더니 800틱을 돌려도
+ * 최우선호가가 출발점으로 돌아왔다 — 랜덤워크는 평균이 0이라 추세가 생기지 않는다.
+ * 방향을 이어 가다 가끔 뒤집으면 오르내리는 구간이 생겨 실제 시세처럼 보인다.
+ */
+#define LEDGER_DRIFT_FLIP 5
+
+/*
+ * 두 시장의 중심이 서로 몇 호가까지 벌어질 수 있는가.
+ *
+ * **시장마다 따로 표류시켰더니 3%까지 벌어졌다**(KRX 244,000 / NXT 252,000). 같은 종목을
+ * 두 시장에서 거래하는데 그만큼 벌어질 수는 없다 — 실제로는 차익거래가 한두 호가 안으로
+ * 묶는다. 그래서 **공통 중심 하나가 표류하고**, 각 시장은 그 둘레에서 이만큼만 어긋난다.
+ * 어긋남이 0이면 두 시장이 늘 같아져 SOR이 고를 것이 없어진다.
+ */
+#define LEDGER_DRIFT_SPREAD 2
 
 
 
@@ -103,6 +139,31 @@ struct ledger_core {
     divergent_t *div;
     /* 주입한 호가에 붙일 다음 번호(T8-03). 시장을 가리지 않고 하나로 센다 */
     order_id_t   next_feed_id;
+
+    /*
+     * 기준가 표류의 난수 상태와 틱 세기(T8-08). **시장마다 따로 흐른다** — 같이 움직이면
+     * 두 시장의 가격 차이가 생기지 않아 SOR이 고를 것이 없다.
+     *
+     * 시드에서 파생하고 시스템 시각을 읽지 않는다. 같은 시드에 같은 틱 횟수면 같은 표류다.
+     */
+    uint64_t     drift_state[MARKET_COUNT];
+    int64_t      drift_ticks;
+    /* 공통 중심이 향하는 쪽(-1 또는 +1). 0이면 아직 안 정했다 */
+    int8_t       drift_dir;
+    /*
+     * 시장별 마지막 체결가와 누적 체결 수량(T8-09). 봉(OHLCV)을 만들려면 체결이 필요한데
+     * 호가만으로는 알 수 없다. 여기 모아 두고 호가 응답에 실어 보낸다.
+     *
+     * **한 체결을 한 번만 센다.** 매칭 엔진은 사는 쪽과 파는 쪽 양쪽에 이벤트를 주므로
+     * 그대로 더하면 거래량이 두 배가 된다.
+     */
+    price_t      last_price[MARKET_COUNT];
+    int64_t      traded_qty[MARKET_COUNT];
+
+    /* 두 시장이 함께 따르는 중심. 0이면 아직 시작 전이다 */
+    price_t      drift_base;
+    /* 그 중심에서 시장마다 몇 호가 어긋나 있는가 */
+    int8_t       drift_off[MARKET_COUNT];
     /*
      * 이 시장이 바깥 시세를 받고 있는가(T8-03).
      *
@@ -158,6 +219,19 @@ static void on_event(const order_event_t *ev, void *ctx)
 
     if (ev->type != EVENT_EXECUTED && ev->type != EVENT_PARTIALLY_EXECUTED) {
         return;
+    }
+
+    /*
+     * 체결 테이프(T8-09). **가상 참가자끼리의 체결도 센다** — 그것이 이 시장의 거래량이다.
+     *
+     * 한 체결에 이벤트가 둘(사는 쪽·파는 쪽) 오므로 **번호가 작은 쪽에서만** 센다. 그러지
+     * 않으면 거래량이 정확히 두 배가 된다. 상대가 없는 이벤트는 체결이 아니므로 건너뛴다.
+     */
+    if (ev->market >= 0 && ev->market < MARKET_COUNT &&
+        ev->counterparty_id != ORDER_ID_INVALID &&
+        ev->order_id < ev->counterparty_id) {
+        c->last_price[ev->market] = ev->price;
+        c->traded_qty[ev->market] += ev->qty;
     }
     if (omap_leg(c->map, ev->order_id) == NULL) {
         return; /* 미리 넣어 둔 유동성 주문이다. 원장 계좌의 주문이 아니다 */
@@ -344,6 +418,9 @@ static void query_book(ledger_core_t *c, const msg_book_req_t *req,
         strncmp(req->symbol, c->cfg.symbol, MSG_SYMBOL_LEN) != 0) {
         return;
     }
+    ack->last_price = c->last_price[req->market];
+    ack->traded_qty = c->traded_qty[req->market];
+
     const order_book_t *book = match_book(c->eng[req->market]);
 
     level_view_t view[MSG_BOOK_DEPTH];
@@ -731,6 +808,12 @@ ledger_core_t *ledger_core_create(const ledger_core_config_t *cfg)
     c->cfg = *cfg;
     c->next_logical = LEDGER_LOGICAL_BASE;
     c->next_feed_id = LEDGER_FEED_ID_BASE;
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        /* 시장마다 다른 흐름. 0이면 xorshift가 굳으므로 반드시 0이 아니게 한다 */
+        c->drift_state[m] =
+            (cfg->seed ^ (UINT64_C(0x9E3779B97F4A7C15) * (uint64_t)(m + 1))) |
+            UINT64_C(1);
+    }
     c->submitting = ORDER_ID_INVALID;
 
     const int32_t rec_count[SHM_REGION_COUNT] = {4, 4};
@@ -786,6 +869,80 @@ void ledger_core_destroy(ledger_core_t *c)
     free(c);
 }
 
+/* xorshift64. 전역 `rand()`를 쓰지 않는다(CLAUDE.md 결정성). */
+static uint64_t drift_next(uint64_t *state)
+{
+    uint64_t x = *state;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    *state = x;
+    return x * UINT64_C(2685821657736338717);
+}
+
+/* 기준가에서 n호가 떨어진 유효 호가. 구간이 바뀌는 자리를 넘어도 맞는 값이 나온다. */
+static price_t step_price(price_t from, int steps)
+{
+    price_t p = from;
+    for (int i = 0; i < steps; i++) {
+        price_t t = tick_size_of(p);
+        if (t <= 0) {
+            return p;
+        }
+        p = round_to_tick(p + t, true);
+    }
+    for (int i = 0; i > steps; i--) {
+        price_t t = tick_size_of(p);
+        if (t <= 0) {
+            return p;
+        }
+        p = round_to_tick(p - t, false);
+    }
+    return p;
+}
+
+/*
+ * 두 시장이 함께 따르는 중심을 한 호가 옮기고, 시장별 어긋남을 조금씩 바꾼다.
+ *
+ * **방향을 이어 간다.** 매번 새로 뽑으면 제자리걸음만 하고 추세가 생기지 않는다.
+ * `LEDGER_DRIFT_FLIP`번에 한 번꼴로 뒤집어 오르내리는 구간을 만든다.
+ *
+ * **중심은 하나다.** 시장마다 따로 흘리면 같은 종목인데도 몇 %씩 벌어진다 — 실제로는
+ * 차익거래가 한두 호가 안으로 묶는다. 시장은 중심 둘레에서만 어긋나고, 그 어긋남이
+ * SOR이 고를 거리를 만든다.
+ */
+static void drift_ref_price(ledger_core_t *c)
+{
+    uint64_t r = drift_next(&c->drift_state[0]);
+    if (c->drift_dir == 0) {
+        c->drift_dir = (r & 1u) ? (int8_t)1 : (int8_t)-1;
+    } else if ((r % LEDGER_DRIFT_FLIP) == 0) {
+        c->drift_dir = (int8_t)-c->drift_dir;
+    }
+
+    c->drift_base = step_price(c->drift_base, c->drift_dir);
+
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        synth_gen_t *gen = divergent_gen(c->div, (market_t)m);
+        if (gen == NULL || c->fed[m]) {
+            continue;
+        }
+        /* 어긋남을 가끔 한 칸 옮긴다. 범위를 벗어나면 되돌린다 */
+        uint64_t rm = drift_next(&c->drift_state[m]);
+        if ((rm % 3) == 0) {
+            int8_t off = (int8_t)(c->drift_off[m] + ((rm & 2u) ? 1 : -1));
+            if (off > LEDGER_DRIFT_SPREAD) {
+                off = LEDGER_DRIFT_SPREAD;
+            }
+            if (off < -LEDGER_DRIFT_SPREAD) {
+                off = -LEDGER_DRIFT_SPREAD;
+            }
+            c->drift_off[m] = off;
+        }
+        (void)synth_set_ref_price(gen, step_price(c->drift_base, c->drift_off[m]));
+    }
+}
+
 int ledger_core_tick(ledger_core_t *c, int32_t n)
 {
     if (c == NULL) {
@@ -798,11 +955,24 @@ int ledger_core_tick(ledger_core_t *c, int32_t n)
         return ERR_NOT_SUPPORTED; /* 유동성 0으로 만든 코어 — 생성기가 없다 */
     }
 
+    /*
+     * 몇 틱에 한 번 중심을 옮긴다. 그래야 가격이 움직이고, 옮긴 자리에서 묵은 호가와
+     * 교차해 체결도 난다. 시장을 다 돌기 전에 한 번만 판단한다 — 중심은 하나다.
+     */
+    if (c->div != NULL && ++c->drift_ticks >= LEDGER_DRIFT_EVERY) {
+        c->drift_ticks = 0;
+        if (c->drift_base <= 0) {
+            c->drift_base = c->cfg.ref_price;
+        }
+        drift_ref_price(c);
+    }
+
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         synth_gen_t *gen = divergent_gen(c->div, (market_t)m);
         if (gen == NULL || c->fed[m]) {
             continue; /* 바깥 시세를 받는 시장에는 가상 참가자를 넣지 않는다 */
         }
+
         for (int32_t i = 0; i < n; i++) {
             order_t       o;
             exec_result_t res;

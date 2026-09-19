@@ -188,6 +188,41 @@ kbd {
 .symbol b { font-size: 14px; }
 .symbol span { font-size: 11px; color: var(--text-faint); }
 
+/* 종목 고르기 (T8-10) — 헤더의 종목 이름을 누르면 열린다 */
+.picker { position: relative; }
+.picker-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--text); font: inherit;
+}
+.picker-btn b { font-size: 14px; }
+.picker-btn .num { font-size: 11px; color: var(--text-faint); }
+.picker-btn:disabled { opacity: .5; cursor: default; }
+.picker-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  width: 300px; max-width: calc(100vw - 32px);
+  background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: 8px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / .35); padding: var(--s-3);
+}
+.picker-pop input {
+  width: 100%; box-sizing: border-box;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 8px; font: inherit;
+}
+.picker-list { list-style: none; margin: var(--s-2) 0 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+.picker-list li { margin: 0; }
+.picker-list li.muted { padding: 8px 4px; font-size: 12px; }
+.picker-list button {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  width: 100%; text-align: left; background: none; border: 0; border-radius: 6px;
+  padding: 7px 6px; color: var(--text); font: inherit; cursor: pointer;
+}
+.picker-list button:hover { background: var(--bg-hover); }
+.picker-list button[aria-current="true"] { color: var(--focus); }
+.picker-list .num { font-size: 11px; }
+.picker-err { margin: var(--s-2) 0 0; font-size: 12px; color: var(--sell); }
+.picker-note { margin: var(--s-2) 0 0; font-size: 11px; color: var(--text-faint); line-height: 1.45; }
+
 .quote { display: flex; gap: var(--s-4); font-size: 12px; }
 .quote > div { display: flex; flex-direction: column; line-height: 1.25; }
 .k { font-size: 10px; color: var(--text-faint); }

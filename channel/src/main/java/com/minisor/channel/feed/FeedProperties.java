@@ -53,7 +53,17 @@ public record FeedProperties(
 
     /** 붙을 수 있는가 — 켜져 있고 키가 있다. */
     public boolean usable() {
-        return enabled && notBlank(clientId) && notBlank(clientSecret) && notBlank(wsUrl);
+        return enabled && hasKeys() && notBlank(wsUrl);
+    }
+
+    /**
+     * 바깥에 <b>물어볼</b> 수 있는가.
+     *
+     * <p>실시세 수신({@link #usable()})과 다르다. 종목을 찾고 그 종목의 현재가를 받는 일은
+     * 실시세를 켜지 않아도 된다 — 시뮬 모드에서 종목을 바꿀 때도 그 종목의 가격대가 필요하다.
+     */
+    public boolean hasKeys() {
+        return notBlank(clientId) && notBlank(clientSecret) && notBlank(baseUrl);
     }
 
     public boolean recording() {

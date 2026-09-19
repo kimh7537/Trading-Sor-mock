@@ -108,6 +108,8 @@ export default function App() {
         books={t.books}
         feed={t.feed}
         only={only}
+        symbol={t.symbol}
+        onPickSymbol={t.pickSymbol}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
@@ -168,7 +170,7 @@ export default function App() {
               notify={notify}
             />
 
-            <Panel className="area-ticket" title="주문" sub="삼성전자 005930">
+            <Panel className="area-ticket" title="주문" sub={`${t.symbol.name} ${t.symbol.code}`}>
               <div className="stack">
                 <OrderTicket
                   draft={draft}

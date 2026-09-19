@@ -1237,6 +1237,58 @@ static void feed_init(msg_book_feed_t *f, uint8_t market, ts_t ts)
 }
 
 /*
+ * **종목을 바꾸는 방법은 원장을 다시 여는 것뿐이다**(T8-10).
+ *
+ * 호가창은 만들 때 정한 기준가 ±30%만 펼쳐 둔다. 260,000원짜리 종목의 실호가를
+ * 70,000원 기준가로 만든 호가창에 심으면 통째로 버려진다 — 화면에서는 아무 일도
+ * 일어나지 않는다. 실제로 그렇게 됐다(T8-05). 이 테스트가 그 전제를 고정한다.
+ *
+ * `ledgerd`의 종목 전환(`rebase_symbol`)이 하는 일이 정확히 이것이다.
+ */
+static void test_rebase_changes_band_and_symbol(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 0;
+    cfg.order_capacity = 16;
+
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+
+    /* 70,000원 기준가의 호가창은 260,000원을 받지 못한다 */
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    f.bid_price[0] = 260000;
+    f.bid_qty[0] = 10;
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK); /* 전문 자체는 받는다 */
+
+    msg_book_ack_t b;
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 0); /* 가격대 밖이라 들어가지 않았다 */
+
+    /* 종목과 기준가를 바꿔 다시 연다 */
+    ledger_core_destroy(c);
+    cfg.symbol = "000660";
+    cfg.ref_price = 260000;
+    c = ledger_core_create(&cfg);
+    assert(c != NULL);
+
+    /* 이제는 앞 종목의 스냅샷을 거절한다 */
+    assert(ledger_core_apply_feed(c, &f) == ERR_NOT_FOUND);
+
+    snprintf(f.symbol, sizeof(f.symbol), "%s", "000660");
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    book(c, "000660", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 260000 && b.bid_qty[0] == 10);
+
+    /* 앞 종목으로는 이제 조회되지 않는다 */
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.bid_price[0] == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
  * **상대 호가만 갈아끼우고 내 미체결은 그대로 둔다.**
  *
  * 스냅샷을 두 번 넣는 동안 내 주문이 살아 있어야 하고, 같은 가격의 잔량은
@@ -1503,6 +1555,139 @@ static void test_feed_stops_ticks_on_that_market(void)
 }
 
 /*
+ * **체결을 한 번만 센다**(T8-09).
+ *
+ * 매칭 엔진은 한 체결에 사는 쪽·파는 쪽 양쪽으로 이벤트를 준다. 그대로 더하면 거래량이
+ * 정확히 두 배가 되고, 그 위에 만든 봉은 전부 틀린다.
+ */
+static void test_tape_counts_each_trade_once(void)
+{
+    ledger_core_t *c = empty_core(64);
+    msg_order_ack_t ack;
+    msg_book_ack_t  b;
+
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.last_price == 0 && b.traded_qty == 0); /* 아직 한 건도 없다 */
+
+    /* 매도를 걸어 두고 매수로 20주를 먹는다 — 체결은 20주 한 번이다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 20, 900, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 70000, 20, 901, &ack) == ERR_OK);
+
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.last_price == 70000);
+    assert(b.traded_qty == 20); /* 40이면 양쪽을 다 센 것이다 */
+
+    /* 다른 시장은 따로 센다 */
+    msg_book_ack_t n;
+    book(c, "005930", MARKET_NXT, &n);
+    assert(n.traded_qty == 0);
+
+    /* 더 체결하면 누적된다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 69900, 5, 902, &ack) == ERR_OK);
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 69900, 5, 903, &ack) == ERR_OK);
+    book(c, "005930", MARKET_KRX, &b);
+    assert(b.traded_qty == 25 && b.last_price == 69900);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **가상 참가자끼리의 체결도 거래량이다.** 그것이 이 시장에서 실제로 일어난 거래다.
+ */
+static void test_tape_counts_synthetic_trades(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    msg_book_ack_t before;
+    book(c, "005930", MARKET_KRX, &before);
+
+    for (int i = 0; i < 600; i++) {
+        assert(ledger_core_tick(c, 2) == ERR_OK);
+    }
+
+    msg_book_ack_t after;
+    book(c, "005930", MARKET_KRX, &after);
+    assert(after.traded_qty > before.traded_qty);
+    assert(after.last_price > 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * **가상 참가자의 기준가가 표류해 최우선호가가 움직인다**(T8-08).
+ *
+ * 기준가를 고정해 두면 잔량만 출렁이고 가격은 붙박이가 된다 — 실측으로 확인했다
+ * (20초 동안 260,000 / 259,500에서 한 번도 안 움직였다). 그러면 "가격 차트"가 평평해서
+ * 시장이 죽은 것처럼 보인다. 몇 틱에 한 번 중심을 한 호가 단위 옮긴다.
+ */
+static void test_tick_drifts_price(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    msg_book_ack_t before;
+    book(c, "005930", MARKET_KRX, &before);
+
+    /* 표류는 몇 틱에 한 번이므로 넉넉히 돌린다 */
+    for (int i = 0; i < 400; i++) {
+        assert(ledger_core_tick(c, 2) == ERR_OK);
+    }
+
+    msg_book_ack_t after;
+    book(c, "005930", MARKET_KRX, &after);
+
+    /* **가격**이 움직여야 한다. 잔량만 바뀌는 것으로는 부족하다 */
+    assert(after.bid_price[0] != before.bid_price[0] ||
+           after.ask_price[0] != before.ask_price[0]);
+
+    ledger_core_destroy(c);
+}
+
+/* 표류해도 결정적이다 — 같은 시드에 같은 틱 횟수면 같은 호가창이다. */
+static void test_drift_is_deterministic(void)
+{
+    ledger_core_t *a = liquid_core();
+    ledger_core_t *b = liquid_core();
+
+    for (int i = 0; i < 300; i++) {
+        assert(ledger_core_tick(a, 2) == ERR_OK);
+        assert(ledger_core_tick(b, 2) == ERR_OK);
+    }
+
+    for (uint8_t m = 0; m < MARKET_COUNT; m++) {
+        msg_book_ack_t x, y;
+        book(a, "005930", m, &x);
+        book(b, "005930", m, &y);
+        assert(memcmp(&x, &y, sizeof(x)) == 0);
+    }
+
+    ledger_core_destroy(a);
+    ledger_core_destroy(b);
+}
+
+/*
+ * **두 시장이 따로 표류한다.** 같이 움직이면 가격 차이가 생기지 않아 SOR이 고를 것이 없다.
+ */
+static void test_markets_drift_apart(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    bool differed = false;
+    for (int i = 0; i < 400 && !differed; i++) {
+        assert(ledger_core_tick(c, 2) == ERR_OK);
+        msg_book_ack_t krx, nxt;
+        book(c, "005930", MARKET_KRX, &krx);
+        book(c, "005930", MARKET_NXT, &nxt);
+        if (krx.bid_price[0] != nxt.bid_price[0] ||
+            krx.ask_price[0] != nxt.ask_price[0]) {
+            differed = true;
+        }
+    }
+    assert(differed);
+
+    ledger_core_destroy(c);
+}
+
+/*
  * **가상 참가자는 `MSG_FEED_END`를 받아야 돌아온다.**
  *
  * 스냅샷이 잠시 안 오는 것(장 마감)과 피드가 끝난 것은 겉으로 같다. 시간으로 어림해
@@ -1667,6 +1852,7 @@ int main(void)
     STEP(test_tick_retires_old_orders);
     STEP(test_tick_without_generator);
     STEP(test_tick_fills_resting_user_order);
+    STEP(test_rebase_changes_band_and_symbol);
     STEP(test_feed_keeps_my_order);
     STEP(test_feed_preserves_queue_position);
     STEP(test_feed_crosses_my_order);
@@ -1676,6 +1862,11 @@ int main(void)
     STEP(test_feed_rejections);
     STEP(test_feed_stops_ticks_on_that_market);
     STEP(test_ticks_resume_only_on_feed_end);
+    STEP(test_tape_counts_each_trade_once);
+    STEP(test_tape_counts_synthetic_trades);
+    STEP(test_tick_drifts_price);
+    STEP(test_drift_is_deterministic);
+    STEP(test_markets_drift_apart);
     STEP(test_feed_clears_deep_levels);
     STEP(test_feed_message_answers_with_book);
     return 0;
