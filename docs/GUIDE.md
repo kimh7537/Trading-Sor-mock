@@ -313,6 +313,8 @@ NXT에서 사는 편이 100원 싸다. 대신 NXT의 70,000원에는 2,257주밖
 | SOR | 전략 4종이 배분한다 | 할 일이 없다 |
 | 전략 비교·측정 | 여기서만 가능 | 불가 |
 | 재현 | 시드 고정 | 녹화 파일 재생이 같은 결과를 만든다(T8-06) |
+| 차트의 봉 | **내 원장에서 난 체결**을 1분씩 묶는다(T8-09) | 토스의 1분봉·일봉, 곧 바깥 시장의 체결 |
+| 종목 | 바꿀 수 있다. 가격대는 바깥에서 받는다(T8-10) | 바꿀 수 있다 |
 
 **실호가를 받아도 매칭 엔진을 빼지 않는다.** 실호가 10단을 내 호가창에 심고 체결은 여전히 내
 엔진이 판정한다. 체결 판정기를 따로 만들면 십중팔구 "그 가격에 거래가 있었으니 체결"이라는
@@ -332,6 +334,13 @@ NXT에서 사는 편이 100원 싸다. 대신 NXT의 70,000원에는 2,257주밖
 **바깥에는 읽기만 한다.** 주문은 어느 모드에서도 이 프로젝트의 원장 안에서 끝난다. 토스증권
 Open API에는 모의투자 샌드박스가 없어 같은 키로 실주문이 나가므로, 주문 경로를 아예 만들지
 않는 것이 유일하게 확실한 방어다(T8-04).
+
+**종목을 바꾸는 일은 원장을 새로 여는 일이다**(T8-10). 호가창은 만들 때 정한 기준가 ±30%(가격
+제한폭)만 펼쳐 두므로, 가격대가 다른 종목을 같은 호가창에 담을 수 없다. 그래서 전문
+`MSG_SYMBOL_SET`은 종목과 **그 종목의 현재가**를 함께 보내고, `ledgerd`가 코어를 통째로
+갈아끼운다 — 미체결 주문과 잔고는 초기화된다. 화면에도 그렇게 적는다. 같은 이유로 실호가가
+원장의 가격대 밖이면 채널계가 알아서 그 가격대로 다시 연다. 기준가 0을 보내면 바꾸지 않고
+**지금 무엇을 다루는지만 답한다** — 채널계가 다시 떴을 때 원장과 어긋나지 않게 하는 자리다.
 
 ### 1.5 폴더 지도
 
@@ -6196,7 +6205,7 @@ ponytail 주석: 1초마다 읽는다. 원장 접속이 1개라 주문과 같은
 
 테스트는 `channel/`에서 `./mvnw.cmd test`로 돈다(Windows). JUnit 5(`@Test`)와 AssertJ(`assertThat(...)`)를 쓴다. 각 테스트 클래스 주석에 어느 태스크의 완료 조건을 옮긴 것인지 적혀 있다.
 
-모두 **74개**다(T7-03에서 40 → 49, Phase 8에서 49 → 74). `WireCodecTest` 12, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 2, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1, `feed.SnapshotTest` 4, `feed.LiveFeedTest` 4, `feed.TossTokenSourceTest` 6, `feed.FeedReplayTest` 4, `feed.TossCandlesTest` 5.
+모두 **88개**다(T7-03에서 40 → 49, Phase 8에서 49 → 88). `WireCodecTest` 12, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 2, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1, `feed.SnapshotTest` 4, `feed.LiveFeedTest` 4, `feed.TossTokenSourceTest` 6, `feed.FeedReplayTest` 4, `feed.TossCandlesTest` 5, `feed.SimCandlesTest` 7, `feed.TossStocksTest` 7.
 
 ##### 10.1 WireCodecTest — 코덱이 C와 같은 바이트를 만든다 (T4-02)
 
@@ -6871,8 +6880,11 @@ npm run check    # 예상 체결 4경우 + 호가 단위 9경우 → "estimate.c
 
 화면은 증권사 앱(MTS) 모양이다. **넓은 창**에서는 왼쪽 호가, 가운데 차트와 미체결·주문 내역·체결 탭,
 오른쪽 주문창과 시장 비교가 나란히 놓인다. **좁은 창**에서는 `[호가] [차트] [주문] [체결·잔고] [시세 모드]` 탭으로
-하나씩 본다. 차트는 토스에서 받은 **1분봉·일봉**(OHLCV)이고, 키가 없으면 내 호가창의
-중간가 선으로 되돌아간다. 맨 위에 종목·최우선호가·잔고·시세 모드 배지가 늘 보이고, 오른쪽 위 ☀/☾로 라이트·다크를 바꾼다
+하나씩 본다. 차트는 실시세에서는 토스의 **1분봉·일봉**(OHLCV),
+시뮬에서는 **내 원장에서 난 체결**을 1분씩 묶은 봉이다. 둘 다 못 만들면 내 호가창의 중간가
+선으로 되돌아간다. 맨 위에 종목·최우선호가·잔고·시세 모드 배지가 늘 보이고, **종목 이름을 누르면
+다른 종목을 찾아 바꾼다**(바꾸면 그 종목의 원장이 새로 열려 미체결·잔고가 초기화된다).
+오른쪽 위 ☀/☾로 라이트·다크를 바꾼다
 (운영체제 설정을 따르고 고른 값은 브라우저에 남는다).
 
 1. **SOR 자동 매수**: 시장 "SOR 자동", 가격 70000, 수량 100 → 주문창의 "주문 전 확인"에 예상 체결이 보인다.
