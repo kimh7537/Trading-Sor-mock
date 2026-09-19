@@ -156,7 +156,7 @@ CLion을 Windows에 설치하고, **컴파일은 WSL의 gcc/cmake로** 하게 �
 
 > 원장이 떠 있지 않아도 채널계는 뜬다. 대신 주문은 503, 화면에는 빨간 띠 "원장에 연결되지 않음"이 뜬다.
 
-**⑤ 테스트** — `src/test/java`에서 오른쪽 클릭 → `Run 'All Tests'`. 49개가 모두 초록이어야 한다.
+**⑤ 테스트** — `src/test/java`에서 오른쪽 클릭 → `Run 'All Tests'`. 88개가 모두 초록이어야 한다.
 `WireLayoutTest`는 C 헤더(`core/include/msg.h`, `types.h`)를 **저장소에서 직접 찾아 읽으므로** 저장소 전체가 받아져 있어야 한다.
 테스트는 원장을 띄울 필요가 없다 — `FakeLedger`(시험용 가짜 원장)가 대신 답한다.
 
@@ -389,7 +389,7 @@ curl.exe http://localhost:8080/api/balance
 
 ```powershell
 cd channel
-./mvnw.cmd test                         # 전체 49개
+./mvnw.cmd test                         # 전체 88개
 ./mvnw.cmd clean test                   # 빌드 산출물을 지우고 처음부터
 ./mvnw.cmd test "-Dtest=OrderApiTest"   # 한 클래스만
 
@@ -408,7 +408,7 @@ npm run check                # 예상 체결·호가 단위 계산 자체 점검
 | 종류 | 개수 | 어디 | 실행 | 걸리는 시간(점검 PC) |
 |---|---:|---|---|---|
 | C 단위·통합 테스트 | **58** | 각 모듈 `tests/test_*.c` | `ctest` | 빌드 포함 수 분, ASan이 가장 느리다 |
-| Java 테스트 | **74** (14개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
+| Java 테스트 | **88** (16개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
 | 화면 | 자체 점검 스크립트 1개 (13경우) | `web/scripts/estimate.check.ts` | `npm run build`, `npm run lint`, `npm run check` | 수 초 |
 
 **커밋 전 규칙**: C는 **Debug·Release·ASan 세 빌드에서 58개가 모두 통과**해야 한다. Release는 `assert`가 꺼지는

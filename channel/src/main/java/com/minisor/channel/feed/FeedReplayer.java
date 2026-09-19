@@ -110,7 +110,14 @@ public class FeedReplayer implements AutoCloseable {
         } catch (RuntimeException e) {
             log.warn("리플레이 중단: {}", e.toString());
         } finally {
-            running.set(false);
+            /*
+             * **끝났다고 말한다.** 조용히 시뮬로 돌아가면, 화면은 방금 누른 "실시세"가 왜
+             * 도로 시뮬이 됐는지 알 수 없다. 사용자가 시뮬 버튼으로 세운 것(`stop()`)은
+             * 스스로 끝난 것과 다르므로 그때는 적지 않는다.
+             */
+            if (running.compareAndSet(true, false)) {
+                live.noteError("녹화 재생이 끝났다 — 시뮬로 돌아간다");
+            }
             live.enterSim();
         }
     }
