@@ -69,7 +69,8 @@ Phase 6은 "조각은 각자 테스트를 통과하는데 이어 붙인 전체�
   `sdk/`(전략 엔진용 주문 SDK), `channel/`(Spring Boot, `feed/`가 실시세), `web/`(React)
 - **SOR과 매칭 엔진은 원장 프로세스 안에서 돈다**(T6-03, "최소 연결"). FEP를 사이에 둔
   다중 프로세스 구성은 T3-15 통합 테스트로만 검증했다
-- 처음 읽는 사람용 안내서는 `docs/GUIDE.md`(0.1절에 코드 읽기 로드맵), 오류·판단 기록은
+- 도메인(호가·체결·스프레드·SOR) 기초는 `docs/FINANCE-101.md`, 처음 읽는 사람용 안내서는
+  `docs/GUIDE.md`(0.1절에 코드 읽기 로드맵), 오류·판단 기록은
   `docs/ENGINEERING-NOTES.md`, 실행·테스트 방법은 `docs/RUNNING.md`
 - 남은 사람 몫의 문서: `docs/decisions/`의 ADR, `docs/INTERVIEW.md`
 - **어디서 빌드하는지가 언어마다 다르다.**
@@ -110,6 +111,7 @@ KRX 시뮬 (C)   NXT 시뮬 (C)   ── 매칭 엔진 2종
 mini-sor/
 ├── CLAUDE.md              ← 이 파일
 ├── docs/
+│   ├── FINANCE-101.md     ← 금융 기초. 도메인 지식 없이 읽는 사람이 먼저 볼 것
 │   ├── PLAN.md            ← 기획서. 왜 만드는가
 │   ├── TASKS.md           ← 작업 목록 (Phase 1~5). 기본 진행 경로
 │   ├── TASKS-TRACK-B.md   ← 백테스트 연동 트랙
