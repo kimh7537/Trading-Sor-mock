@@ -911,6 +911,30 @@ static price_t step_price(price_t from, int steps)
  * 차익거래가 한두 호가 안으로 묶는다. 시장은 중심 둘레에서만 어긋나고, 그 어긋남이
  * SOR이 고를 거리를 만든다.
  */
+/*
+ * 실호가를 받는 시장이 있으면 그 시장의 최우선호가. 없으면 0.
+ *
+ * 바깥 시세가 들어오는 동안에는 **그것이 이 종목의 값이다.** 중심을 따로 흘리면 받지 않는
+ * 시장이 혼자 걸어가, 피드가 끝난 뒤 두 시장이 몇 %씩 벌어진 채로 시뮬이 이어진다
+ * (실측: 실시세 10분 뒤 KRX 259,500원 · NXT 231,000원).
+ */
+static price_t fed_anchor(ledger_core_t *c)
+{
+    for (int32_t m = 0; m < MARKET_COUNT; m++) {
+        if (!c->fed[m]) {
+            continue;
+        }
+        level_view_t view[1];
+        if (book_snapshot(match_book(c->eng[m]), SIDE_BUY, 1, view) == 1) {
+            return view[0].price;
+        }
+        if (book_snapshot(match_book(c->eng[m]), SIDE_SELL, 1, view) == 1) {
+            return view[0].price;
+        }
+    }
+    return 0;
+}
+
 static void drift_ref_price(ledger_core_t *c)
 {
     uint64_t r = drift_next(&c->drift_state[0]);
@@ -920,7 +944,8 @@ static void drift_ref_price(ledger_core_t *c)
         c->drift_dir = (int8_t)-c->drift_dir;
     }
 
-    c->drift_base = step_price(c->drift_base, c->drift_dir);
+    price_t anchor = fed_anchor(c);
+    c->drift_base = (anchor > 0) ? anchor : step_price(c->drift_base, c->drift_dir);
 
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         synth_gen_t *gen = divergent_gen(c->div, (market_t)m);

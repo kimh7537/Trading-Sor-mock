@@ -1696,6 +1696,40 @@ static void test_markets_drift_apart(void)
  *
  * 끝을 알리면 호가창은 **그대로 두고** 가상 참가자만 돌아온다.
  */
+/*
+ * **실호가를 받는 동안에는 받지 않는 시장도 그 시세를 따른다**(T8-08 보완).
+ *
+ * 받지 않는 시장이 제 표류를 이어 가면 두 시장이 몇 %씩 벌어지고, 피드가 끝나도 벌어진
+ * 채로 남는다 — 실측으로 확인했다(실시세 10분 뒤 KRX 259,500원 · NXT 231,000원).
+ * 그 상태에서는 SOR이 늘 한 시장만 고르므로 전략 비교가 무의미해진다.
+ */
+static void test_unfed_market_follows_feed(void)
+{
+    ledger_core_t *c = liquid_core();
+
+    /* 기준가(70,000원)에서 멀찍이 떨어진 실호가를 KRX에만 심는다 */
+    msg_book_feed_t f;
+    feed_init(&f, MARKET_KRX, 1000);
+    const price_t bp[] = {85000};
+    const qty_t   bq[] = {500};
+    fill_side(f.bid_price, f.bid_qty, bp, bq, 1);
+    assert(ledger_core_apply_feed(c, &f) == ERR_OK);
+
+    for (int i = 0; i < 600; i++) {
+        assert(ledger_core_tick(c, 2) == ERR_OK);
+    }
+
+    msg_book_ack_t nxt;
+    book(c, "005930", MARKET_NXT, &nxt);
+    assert(nxt.bid_price[0] > 0);
+
+    /* 실호가 둘레에 있어야 한다 — 70,000원 언저리에 남아 있으면 따라오지 못한 것이다 */
+    price_t gap = nxt.bid_price[0] > 85000 ? nxt.bid_price[0] - 85000 : 85000 - nxt.bid_price[0];
+    assert(gap < 85000 / 50); /* 2% 안 */
+
+    ledger_core_destroy(c);
+}
+
 static void test_ticks_resume_only_on_feed_end(void)
 {
     ledger_core_t *c = liquid_core();
@@ -1862,6 +1896,7 @@ int main(void)
     STEP(test_feed_rejections);
     STEP(test_feed_stops_ticks_on_that_market);
     STEP(test_ticks_resume_only_on_feed_end);
+    STEP(test_unfed_market_follows_feed);
     STEP(test_tape_counts_each_trade_once);
     STEP(test_tape_counts_synthetic_trades);
     STEP(test_tick_drifts_price);

@@ -62,10 +62,12 @@ export function CandleChart({
 
   /* 가격 눈금 넷. 값도 글자로 적는다 */
   const ticks = [0, 1, 2, 3].map((k) => lo - pad + (span * k) / 3);
-  /* 시각 눈금은 다섯 개면 읽힌다 */
-  const timeIdx = [0, 1, 2, 3, 4].map((k) =>
-    Math.min(candles.length - 1, Math.round(((candles.length - 1) * k) / 4)),
-  );
+  /* 시각 눈금은 다섯 개면 읽힌다. 봉이 다섯 개보다 적으면 같은 봉이 거듭 뽑히므로 겹치는 것을 버린다 */
+  const timeIdx = [
+    ...new Set(
+      [0, 1, 2, 3, 4].map((k) => Math.min(candles.length - 1, Math.round(((candles.length - 1) * k) / 4))),
+    ),
+  ];
 
   return (
     <svg

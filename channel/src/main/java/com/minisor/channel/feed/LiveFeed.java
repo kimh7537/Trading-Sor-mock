@@ -70,6 +70,7 @@ public class LiveFeed {
     private final StreamHub hub;
     private final FeedProperties props;
     private final SymbolState symbols;
+    private final SimCandles sim;
 
     private final AtomicLong applied = new AtomicLong();
     private final AtomicLong lastFeedTs = new AtomicLong();
@@ -88,11 +89,16 @@ public class LiveFeed {
     private volatile FeedFile recorder;
 
     public LiveFeed(
-            LedgerGateway gateway, StreamHub hub, FeedProperties props, SymbolState symbols) {
+            LedgerGateway gateway,
+            StreamHub hub,
+            FeedProperties props,
+            SymbolState symbols,
+            SimCandles sim) {
         this.gateway = gateway;
         this.hub = hub;
         this.props = props;
         this.symbols = symbols;
+        this.sim = sim;
     }
 
     /**
@@ -165,6 +171,11 @@ public class LiveFeed {
                 SymbolAck done = gateway.call(req, SymbolAck.class);
                 if (done.code == 0) {
                     symbols.set(symbols.code(), symbols.current().name(), done.refPrice);
+                    /*
+                     * **앞의 봉을 버린다.** 가격대가 통째로 달라졌다 — 7만원대에서 만든 봉과
+                     * 26만원대 봉을 한 그림에 이어 붙이면 축이 눌려 아무것도 읽을 수 없다.
+                     */
+                    sim.reset();
                     log.info("원장을 {}원 가격대로 다시 열었다", done.refPrice);
                     lastError = null;
                     return;

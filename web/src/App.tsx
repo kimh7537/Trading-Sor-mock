@@ -76,15 +76,21 @@ export default function App() {
    * 채운다 — 화면이 값을 기억했다가 되돌리는 것보다 파생이 단순하다. 모드를 바꾸면 다시
    * 0으로 돌려 그 시장의 호가를 따르게 한다.
    */
-  const asks = [t.books.KRX?.asks[0]?.price, t.books.NXT?.asks[0]?.price].filter(
+  const live = t.feed?.mode === "live";
+  /* 실시세는 통합 시세라 시장이 하나다. 그 시장만 보인다(T8-05) */
+  const only = live && t.feed ? (marketName(t.feed.market) as "KRX" | "NXT") : undefined;
+  /*
+   * **실시세일 때는 그 시장 호가창만 쓴다.** 다른 시장에는 가상 참가자가 만든 딴 시세가
+   * 남아 있다. 합쳐서 최우선호가를 고르면 호가 칸에 보이지도 않는 가격이 주문창과 예상
+   * 체결에 들어오고, SOR 자동으로 내면 그 가짜 시세 쪽으로 전량이 간다.
+   */
+  const books = only ? ({ [only]: t.books[only] } as typeof t.books) : t.books;
+
+  const asks = [books.KRX?.asks[0]?.price, books.NXT?.asks[0]?.price].filter(
     (p): p is number => !!p,
   );
   const draft: NewOrder =
     picked.price > 0 ? picked : { ...picked, price: asks.length > 0 ? Math.min(...asks) : 0 };
-
-  const live = t.feed?.mode === "live";
-  /* 실시세는 통합 시세라 시장이 하나다. 그 시장만 보인다(T8-05) */
-  const only = live && t.feed ? (marketName(t.feed.market) as "KRX" | "NXT") : undefined;
 
   const changeMode = useCallback(
     (mode: "sim" | "live") => {
@@ -105,7 +111,7 @@ export default function App() {
         ws={t.ws}
         ledgerDown={t.ledgerDown}
         balance={t.balance}
-        books={t.books}
+        books={books}
         feed={t.feed}
         only={only}
         symbol={t.symbol}
@@ -146,7 +152,7 @@ export default function App() {
                   원장 호가를 읽지 못했다 — ledgerd와 채널계가 떠 있는지 확인
                 </div>
               )}
-              <OrderBook books={t.books} orders={t.orders} onPick={pick} only={only} />
+              <OrderBook books={books} orders={t.orders} onPick={pick} only={only} />
             </Panel>
 
             <Panel
@@ -175,7 +181,7 @@ export default function App() {
                 <OrderTicket
                   draft={draft}
                   onChange={patch}
-                  books={t.books}
+                  books={books}
                   balance={t.balance}
                   submit={t.submit}
                   notify={notify}
@@ -188,7 +194,7 @@ export default function App() {
                     {sideText(draft.side)} {fq(draft.qty)}주 · {won(draft.price)}원 기준
                   </span>
                 </h3>
-                <MarketCompare books={t.books} draft={draft} orders={t.orders} live={live} />
+                <MarketCompare books={books} draft={draft} orders={t.orders} live={live} />
               </div>
             </Panel>
           </div>

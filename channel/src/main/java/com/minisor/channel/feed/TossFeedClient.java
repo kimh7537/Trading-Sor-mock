@@ -193,9 +193,13 @@ public class TossFeedClient implements AutoCloseable {
         }
     }
 
+    /** 이번 연결이 어떻게 끝났는지. 서버가 닫았으면 그 코드와 사유가 들어온다. */
+    private volatile String closeNote = "까닭 모름";
+
     private void connectAndPump() throws Exception {
         String token = tokens.token();
         CountDownLatch closed = new CountDownLatch(1);
+        closeNote = "까닭 모름";
 
         WebSocket ws =
                 http.newWebSocketBuilder()
@@ -221,7 +225,7 @@ public class TossFeedClient implements AutoCloseable {
             ws.sendPing(ByteBuffer.allocate(0));
         }
 
-        log.info("실시세 구독이 닫혔다. 받은 메시지 {}건", received.get());
+        log.info("실시세 구독이 닫혔다. 받은 메시지 {}건 — {}", received.get(), closeNote);
         /*
          * **확실히 놓아 준다.** 그냥 버리면 서버가 그 연결을 한동안 붙들고, 동시 연결 수에
          * 걸려 다시 붙지 못한다(재연결이 `WebSocketHandshakeException`으로 거부됐다).
@@ -229,7 +233,7 @@ public class TossFeedClient implements AutoCloseable {
         ws.abort();
         socket = null;
         live.enterSim();
-        throw new IllegalStateException("구독이 끊겼다");
+        throw new IllegalStateException("구독이 끊겼다 — " + closeNote);
     }
 
     /**
@@ -381,8 +385,14 @@ public class TossFeedClient implements AutoCloseable {
             return null;
         }
 
+        /*
+         * **누가 왜 끊었는지를 적는다.** 서버가 끊으면 코드와 사유가 여기로만 온다. 버리면
+         * 화면에는 "시뮬로 돌아왔다"만 남고 이유가 사라진다 — 실제로 그래서 되풀이되는
+         * 끊김의 원인을 한참 못 찾았다.
+         */
         @Override
         public CompletionStage<?> onClose(WebSocket ws, int code, String reason) {
+            closeNote = "서버가 닫았다 " + code + (reason == null || reason.isBlank() ? "" : " " + reason);
             closed.countDown();
             return null;
         }
