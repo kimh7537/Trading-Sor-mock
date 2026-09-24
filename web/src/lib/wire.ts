@@ -1,3 +1,8 @@
+/*
+ * 확장자를 적는다. `npm run check`가 node의 타입 지우기로 이 파일을 그대로 돌리는데,
+ * 타입만 가져오는 import는 지워져 사라지지만 값 import는 남아 해석된다(T10-03).
+ */
+import { currentCurrency } from "./format.ts";
 /**
  * 전문에 실리는 열거값. C의 `core/include/types.h`와 같아야 한다.
  *
@@ -76,7 +81,15 @@ const TICKS: [below: number, tick: number][] = [
   [Number.MAX_SAFE_INTEGER, 1000],
 ];
 
-export const tickSize = (price: number) => TICKS.find(([below]) => price < below)![1];
+/**
+ * 미국은 1센트 고정이다(SEC Rule 612의 $1 이상 구간, T10-03).
+ * C의 `core/src/tick_size.c`와 같은 표를 쓴다 — 둘이 어긋나면 화면이 통과시킨
+ * 가격을 원장이 거절한다.
+ */
+const US_TICKS: [below: number, tick: number][] = [[Number.MAX_SAFE_INTEGER, 1]];
+
+export const tickSize = (price: number) =>
+  (currentCurrency() === "USD" ? US_TICKS : TICKS).find(([below]) => price < below)![1];
 
 export const isValidTick = (price: number) => price > 0 && price % tickSize(price) === 0;
 

@@ -3,6 +3,8 @@
  *
  *   ledgerd [포트] [--live <초당 주문 수>] [--ref-price <원>]
  *
+ * 미국 종목으로 바꾸면 가격이 센트 정수가 되고 계좌는 $100,000로 다시 열린다(T10-02).
+ *
  * 포트를 안 주면 9100에서 기다린다(채널계 기본 설정과 같다). 0을 주면 커널이 고른
  * 포트를 쓰고 그 번호를 찍는다.
 
@@ -53,8 +55,7 @@
 #define LEDGERD_ACCOUNT_MAX 256
 
 typedef struct {
-    char    no[MSG_ACCOUNT_LEN + 1];
-    int64_t cash;
+    char no[MSG_ACCOUNT_LEN + 1];
 } opened_account_t;
 
 typedef struct {
@@ -62,6 +63,13 @@ typedef struct {
     ledger_core_config_t cfg;
     char                 symbol[MSG_SYMBOL_LEN + 1];
     int32_t              per_tick;
+
+    /*
+     * 통화마다 다른 시작 자금(T10-02). 국내는 원, 미국은 센트라 같은 숫자를 쓰면
+     * 1억 원짜리 계좌가 미국 종목에서 100만 달러가 된다. 종목을 바꿔 원장을 새로
+     * 열 때 그 통화의 금액으로 계좌를 다시 연다.
+     */
+    int64_t us_cash;
 
     opened_account_t opened[LEDGERD_ACCOUNT_MAX];
     int32_t          opened_n;
@@ -71,7 +79,7 @@ typedef struct {
  * 이미 적어 둔 계좌면 아무것도 하지 않는다. 자리가 없으면 조용히 넘어간다 —
  * 계좌 자체는 코어가 열어 줬고, 못 적는 것은 종목 전환 때 못 살린다는 뜻일 뿐이다.
  */
-static void remember_account(live_ctx_t *lc, const char *no, int64_t cash)
+static void remember_account(live_ctx_t *lc, const char *no)
 {
     for (int32_t i = 0; i < lc->opened_n; i++) {
         if (strcmp(lc->opened[i].no, no) == 0) {
@@ -82,8 +90,13 @@ static void remember_account(live_ctx_t *lc, const char *no, int64_t cash)
         return;
     }
     snprintf(lc->opened[lc->opened_n].no, sizeof(lc->opened[0].no), "%s", no);
-    lc->opened[lc->opened_n].cash = cash;
     lc->opened_n++;
+}
+
+/* 이 통화에서 계좌를 열 때 넣어 주는 금액. */
+static int64_t seed_cash(const live_ctx_t *lc, tick_table_t table)
+{
+    return (table == TICK_TABLE_US) ? lc->us_cash : lc->cfg.cash;
 }
 
 /* 기다리다 심심하면 호가창을 한 틱 움직인다(T8-01). */
@@ -134,9 +147,9 @@ static int rebase_symbol(live_ctx_t *lc, const char *symbol, price_t ref_price,
      * 묶어 두는 편이 더 나쁘다. 못 연 것은 로그로 남긴다.
      */
     int32_t failed = 0;
+    int64_t seed = seed_cash(lc, table);
     for (int32_t i = 0; i < lc->opened_n; i++) {
-        if (ledger_core_open_account(fresh, lc->opened[i].no,
-                                     lc->opened[i].cash) != ERR_OK) {
+        if (ledger_core_open_account(fresh, lc->opened[i].no, seed) != ERR_OK) {
             failed++;
         }
     }
@@ -221,7 +234,7 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
             if (msg_decode_account_ack(out + WIRE_HEADER_LEN,
                                        MSG_ACCOUNT_ACK_LEN, &ack) >= 0 &&
                 ack.code == ERR_OK) {
-                remember_account(lc, req.account, req.cash);
+                remember_account(lc, req.account);
             }
         }
         return n;
@@ -319,7 +332,14 @@ int main(int argc, char **argv)
     printf("  다루는 가격대 %d ~ %d원\n", cfg->ref_price - cfg->ref_price * 3 / 10,
            cfg->ref_price + cfg->ref_price * 3 / 10);
 
-    live_ctx_t live = {.core = core, .cfg = cfg_buf, .per_tick = 0};
+    /*
+     * 미국 종목의 시작 자금(센트). $100,000 — 국내 1억 원과 얼추 같은 무게다.
+     * 같은 숫자를 쓰면 1억 "센트"가 되어 100만 달러짜리 계좌가 된다.
+     */
+    live_ctx_t live = {.core = core,
+                       .cfg = cfg_buf,
+                       .per_tick = 0,
+                       .us_cash = 10000000};
     snprintf(live.symbol, sizeof(live.symbol), "%s", cfg_buf.symbol);
     live.cfg.symbol = live.symbol;
     if (live_rate > 0) {

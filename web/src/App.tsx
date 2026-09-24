@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MARKET_AUTO, ORDER_LIMIT, SIDE_BUY, marketName, sideText, type Side } from "./lib/wire";
-import { won, qty as fq } from "./lib/format";
+import { moneyUnit, qty as fq } from "./lib/format";
 import { useTrading, type NewOrder } from "./lib/useTrading";
 import { useToasts } from "./lib/useToasts";
 import { useTheme } from "./lib/useTheme";
@@ -88,7 +88,7 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
     }
     seen.current = t.fills[0]?.id ?? "";
     for (const f of fresh.reverse()) {
-      notify("ok", `체결 · ${f.market} ${sideText(f.side)}`, `${fq(f.qty)}주 · ${won(f.price)}원`);
+      notify("ok", `체결 · ${f.market} ${sideText(f.side)}`, `${fq(f.qty)}주 · ${moneyUnit(f.price)}`);
     }
   }, [t.fills, notify]);
 
@@ -218,7 +218,7 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 <h3 className="sub-head">
                   시장 비교
                   <span className="muted">
-                    {sideText(draft.side)} {fq(draft.qty)}주 · {won(draft.price)}원 기준
+                    {sideText(draft.side)} {fq(draft.qty)}주 · {moneyUnit(draft.price)} 기준
                   </span>
                 </h3>
                 <MarketCompare books={books} draft={draft} orders={t.orders} live={live} />

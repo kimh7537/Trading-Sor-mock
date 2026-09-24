@@ -1,6 +1,7 @@
 package com.minisor.channel.auth;
 
 import com.minisor.channel.api.LedgerGateway;
+import com.minisor.channel.feed.SymbolState;
 import com.minisor.channel.ledger.LedgerException;
 import com.minisor.channel.wire.AccountAck;
 import com.minisor.channel.wire.AccountOpen;
@@ -44,15 +45,21 @@ public class AuthController {
 
     private final UserStore users;
     private final LedgerGateway gateway;
+    private final SymbolState symbols;
     private final long signupCash;
+    private final long signupCashUs;
 
     public AuthController(
             UserStore users,
             LedgerGateway gateway,
-            @Value("${minisor.auth.signup-cash:100000000}") long signupCash) {
+            SymbolState symbols,
+            @Value("${minisor.auth.signup-cash:100000000}") long signupCash,
+            @Value("${minisor.auth.signup-cash-us:10000000}") long signupCashUs) {
         this.users = users;
         this.gateway = gateway;
+        this.symbols = symbols;
         this.signupCash = signupCash;
+        this.signupCashUs = signupCashUs;
     }
 
     public record Credentials(@NotBlank String id, @NotBlank String password) {}
@@ -113,9 +120,13 @@ public class AuthController {
 
     /** 원장에 계좌를 연다(이미 있으면 잔고만 받는다). 못 붙으면 null. */
     private AccountAck openAccount(String account) {
+        /*
+         * 시작 자금은 통화를 따른다(T10-02). 국내는 원, 미국은 센트라 같은 숫자를
+         * 쓰면 1억 원짜리 계좌가 미국 종목에서 100만 달러가 된다.
+         */
         AccountOpen req = new AccountOpen();
         req.account = account;
-        req.cash = signupCash;
+        req.cash = symbols.us() ? signupCashUs : signupCash;
         try {
             AccountAck ack = gateway.call(req, AccountAck.class);
             if (ack.code != 0) {

@@ -2,7 +2,7 @@ import type { ConnState } from "../lib/useStream";
 import type { Balance, Book, FeedStatus, Market } from "../lib/types";
 import { SymbolPicker } from "./SymbolPicker";
 import type { CurrentSymbol, Me } from "../lib/api";
-import { won } from "../lib/format";
+import {  money, moneyUnit } from "../lib/format";
 import { useFlash } from "../lib/useFlash";
 
 const CONN_LABEL: Record<ConnState, string> = {
@@ -96,13 +96,13 @@ export function Header({
           <div>
             <span className="k">{live ? "최우선 매도" : "통합 최우선 매도"}</span>
             <span className="v num" style={{ color: "var(--sell)" }}>
-              {ask.price ? won(ask.price) : "—"} <span className="muted">{ask.where}</span>
+              {ask.price ? money(ask.price) : "—"} <span className="muted">{ask.where}</span>
             </span>
           </div>
           <div>
             <span className="k">{live ? "최우선 매수" : "통합 최우선 매수"}</span>
             <span className="v num" style={{ color: "var(--buy)" }}>
-              {bid.price ? won(bid.price) : "—"} <span className="muted">{bid.where}</span>
+              {bid.price ? money(bid.price) : "—"} <span className="muted">{bid.where}</span>
             </span>
           </div>
         </div>
@@ -121,7 +121,7 @@ export function Header({
                   className={`v num${f ? ` flash-${f}` : ""}`}
                   style={k === "available" ? { color: "var(--ok)" } : undefined}
                 >
-                  {v === null ? "—" : `${won(v)}원`}
+                  {v === null ? "—" : `${moneyUnit(v)}`}
                 </span>
               </div>
             );

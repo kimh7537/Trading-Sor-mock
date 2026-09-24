@@ -40,6 +40,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class SymbolService {
 
+    private final UsStocks us = new UsStocks();
+
     private static final Logger log = LoggerFactory.getLogger(SymbolService.class);
 
     /** 원장 전문의 종목 칸은 8바이트다. 그 밖의 글자는 보내기 전에 막는다. */
@@ -143,8 +145,21 @@ public class SymbolService {
         return stocks.usable();
     }
 
+    /**
+     * 이름·코드로 찾는다. 국내(토스)와 미국(내장 목록)을 함께 돌려준다.
+     *
+     * <p>국내 쪽은 실시세 설정이 없으면 빈 목록이다. 그때도 미국 종목은 고를 수 있다 —
+     * 미국은 애초에 시세를 받아 오지 않기 때문이다.
+     */
     public List<TossStocks.Stock> search(String q) throws IOException, InterruptedException {
-        return stocks.search(q);
+        List<TossStocks.Stock> out = new java.util.ArrayList<>();
+        for (UsStocks.Stock s : us.search(q)) {
+            out.add(new TossStocks.Stock(s.symbol(), s.name(), "US"));
+        }
+        if (stocks.usable()) {
+            out.addAll(stocks.search(q));
+        }
+        return out;
     }
 
     /**
@@ -154,44 +169,71 @@ public class SymbolService {
      * 원장은 옛 종목인데 채널계는 새 종목이라, 모든 호가 조회가 빈 호가창을 돌려준다.
      */
     public SymbolState.Current switchTo(String code) throws IOException, InterruptedException {
-        if (code == null || !CODE.matcher(code).matches()) {
+        if (code == null) {
             throw new SwitchFailed("종목 코드가 올바르지 않다");
         }
-        if (!stocks.usable()) {
-            throw new SwitchFailed("실시세 설정이 없으면 종목을 바꿀 수 없다 — 그 종목의 가격대를 알 길이 없다");
-        }
-        if (code.equals(state.code())) {
+        if (code.equalsIgnoreCase(state.code())) {
             return state.current();
         }
 
-        TossStocks.Stock found = stocks.find(code);
-        if (found == null) {
-            throw new SwitchFailed("국내 보통주 목록에 없는 종목이다: " + code);
+        /*
+         * 미국 종목은 실시세 원천이 없다(T10-02). 토스 Open API의 구독 토픽이
+         * orderbook:kr·trade:kr로 국내만 주기 때문이다. 그래서 내장 목록의
+         * **시작 가격**으로 호가창을 열고 그다음은 가상 참가자가 움직인다.
+         */
+        UsStocks.Stock usHit = UsStocks.looksUs(code) ? us.find(code) : null;
+        if (UsStocks.looksUs(code) && usHit == null) {
+            throw new SwitchFailed("미국 종목 목록에 없다: " + code);
         }
 
-        int ref = refPrice(code);
-        if (ref <= 0) {
-            throw new SwitchFailed("현재가를 받지 못해 호가창을 열 수 없다: " + code);
+        String name;
+        int ref;
+        int kind;
+        if (usHit != null) {
+            name = usHit.name();
+            ref = usHit.seedCents();
+            kind = SymbolState.Current.US;
+            code = usHit.symbol();
+        } else {
+            if (!CODE.matcher(code).matches()) {
+                throw new SwitchFailed("종목 코드가 올바르지 않다");
+            }
+            if (!stocks.usable()) {
+                throw new SwitchFailed(
+                        "실시세 설정이 없으면 국내 종목을 바꿀 수 없다 — 그 종목의 가격대를 알 길이 없다");
+            }
+            TossStocks.Stock found = stocks.find(code);
+            if (found == null) {
+                throw new SwitchFailed("국내 보통주 목록에 없는 종목이다: " + code);
+            }
+            name = found.name();
+            ref = refPrice(code);
+            kind = SymbolState.Current.KR;
+            if (ref <= 0) {
+                throw new SwitchFailed("현재가를 받지 못해 호가창을 열 수 없다: " + code);
+            }
         }
 
         SymbolSet req = new SymbolSet();
         req.symbol = code;
         req.refPrice = ref;
+        req.kind = kind;
         SymbolAck ack = gateway.call(req, SymbolAck.class);
         if (ack.code != 0) {
             throw new SwitchFailed("원장이 종목 전환을 거절했다 (코드 " + ack.code + ")");
         }
 
-        state.set(code, found.name(), ack.refPrice);
+        state.set(code, name, ack.refPrice, ack.kind);
         /* 앞 종목의 봉을 새 종목의 차트에 섞지 않는다 */
         candles.clear();
         sim.reset();
         /* 실시세라면 새 종목으로 다시 구독한다. 시뮬이면 가상 참가자가 새 가격대에서 돈다 */
-        if (live.mode() == LiveFeed.Mode.LIVE) {
+        if (live.mode() == LiveFeed.Mode.LIVE && !state.us()) {
             client.resubscribe();
         }
 
-        log.info("종목 전환: {} {} 기준가 {}원", code, found.name(), ack.refPrice);
+        log.info("종목 전환: {} {} 기준가 {}{}", code, name, ack.refPrice,
+                state.us() ? "센트" : "원");
         hub.broadcast(new StreamEvent("symbol", state.current()));
         return state.current();
     }

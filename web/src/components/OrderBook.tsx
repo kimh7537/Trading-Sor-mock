@@ -1,6 +1,6 @@
 import type { Book, Level, Market, OrderView } from "../lib/types";
 import { SIDE_BUY, SIDE_SELL, marketName, type Side } from "../lib/wire";
-import { won, qty as fq } from "../lib/format";
+import {  money, moneyUnit, qty as fq } from "../lib/format";
 import { useFlash, type Change } from "../lib/useFlash";
 
 const MARKETS: Market[] = ["KRX", "NXT"];
@@ -33,7 +33,7 @@ function Row({
   onPick: (price: number, side: Side) => void;
 }) {
   const label =
-    `${market} ${ask ? "매도" : "매수"}호가 ${won(level.price)}원 ${fq(level.qty)}주` +
+    `${market} ${ask ? "매도" : "매수"}호가 ${moneyUnit(level.price)} ${fq(level.qty)}주` +
     (best ? ", 두 시장 최우선" : "") +
     (mine > 0 ? `, 내 주문 ${fq(mine)}주` : "") +
     `. 누르면 이 가격으로 ${ask ? "매수" : "매도"} 준비`;
@@ -43,11 +43,11 @@ function Row({
       className={`lvl ${ask ? "ask" : "bid"}${best ? " best" : ""}${far ? " far" : ""}${flash ? ` flash-${flash}` : ""}`}
       onClick={() => onPick(level.price, ask ? SIDE_BUY : SIDE_SELL)}
       aria-label={label}
-      title={`누르면 ${won(level.price)}원 ${ask ? "매수" : "매도"} 주문을 준비한다`}
+      title={`누르면 ${moneyUnit(level.price)} ${ask ? "매수" : "매도"} 주문을 준비한다`}
     >
       <span className="bar" style={{ width: `${Math.min(100, (level.qty / max) * 100)}%` }} />
       <span className="px num">
-        {won(level.price)}
+        {money(level.price)}
         {best && <span className="best-tag">최우선</span>}
         {mine > 0 && <span className="mine num">내 {fq(mine)}</span>}
       </span>
@@ -151,7 +151,7 @@ export function OrderBook({
           <div key={m} className="book-col">
             <div className="book-head">
               <span className={`tag ${m.toLowerCase()}`}>{only ? `${m} · 통합 시세` : m}</span>
-              <span className="num">스프레드 {spread === null ? "—" : won(spread)}</span>
+              <span className="num">스프레드 {spread === null ? "—" : money(spread)}</span>
             </div>
             <div role="group" aria-label={`${m} 매도호가`}>
               {pad(b.asks.length, askDepth, "pa").reverse()}

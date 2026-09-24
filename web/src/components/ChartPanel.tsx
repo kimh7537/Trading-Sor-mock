@@ -3,7 +3,7 @@ import type { Candle, FeedStatus, Tick } from "../lib/types";
 import { fetchCandles } from "../lib/api";
 import { CandleChart } from "./CandleChart";
 import { PriceChart } from "./PriceChart";
-import { won, qty as fq } from "../lib/format";
+import { money, qty as fq } from "../lib/format";
 
 type Interval = "1m" | "1d";
 
@@ -109,15 +109,15 @@ export function ChartPanel({ ticks, feed }: { ticks: Tick[]; feed: FeedStatus | 
 
         {last && (
           <div className="chart-ohlc num">
-            <span>시 {won(last.open)}</span>
-            <span>고 {won(last.high)}</span>
-            <span>저 {won(last.low)}</span>
+            <span>시 {money(last.open)}</span>
+            <span>고 {money(last.high)}</span>
+            <span>저 {money(last.low)}</span>
             <span>
-              종 <b style={{ color: diff >= 0 ? "var(--buy)" : "var(--sell)" }}>{won(last.close)}</b>
+              종 <b style={{ color: diff >= 0 ? "var(--buy)" : "var(--sell)" }}>{money(last.close)}</b>
               {prev && (
                 <span style={{ color: diff >= 0 ? "var(--buy)" : "var(--sell)" }}>
                   {" "}
-                  {diff >= 0 ? "▲" : "▼"} {won(Math.abs(diff))}
+                  {diff >= 0 ? "▲" : "▼"} {money(Math.abs(diff))}
                 </span>
               )}
             </span>

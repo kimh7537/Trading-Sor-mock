@@ -1,7 +1,7 @@
 import type { Book, Market, OrderView } from "../lib/types";
 import type { NewOrder } from "../lib/useTrading";
 import { estimate, type Estimate } from "../lib/estimate";
-import { won, qty as fq } from "../lib/format";
+import { money, qty as fq } from "../lib/format";
 import { MARKET_AUTO, ORDER_FOK, SIDE_BUY, marketName, sideText, statusText } from "../lib/wire";
 
 const OPTIONS: { id: string; label: string; markets: Market[] }[] = [
@@ -73,7 +73,7 @@ export function MarketCompare({
                 <b style={{ fontSize: 12 }}>{r.label}</b>
                 {isBest && <span className="tag ok">유리</span>}
               </div>
-              <div className="big num">{r.e.fill > 0 ? won(r.e.avg) : "—"}</div>
+              <div className="big num">{r.e.fill > 0 ? money(r.e.avg) : "—"}</div>
               <span className="muted">예상 평균가</span>
               <div className="meter" aria-hidden="true">
                 {r.markets.map((m) => (
@@ -101,7 +101,7 @@ export function MarketCompare({
             <span>
               <span className={`tag ${lastSor.side === SIDE_BUY ? "buy" : "sell"}`}>{sideText(lastSor.side)}</span>{" "}
               <span className="num">
-                {won(lastSor.price)} × {fq(lastSor.qty)}
+                {money(lastSor.price)} × {fq(lastSor.qty)}
               </span>
             </span>
             <span className="muted">{statusText(lastSor.status)}</span>
@@ -123,7 +123,7 @@ export function MarketCompare({
               <span key={l.market}>
                 <span className="swatch" style={{ background: COLOR[marketName(l.market) as Market] }} />
                 {marketName(l.market)} 보냄 {fq(l.sent)} · 체결 {fq(l.filled)}
-                {l.filled > 0 && ` @ ${won(l.avgPrice)}`}
+                {l.filled > 0 && ` @ ${money(l.avgPrice)}`}
               </span>
             ))}
           </div>

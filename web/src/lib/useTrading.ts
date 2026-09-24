@@ -1,9 +1,11 @@
+import { setCurrency } from "./format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   SYMBOL,
   cancelOrder,
   fetchSymbol,
   switchSymbol,
+  currencyOf,
   type CurrentSymbol,
   fetchBalance,
   fetchBook,
@@ -84,7 +86,14 @@ export function useTrading(): Trading {
     code: SYMBOL,
     name: "삼성전자",
     refPrice: 0,
+    kind: 0,
   });
+
+  /* 종목이 바뀌면 표기 통화도 바뀐다 — 미국은 센트 정수를 달러로 보여 준다 */
+  const applySymbol = useCallback((s: CurrentSymbol) => {
+    setCurrency(currencyOf(s));
+    setSymbol(s);
+  }, []);
 
   const upsertOrder = useCallback((v: OrderView) => {
     setOrders((prev) => [v, ...prev.filter((o) => o.orderId !== v.orderId)].sort(byNewest));
@@ -93,7 +102,7 @@ export function useTrading(): Trading {
   const refresh = useCallback(() => {
     void fetchFeed().then(setFeed).catch(() => undefined);
     /* 새로고침해도 지금 종목을 그대로 보여 준다 — 설정값이 아니라 원장이 든 것을 읽는다 */
-    void fetchSymbol().then(setSymbol).catch(() => undefined);
+    void fetchSymbol().then(applySymbol).catch(() => undefined);
     void Promise.allSettled([
       fetchBook(MARKET_KRX),
       fetchBook(MARKET_NXT),
@@ -111,7 +120,7 @@ export function useTrading(): Trading {
       if (bal.status === "fulfilled") setBalance(bal.value);
       if (ords.status === "fulfilled") setOrders([...ords.value].sort(byNewest));
     });
-  }, []);
+  }, [applySymbol]);
 
   /*
    * 종목을 바꾼다 — **원장이 새로 열린다.** 주문·잔고가 초기화되므로 바뀐 뒤에 전체를
@@ -121,13 +130,13 @@ export function useTrading(): Trading {
     async (code: string) => {
       const res = await switchSymbol(code);
       if (!res.ok || !res.symbol) return { ok: false, message: res.message };
-      setSymbol(res.symbol);
+      applySymbol(res.symbol);
       setTicks([]);
       setOrders([]);
       refresh();
       return { ok: true, message: `${res.symbol.name}(${res.symbol.code})으로 바꿨다` };
     },
-    [refresh],
+    [refresh, applySymbol],
   );
 
   const onEvent = useCallback(
@@ -157,7 +166,7 @@ export function useTrading(): Trading {
           break;
         /* 다른 화면에서 종목을 바꿨다 — 이 화면도 따라간다 */
         case "symbol":
-          setSymbol(e.payload as CurrentSymbol);
+          applySymbol(e.payload as CurrentSymbol);
           setTicks([]);
           setOrders([]);
           refresh();
@@ -230,7 +239,7 @@ export function useTrading(): Trading {
         }
       }
     },
-    [refresh, upsertOrder],
+    [refresh, upsertOrder, applySymbol],
   );
 
   const { state, attempt } = useStream(onEvent);

@@ -4,7 +4,7 @@ import type { NewOrder } from "../lib/useTrading";
 import type { Notify } from "../lib/useToasts";
 import type { Balance, Book, Market } from "../lib/types";
 import { estimate, marketsOf } from "../lib/estimate";
-import { won, qty as fq } from "../lib/format";
+import {  money, moneyUnit, qty as fq } from "../lib/format";
 import {
   MARKET_AUTO,
   MARKET_KRX,
@@ -80,17 +80,17 @@ export function OrderTicket({
     !(price > 0)
       ? "가격을 입력하세요"
       : !isValidTick(price)
-        ? `호가 단위(${won(tickSize(price))}원)에 맞지 않는 가격 — ↑↓로 맞추세요`
+        ? `호가 단위(${moneyUnit(tickSize(price))})에 맞지 않는 가격 — ↑↓로 맞추세요`
         : !(qty > 0) || !Number.isInteger(qty)
           ? "수량은 1주 이상"
           : short > 0
-            ? `주문 가능 금액이 ${won(short)}원 모자람`
+            ? `주문 가능 금액이 ${moneyUnit(short)} 모자람`
             : null;
 
   const send = async () => {
     if (busy || problem) return;
     setBusy(true);
-    const what = `${sideText(side)} ${fq(qty)}주 · ${won(price)}원`;
+    const what = `${sideText(side)} ${fq(qty)}주 · ${moneyUnit(price)}`;
     try {
       const res = await submit(draft);
       if (res.outcome === "REJECTED") {
@@ -101,7 +101,7 @@ export function OrderTicket({
       } else if (res.filledQty === 0) {
         notify("info", "주문 접수", `${what} — ${type === ORDER_LIMIT ? "호가창에 대기" : "체결 없이 끝남"}`);
       } else if (!liveFills) {
-        notify("ok", "체결", `${what} — ${fq(res.filledQty)}주 · 평균 ${won(res.avgPrice)}원`);
+        notify("ok", "체결", `${what} — ${fq(res.filledQty)}주 · 평균 ${moneyUnit(res.avgPrice)}`);
       }
     } finally {
       setBusy(false);
@@ -192,7 +192,7 @@ export function OrderTicket({
             onClick={() => onChange({ price: bestOpposite })}
             title="반대쪽 최우선호가 — 바로 체결되는 가격"
           >
-            {buy ? "최우선 매도" : "최우선 매수"} <span className="num">{bestOpposite ? won(bestOpposite) : "—"}</span>
+            {buy ? "최우선 매도" : "최우선 매수"} <span className="num">{bestOpposite ? money(bestOpposite) : "—"}</span>
           </button>
         </div>
         <div className="stepper">
@@ -218,7 +218,7 @@ export function OrderTicket({
             +
           </button>
         </div>
-        <span className="help num">호가 단위 {won(tickSize(Math.max(1, price)))}원</span>
+        <span className="help num">호가 단위 {moneyUnit(tickSize(Math.max(1, price)))}</span>
       </div>
 
       <div className="field">
@@ -261,7 +261,7 @@ export function OrderTicket({
         <div>
           <dt>예상 체결</dt>
           <dd className="num">
-            {est.fill > 0 ? `${fq(est.fill)}주 · 평균 ${won(est.avg)}원` : "없음"}
+            {est.fill > 0 ? `${fq(est.fill)}주 · 평균 ${moneyUnit(est.avg)}` : "없음"}
             {market === MARKET_AUTO && est.fill > 0 && (
               <span className="fine">
                 KRX {fq(est.byMarket.KRX)} · NXT {fq(est.byMarket.NXT)}
@@ -286,7 +286,7 @@ export function OrderTicket({
             <div>
               <dt>필요 금액</dt>
               <dd className="num">
-                {won(amount)}원<span className="fine">체결되면 실제 체결가로 정산</span>
+                {moneyUnit(amount)}<span className="fine">체결되면 실제 체결가로 정산</span>
               </dd>
             </div>
             <div className="total">
@@ -295,9 +295,9 @@ export function OrderTicket({
                 {available === null ? (
                   "잔고 확인 중"
                 ) : short > 0 ? (
-                  <span className="bad">✕ {won(short)}원 부족</span>
+                  <span className="bad">✕ {moneyUnit(short)} 부족</span>
                 ) : (
-                  <span className="good">✓ 가능 · 남는 금액 {won(available - amount)}원</span>
+                  <span className="good">✓ 가능 · 남는 금액 {moneyUnit(available - amount)}</span>
                 )}
               </dd>
             </div>
@@ -305,7 +305,7 @@ export function OrderTicket({
         ) : (
           <div className="total">
             <dt>예상 수령</dt>
-            <dd className="num">{won(est.notional)}원</dd>
+            <dd className="num">{moneyUnit(est.notional)}</dd>
           </div>
         )}
       </dl>

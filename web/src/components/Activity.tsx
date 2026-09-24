@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Fill, LocalReject, OrderView } from "../lib/types";
 import type { Notify } from "../lib/useToasts";
 import { useFlash, type Change } from "../lib/useFlash";
-import { won, qty as fq } from "../lib/format";
+import {  money, moneyUnit, qty as fq } from "../lib/format";
 import {
   SIDE_BUY,
   SIDE_SELL,
@@ -67,7 +67,7 @@ function OrderRow({
           <span className={`tag ${req.toLowerCase()}`}>{req}</span>
           <span className="tag muted">{orderTypeText(o.type)}</span>
           <span className="px num">
-            {won(o.price)} × {fq(o.qty)}
+            {money(o.price)} × {fq(o.qty)}
           </span>
           <span className="grow" />
           <StateTag o={o} />
@@ -86,7 +86,7 @@ function OrderRow({
         <div className="order-line">
           <span className="stat num">
             체결 {fq(o.filled)}
-            {o.filled > 0 && ` · 평균 ${won(o.avgPrice)}원`}
+            {o.filled > 0 && ` · 평균 ${moneyUnit(o.avgPrice)}`}
             {flash && (
               <span className={`delta ${flash}`} aria-hidden="true">
                 ▲
@@ -122,7 +122,7 @@ function OrderRow({
                   {l.filled > 0 && (
                     <>
                       {" "}
-                      @ <b className="num">{won(l.avgPrice)}</b>
+                      @ <b className="num">{money(l.avgPrice)}</b>
                     </>
                   )}
                 </span>
@@ -149,7 +149,7 @@ function RejectRow({ r }: { r: LocalReject }) {
           <span className={`tag ${sideClass(r.side)}`}>{sideText(r.side)}</span>
           <span className={`tag ${marketName(r.market).toLowerCase()}`}>{marketName(r.market)}</span>
           <span className="px num">
-            {won(r.price)} × {fq(r.qty)}
+            {money(r.price)} × {fq(r.qty)}
           </span>
           <span className="grow" />
           <span className={`tag ${r.outcome === "IN_DOUBT" ? "warn" : "danger"}`}>
@@ -185,7 +185,7 @@ function FillTable({ fills }: { fills: Fill[] }) {
         {summary.map((s) => (
           <span key={s.side}>
             <span className={`tag ${sideClass(s.side)}`}>{sideText(s.side)}</span> 평균{" "}
-            <b>{s.q > 0 ? `${won(s.avg)}원 · ${fq(s.q)}주` : "—"}</b>
+            <b>{s.q > 0 ? `${moneyUnit(s.avg)} · ${fq(s.q)}주` : "—"}</b>
           </span>
         ))}
       </div>
@@ -215,7 +215,7 @@ function FillTable({ fills }: { fills: Fill[] }) {
                 <td>
                   <span className={`tag ${sideClass(f.side)}`}>{sideText(f.side)}</span>
                 </td>
-                <td className="num r">{won(f.price)}</td>
+                <td className="num r">{money(f.price)}</td>
                 <td className="num r">{fq(f.qty)}</td>
               </tr>
             );
@@ -260,7 +260,7 @@ export function Activity({
       notify(
         r.ok ? "ok" : "error",
         r.ok ? "취소 완료" : "취소 실패",
-        `${sideText(o.side)} ${won(o.price)}원 × ${fq(o.qty)}주 — ${r.message}`,
+        `${sideText(o.side)} ${moneyUnit(o.price)} × ${fq(o.qty)}주 — ${r.message}`,
       );
     } finally {
       setBusy(null);

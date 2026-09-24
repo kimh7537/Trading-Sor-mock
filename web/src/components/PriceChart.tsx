@@ -1,5 +1,5 @@
 import type { Market, Tick } from "../lib/types";
-import { won, qty as fq } from "../lib/format";
+import {  money, moneyUnit, qty as fq } from "../lib/format";
 
 const W = 560;
 const H = 110;
@@ -63,7 +63,7 @@ export function PriceChart({ ticks }: { ticks: Tick[] }) {
   const last = ticks[ticks.length - 1];
   const totalVol = ticks.reduce((s, t) => s + t.vol, 0);
   const label = shown
-    .map((m) => `${m} ${at(last, m) ? won(at(last, m)) : "—"}원`)
+    .map((m) => `${m} ${at(last, m) ? money(at(last, m)) : "—"}원`)
     .join(", ");
 
   return (
@@ -73,7 +73,7 @@ export function PriceChart({ ticks }: { ticks: Tick[] }) {
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label={`중간가 ${label}. 구간 ${won(min)}~${won(max)}원. 내 체결 ${fq(totalVol)}주`}
+        aria-label={`중간가 ${label}. 구간 ${money(min)}~${moneyUnit(max)}. 내 체결 ${fq(totalVol)}주`}
       >
         {/*
           두 시장의 중간가가 같으면 선이 완전히 겹친다. 나중에 그린 것만 보여 한쪽이
@@ -106,14 +106,14 @@ export function PriceChart({ ticks }: { ticks: Tick[] }) {
         {shown.map((m) => (
           <span key={m}>
             <span className="swatch" style={{ background: COLOR[m] }} />
-            {m} 중간가 {at(last, m) ? `${won(at(last, m))}원` : "—"}
+            {m} 중간가 {at(last, m) ? `${moneyUnit(at(last, m))}` : "—"}
           </span>
         ))}
         <span>
           <span className="swatch" style={{ background: "var(--ok)" }} />내 체결 {fq(totalVol)}주
         </span>
         <span className="muted">
-          구간 {won(min)}~{won(max)}
+          구간 {money(min)}~{money(max)}
         </span>
       </div>
 

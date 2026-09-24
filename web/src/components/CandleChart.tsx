@@ -1,5 +1,5 @@
 import type { Candle } from "../lib/types";
-import { won, qty as fq } from "../lib/format";
+import {  money, moneyUnit, qty as fq } from "../lib/format";
 
 const PAD_L = 4;
 const PAD_R = 54; // 오른쪽 가격 눈금 자리
@@ -77,7 +77,7 @@ export function CandleChart({
       role="img"
       aria-label={
         `${interval === "1d" ? "일봉" : "1분봉"} ${candles.length}개. ` +
-        `마지막 종가 ${won(last.close)}원, 고가 ${won(hi)}, 저가 ${won(lo)}, ` +
+        `마지막 종가 ${moneyUnit(last.close)}, 고가 ${money(hi)}, 저가 ${money(lo)}, ` +
         `거래량 ${fq(last.volume)}주. 구간 ${up ? "상승" : "하락"}`
       }
     >
@@ -85,7 +85,7 @@ export function CandleChart({
         <g key={p}>
           <line x1={PAD_L} x2={W - PAD_R} y1={y(p)} y2={y(p)} stroke="var(--line-soft)" strokeWidth="1" />
           <text x={W - PAD_R + 4} y={y(p) + 3} fill="var(--text-faint)" fontSize="10">
-            {won(Math.round(p))}
+            {money(Math.round(p))}
           </text>
         </g>
       ))}

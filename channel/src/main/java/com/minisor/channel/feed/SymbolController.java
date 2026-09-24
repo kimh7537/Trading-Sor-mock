@@ -48,10 +48,10 @@ public class SymbolController {
 
     @GetMapping("/api/stocks")
     public ResponseEntity<Object> search(@RequestParam(defaultValue = "") String q) {
-        if (!service.usable()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", "실시세 설정이 없으면 종목을 찾을 수 없다"));
-        }
+        /*
+         * 실시세 설정이 없어도 막지 않는다(T10-02). 미국 종목은 내장 목록이라
+         * 시세 없이도 고를 수 있다 — 국내만 빈 목록이 된다.
+         */
         if (q.length() > 40) {
             return ResponseEntity.badRequest().body(Map.of("error", "검색어가 너무 길다"));
         }

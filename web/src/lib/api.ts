@@ -59,9 +59,18 @@ export const SYMBOL = "005930";
 export interface CurrentSymbol {
   code: string;
   name: string;
-  /** 원장이 호가창을 연 기준가(원). 0이면 아직 바깥 값을 받은 적이 없다 */
+  /**
+   * 원장이 호가창을 연 기준가. **국내는 원, 미국은 센트다**(T10-02).
+   * 0이면 아직 바깥 값을 받은 적이 없다.
+   */
   refPrice: number;
+  /** 0=국내, 1=미국. 가격의 뜻과 호가 단위가 여기서 갈린다 */
+  kind: number;
 }
+
+/** 종목 종류에서 통화 코드로. */
+export const currencyOf = (s: { kind: number }): "KRW" | "USD" =>
+  s.kind === 1 ? "USD" : "KRW";
 
 export interface StockHit {
   symbol: string;
