@@ -147,9 +147,17 @@ int acct_open(account_store_t *store, const char *account_no)
             a->cash = 0;
             a->reserved = 0;
             a->version = 0;
+            a->pos_qty = 0;
+            a->pos_cost = 0;
+            a->pos_reserved = 0;
+            a->realized = 0;
             a->mutating = 0;
             a->pre_cash = 0;
             a->pre_reserved = 0;
+            a->pre_pos_qty = 0;
+            a->pre_pos_cost = 0;
+            a->pre_pos_reserved = 0;
+            a->pre_realized = 0;
             a->in_use = 1;
             return i;
         }
@@ -184,6 +192,10 @@ int acct_lock(account_store_t *store, int32_t index, bool *out_recovered)
         if (a->mutating != 0) {
             a->cash = a->pre_cash;
             a->reserved = a->pre_reserved;
+            a->pos_qty = a->pre_pos_qty;
+            a->pos_cost = a->pre_pos_cost;
+            a->pos_reserved = a->pre_pos_reserved;
+            a->realized = a->pre_realized;
             a->mutating = 0;
             if (out_recovered != NULL) {
                 *out_recovered = true;
@@ -224,6 +236,10 @@ static void begin_write(account_t *a)
 {
     a->pre_cash = a->cash;
     a->pre_reserved = a->reserved;
+    a->pre_pos_qty = a->pos_qty;
+    a->pre_pos_cost = a->pos_cost;
+    a->pre_pos_reserved = a->pos_reserved;
+    a->pre_realized = a->realized;
     a->mutating = 1;
 }
 
@@ -351,4 +367,179 @@ int64_t acct_available(account_store_t *store, int32_t index)
         return 0;
     }
     return cash - reserved;
+}
+
+/* --- 보유 종목 (T11-01) --- */
+
+/* 보유 불변조건. 새 값이 이것을 어기면 반영하지 않는다. */
+static bool pos_ok(int64_t qty, int64_t cost, int64_t reserved)
+{
+    return qty >= 0 && cost >= 0 && reserved >= 0 && reserved <= qty;
+}
+
+/*
+ * 잠그고, 계산하고, 불변조건을 확인하고, 반영한다.
+ *
+ * 잔고 쪽 `apply()`와 같은 뼈대다. 합치지 않은 이유는 매도 체결이 **읽은 값으로
+ * 실현 손익을 계산해야** 해서 단순한 증감이 아니기 때문이다.
+ */
+typedef enum { POS_BUY, POS_RESERVE, POS_RELEASE, POS_SELL, POS_SEED } pos_op_t;
+
+static int pos_apply(account_store_t *store, int32_t index, pos_op_t op,
+                     int64_t qty, int64_t price, int64_t realized_seed)
+{
+    account_t *a = acct_at(store, index);
+    if (a == NULL) {
+        return ERR_NULL_PTR;
+    }
+    if (op != POS_SEED && qty <= 0) {
+        return ERR_INVALID_QTY;
+    }
+    if (op == POS_SEED && (qty < 0 || price < 0)) {
+        return ERR_INVALID_QTY;
+    }
+
+    int rc = acct_lock(store, index, NULL);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    if (a->in_use == 0) {
+        acct_unlock(store, index);
+        return ERR_NOT_FOUND;
+    }
+
+    int64_t new_qty = a->pos_qty;
+    int64_t new_cost = a->pos_cost;
+    int64_t new_res = a->pos_reserved;
+    int64_t new_realized = a->realized;
+
+    switch (op) {
+    case POS_BUY:
+        new_qty += qty;
+        new_cost += price * qty;
+        break;
+    case POS_RESERVE:
+        /* 없는 주식을 팔 수 없다. 쓸 수 있는 수량을 넘으면 여기서 막힌다. */
+        if (qty > a->pos_qty - a->pos_reserved) {
+            acct_unlock(store, index);
+            return ERR_INVALID_QTY;
+        }
+        new_res += qty;
+        break;
+    case POS_RELEASE:
+        if (qty > a->pos_reserved) {
+            acct_unlock(store, index);
+            return ERR_INVALID_QTY;
+        }
+        new_res -= qty;
+        break;
+    case POS_SELL: {
+        if (qty > a->pos_qty || qty > a->pos_reserved) {
+            acct_unlock(store, index);
+            return ERR_INVALID_QTY;
+        }
+        /*
+         * 원가를 **판 몫만큼 비례해서** 덜어 낸다. 마지막 한 주를 팔면 남은 원가를
+         * 통째로 덜어 내, 다 팔았을 때 원가가 정확히 0이 된다 — 나눗셈 나머지가
+         * 쌓여 "0주인데 원가가 남은" 계좌가 생기지 않는다.
+         */
+        int64_t cost_out = (qty == a->pos_qty) ? a->pos_cost
+                                               : (a->pos_cost * qty) / a->pos_qty;
+        new_realized += price * qty - cost_out;
+        new_cost -= cost_out;
+        new_qty -= qty;
+        new_res -= qty;
+        break;
+    }
+    case POS_SEED:
+        new_qty = qty;
+        new_cost = price; /* 적재는 원가 '합'을 받는다 */
+        new_res = 0;      /* 꺼져 있던 동안의 매도 주문은 되살리지 않는다 */
+        new_realized = realized_seed;
+        break;
+    }
+
+    if (!pos_ok(new_qty, new_cost, new_res)) {
+        acct_unlock(store, index);
+        return ERR_INVALID_QTY;
+    }
+
+    begin_write(a);
+    a->pos_qty = new_qty;
+    a->pos_cost = new_cost;
+    a->pos_reserved = new_res;
+    a->realized = new_realized;
+    end_write(a);
+
+    acct_unlock(store, index);
+    return ERR_OK;
+}
+
+int acct_buy_fill(account_store_t *store, int32_t index, int64_t qty,
+                  int64_t price)
+{
+    if (price <= 0) {
+        return ERR_INVALID_PRICE;
+    }
+    return pos_apply(store, index, POS_BUY, qty, price, 0);
+}
+
+int acct_sell_reserve(account_store_t *store, int32_t index, int64_t qty)
+{
+    return pos_apply(store, index, POS_RESERVE, qty, 0, 0);
+}
+
+int acct_sell_release(account_store_t *store, int32_t index, int64_t qty)
+{
+    return pos_apply(store, index, POS_RELEASE, qty, 0, 0);
+}
+
+int acct_sell_fill(account_store_t *store, int32_t index, int64_t qty,
+                   int64_t price)
+{
+    if (price <= 0) {
+        return ERR_INVALID_PRICE;
+    }
+    return pos_apply(store, index, POS_SELL, qty, price, 0);
+}
+
+int acct_seed_position(account_store_t *store, int32_t index, int64_t qty,
+                       int64_t cost, int64_t realized)
+{
+    return pos_apply(store, index, POS_SEED, qty, cost, realized);
+}
+
+int acct_position(account_store_t *store, int32_t index, int64_t *out_qty,
+                  int64_t *out_cost, int64_t *out_reserved,
+                  int64_t *out_realized)
+{
+    account_t *a = acct_at(store, index);
+    if (a == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    int rc = acct_lock(store, index, NULL);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    if (a->in_use == 0) {
+        acct_unlock(store, index);
+        return ERR_NOT_FOUND;
+    }
+
+    if (out_qty != NULL) {
+        *out_qty = a->pos_qty;
+    }
+    if (out_cost != NULL) {
+        *out_cost = a->pos_cost;
+    }
+    if (out_reserved != NULL) {
+        *out_reserved = a->pos_reserved;
+    }
+    if (out_realized != NULL) {
+        *out_realized = a->realized;
+    }
+
+    acct_unlock(store, index);
+    return ERR_OK;
 }

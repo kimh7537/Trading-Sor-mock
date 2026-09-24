@@ -219,8 +219,8 @@
  * 이미 가입한 사람이 다시 로그인하면 채널계가 이 전문으로 계좌를 되살린다.
  * 없는 계좌를 만들 때만 `cash`를 입금하므로 **다시 불러도 돈이 불어나지 않는다.**
  */
-#define MSG_ACCOUNT_OPEN_LEN (MSG_ACCOUNT_LEN + 8)
-#define MSG_ACCOUNT_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8)
+#define MSG_ACCOUNT_OPEN_LEN (MSG_ACCOUNT_LEN + 8 + 8 + 8)
+#define MSG_ACCOUNT_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8 + 8 + 8 + 8)
 
 /*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
@@ -469,6 +469,19 @@ typedef struct {
 typedef struct {
     char    account[MSG_ACCOUNT_LEN + 1];
     int64_t cash; /* 새로 열 때만 입금한다. 이미 있으면 무시 */
+
+    /*
+     * 실어 줄 보유(T11-01). 원장은 메모리에만 있어서 다시 뜨면 보유가 사라진다 —
+     * 기록을 들고 있는 채널계가 로그인할 때 여기에 담아 되살린다.
+     *
+     * **`pos_cost`는 평균 단가가 아니라 원가 합이다.** 평균을 주고받으면 반올림
+     * 오차가 왕복마다 쌓인다.
+     *
+     * 이 둘은 **이미 있는 계좌에도 반영한다.** 계좌는 살아 있는데 보유만 사라지는
+     * 경우가 없어서가 아니라, 기록을 들고 있는 쪽이 채널계이기 때문이다.
+     */
+    int64_t pos_qty;
+    int64_t pos_cost;
 } msg_account_open_t;
 
 typedef struct {
@@ -476,6 +489,9 @@ typedef struct {
     int32_t code; /* 0이면 쓸 수 있는 계좌다(새로 열었든 이미 있었든) */
     int64_t cash;
     int64_t reserved;
+    int64_t pos_qty;      /* 보유 수량 */
+    int64_t pos_cost;     /* 매입 원가 합 */
+    int64_t realized;     /* 실현 손익 누계 */
 } msg_account_ack_t;
 
 /*

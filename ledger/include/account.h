@@ -90,9 +90,28 @@ typedef struct {
      * 값을 바꾸기 전에 `mutating`을 세우고 여기에 옛 값을 적는다. 다 바꾸면
      * 표시를 내린다. 쥔 채로 죽으면 다음 사람이 이것을 보고 되돌린다.
      */
+    /*
+     * --- 보유 종목 (T11-01) ---
+     *
+     * 이 원장은 한 종목짜리라 종목명을 따로 담지 않는다. 종목을 바꾸면 원장이
+     * 새로 열리고 보유도 함께 초기화된다 — 채널계가 로그인할 때 다시 실어 준다.
+     *
+     * **평균 단가를 저장하지 않고 원가 합을 저장한다.** 평균을 저장하면 살 때마다
+     * 나눗셈이 들어가 반올림 오차가 쌓이고, 다 팔았을 때 0으로 떨어지지 않는다.
+     * 평균이 필요하면 `pos_cost / pos_qty`로 그때 구한다.
+     */
+    int64_t pos_qty;      /* 보유 수량 */
+    int64_t pos_cost;     /* 매입 원가 합 */
+    int64_t pos_reserved; /* 미체결 매도 주문에 묶인 수량 */
+    int64_t realized;     /* 실현 손익 누계. 판 것에서만 생긴다 */
+
     uint32_t mutating;
     int64_t  pre_cash;
     int64_t  pre_reserved;
+    int64_t  pre_pos_qty;
+    int64_t  pre_pos_cost;
+    int64_t  pre_pos_reserved;
+    int64_t  pre_realized;
 } account_t;
 
 /* 계좌 저장소. 세그먼트를 소유하지 않는다 — 열고 닫는 것은 호출부의 일이다. */
@@ -175,5 +194,54 @@ int64_t acct_available(account_store_t *store, int32_t index);
 /* 예수금·묶인 금액을 한 번에 읽는다. 잠그고 읽는다. */
 int acct_snapshot(account_store_t *store, int32_t index, int64_t *out_cash,
                   int64_t *out_reserved);
+
+/*
+ * --- 보유 종목 연산 (T11-01) ---
+ *
+ * 잔고 연산과 같은 약속을 따른다 — 스스로 잠그고, 불변조건을 어기면 아무것도
+ * 바꾸지 않고 거절한다.
+ *
+ * 불변조건:  0 <= pos_reserved <= pos_qty,  pos_cost >= 0
+ */
+
+/* 매수 체결. 보유가 늘고 원가가 쌓인다. */
+int acct_buy_fill(account_store_t *store, int32_t index, int64_t qty,
+                  int64_t price);
+
+/*
+ * 매도 주문 접수 — 팔 수량을 묶는다.
+ *
+ * **없는 주식을 팔 수 없다.** 쓸 수 있는 수량(pos_qty - pos_reserved)을 넘으면
+ * ERR_INVALID_QTY다. 이 검사가 없으면 공매도가 되고, 그것은 이 시뮬레이터가
+ * 다루는 시장의 규칙이 아니다.
+ */
+int acct_sell_reserve(account_store_t *store, int32_t index, int64_t qty);
+
+/* 묶은 수량을 푼다(주문 취소·거부·미체결 잔량). */
+int acct_sell_release(account_store_t *store, int32_t index, int64_t qty);
+
+/*
+ * 매도 체결. 묶인 수량에서 덜어 내고 실현 손익을 쌓는다.
+ *
+ * 실현 손익 = (체결가 - 평균 단가) x 수량. 원가는 **판 몫만큼 비례해서** 덜어 낸다 —
+ * 그래야 다 팔았을 때 원가가 정확히 0이 된다.
+ */
+int acct_sell_fill(account_store_t *store, int32_t index, int64_t qty,
+                   int64_t price);
+
+/*
+ * 보유를 통째로 실어 준다(로그인 적재).
+ *
+ * 원장은 메모리에만 있어서 다시 뜨면 보유가 사라진다. 기록을 들고 있는 채널계가
+ * 로그인할 때 이것으로 되살린다. **묶인 수량은 싣지 않는다** — 서버가 꺼져 있던
+ * 동안 그 매도 주문은 어느 시장에도 없었으므로 되살리지 않는다.
+ */
+int acct_seed_position(account_store_t *store, int32_t index, int64_t qty,
+                       int64_t cost, int64_t realized);
+
+/* 보유 수량·원가·묶인 수량·실현 손익을 한 번에 읽는다. */
+int acct_position(account_store_t *store, int32_t index, int64_t *out_qty,
+                  int64_t *out_cost, int64_t *out_reserved,
+                  int64_t *out_realized);
 
 #endif /* MINI_SOR_ACCOUNT_H */

@@ -28,6 +28,22 @@
 #define CASH ((int64_t)100000000)
 
 /* 유동성 없는 빈 호가창 — 체결 상대를 테스트가 직접 만든다. */
+/*
+ * 보유를 미리 실어 둔다(T11-01).
+ *
+ * 매도 주문은 이제 **없는 주식을 팔 수 없다.** 여기 있는 시험 대부분은 매칭을 보는
+ * 것이지 보유를 보는 것이 아니므로, 계좌에 넉넉히 실어 두고 예전처럼 팔게 한다.
+ * 보유 자체를 보는 시험은 각자 실어서 확인한다.
+ */
+#define TEST_POS_QTY 1000000
+#define TEST_POS_COST (70000LL * TEST_POS_QTY)
+
+static void seed_shares(ledger_core_t *c)
+{
+    assert(ledger_core_seed_position(c, ACCT, TEST_POS_QTY, TEST_POS_COST, 0) ==
+           ERR_OK);
+}
+
 static ledger_core_t *empty_core(int32_t capacity)
 {
     ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
@@ -35,6 +51,7 @@ static ledger_core_t *empty_core(int32_t capacity)
     cfg.order_capacity = capacity;
     ledger_core_t *c = ledger_core_create(&cfg);
     assert(c != NULL);
+    seed_shares(c);
     return c;
 }
 
@@ -46,6 +63,7 @@ static ledger_core_t *liquid_core(void)
     cfg.order_capacity = 256;
     ledger_core_t *c = ledger_core_create(&cfg);
     assert(c != NULL);
+    seed_shares(c);
     return c;
 }
 
@@ -2005,8 +2023,112 @@ static void test_us_symbol_takes_cent_prices(void)
     ledger_core_destroy(kr);
 }
 
+/* 보유가 없는 계좌. 포지션을 보는 시험은 여기서 시작한다. */
+static ledger_core_t *flat_core(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 300;
+    cfg.order_capacity = 256;
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+    return c; /* seed_shares를 부르지 않는다 */
+}
+
+/* 없는 주식은 팔 수 없다(T11-01). 이것이 없으면 공매도가 된다. */
+static void test_cannot_sell_what_you_do_not_own(void)
+{
+    ledger_core_t *c = flat_core();
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 69000, 10, 1, &ack) ==
+           ERR_INVALID_QTY);
+
+    int64_t qty = -1, cost = -1, res = -1, realized = -1;
+    assert(ledger_core_position(c, ACCT, &qty, &cost, &res, &realized) == ERR_OK);
+    assert(qty == 0 && cost == 0 && res == 0 && realized == 0);
+
+    ledger_core_destroy(c);
+}
+
+/*
+ * 사고 판다 — 보유·평균 단가·실현 손익.
+ *
+ * 다 팔면 **원가가 정확히 0**이어야 한다. 평균 단가를 저장하는 방식이면 나눗셈
+ * 나머지가 남아 "0주인데 원가가 있는" 계좌가 생긴다.
+ */
+static void test_position_and_realized_pnl(void)
+{
+    ledger_core_t *c = flat_core();
+
+    /* 호가창을 때려 보유를 만든다. 비싸게 걸어 전량 체결되게 한다 */
+    msg_order_ack_t buy;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 89000, 100, 1, &buy) == ERR_OK);
+    assert(buy.filled_qty == 100);
+
+    int64_t qty = 0, cost = 0, res = 0, realized = 0;
+    assert(ledger_core_position(c, ACCT, &qty, &cost, &res, &realized) == ERR_OK);
+    assert(qty == 100);
+    assert(cost == (int64_t)buy.price * 100); /* 원가는 실제 체결가로 쌓인다 */
+    assert(res == 0 && realized == 0);
+
+    int64_t avg = cost / qty;
+
+    /* 절반을 판다. 싸게 걸어 전량 체결되게 한다 */
+    msg_order_ack_t sell;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 49000, 50, 2, &sell) == ERR_OK);
+    assert(sell.filled_qty == 50);
+
+    assert(ledger_core_position(c, ACCT, &qty, &cost, &res, &realized) == ERR_OK);
+    assert(qty == 50);
+    assert(res == 0); /* 다 체결됐으므로 묶인 수량이 없다 */
+    assert(realized == ((int64_t)sell.price - avg) * 50);
+
+    /* 나머지를 판다 — 보유도 원가도 0이 된다 */
+    msg_order_ack_t rest;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 49000, 50, 3, &rest) == ERR_OK);
+    assert(rest.filled_qty == 50);
+
+    assert(ledger_core_position(c, ACCT, &qty, &cost, &res, &realized) == ERR_OK);
+    assert(qty == 0);
+    assert(cost == 0); /* 나머지 없이 정확히 0 */
+
+    ledger_core_destroy(c);
+}
+
+/* 미체결 매도는 수량을 묶는다 — 같은 주식을 두 번 팔 수 없다. */
+static void test_resting_sell_reserves_shares(void)
+{
+    ledger_core_t *c = flat_core();
+    assert(ledger_core_seed_position(c, ACCT, 100, 70000LL * 100, 0) == ERR_OK);
+
+    /* 아무도 안 사 갈 비싼 가격에 100주를 건다 */
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 89000, 100, 1, &ack) == ERR_OK);
+    order_id_t resting = ack.order_id;
+
+    int64_t qty = 0, cost = 0, res = 0, realized = 0;
+    assert(ledger_core_position(c, ACCT, &qty, &cost, &res, &realized) == ERR_OK);
+    assert(qty == 100 && res == 100); /* 전부 묶였다 */
+
+    /* 한 주도 더 팔 수 없다 */
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 89000, 1, 2, &ack) ==
+           ERR_INVALID_QTY);
+
+    /* 취소하면 풀린다 */
+    msg_cancel_ack_t cack;
+    assert(cancel(c, ACCT, resting, 9, &cack) == ERR_OK);
+    assert(ledger_core_position(c, ACCT, &qty, &cost, &res, &realized) == ERR_OK);
+    assert(res == 0);
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 89000, 100, 3, &ack) == ERR_OK);
+
+    ledger_core_destroy(c);
+}
+
 int main(void)
 {
+    STEP(test_cannot_sell_what_you_do_not_own);
+    STEP(test_position_and_realized_pnl);
+    STEP(test_resting_sell_reserves_shares);
     STEP(test_us_symbol_takes_cent_prices);
     STEP(test_account_open_is_idempotent);
     STEP(test_opened_account_can_trade);

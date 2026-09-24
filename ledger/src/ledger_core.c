@@ -203,8 +203,14 @@ static void settle_fill(ledger_core_t *c, const logical_order_t *lo,
             rc = acct_release(&c->store, acct, improvement);
             assert(rc == ERR_OK);
         }
+        /* 산 주식이 계좌에 들어온다(T11-01). 원가는 **실제 체결가**로 쌓는다 */
+        rc = acct_buy_fill(&c->store, acct, (int64_t)qty, (int64_t)price);
+        assert(rc == ERR_OK);
     } else {
         rc = acct_deposit(&c->store, acct, amount);
+        assert(rc == ERR_OK);
+        /* 판 주식이 나가고 실현 손익이 쌓인다 */
+        rc = acct_sell_fill(&c->store, acct, (int64_t)qty, (int64_t)price);
         assert(rc == ERR_OK);
     }
     (void)rc;
@@ -255,10 +261,18 @@ static void on_event(const order_event_t *ev, void *ctx)
 static void release_unused(ledger_core_t *c, const msg_order_req_t *req,
                            int32_t acct, qty_t qty)
 {
-    if (req->side != SIDE_BUY || qty <= 0) {
+    if (qty <= 0) {
         return;
     }
-    int rc = acct_release(&c->store, acct, (int64_t)req->price * (int64_t)qty);
+    if (req->side == SIDE_BUY) {
+        int rc = acct_release(&c->store, acct,
+                              (int64_t)req->price * (int64_t)qty);
+        assert(rc == ERR_OK);
+        (void)rc;
+        return;
+    }
+    /* 매도는 돈이 아니라 **수량**이 묶여 있다(T11-01). */
+    int rc = acct_sell_release(&c->store, acct, (int64_t)qty);
     assert(rc == ERR_OK);
     (void)rc;
 }
@@ -298,7 +312,23 @@ static void process_order(ledger_core_t *c, const msg_order_req_t *req,
         ack->reason = v.reason;
         return;
     }
-    /* 여기부터 매수라면 `지정가 x 수량`이 묶여 있다. 어느 길로 나가든 정리한다 */
+
+    /*
+     * **매도는 팔 수량을 묶는다**(T11-01). 없는 주식을 팔 수 없다.
+     *
+     * 증거금과 같은 자리에서 잡는다 — 검증을 통과한 뒤, 주문이 시장으로 나가기 전.
+     * 여기서 막히면 `ERR_INVALID_QTY`이고, 묶인 것은 아직 없으므로 풀 것도 없다.
+     */
+    if (req->side == SIDE_SELL) {
+        int src = acct_sell_reserve(&c->store, v.account_index,
+                                    (int64_t)req->qty);
+        if (src != ERR_OK) {
+            /* 매도는 증거금을 묶지 않았으므로 되돌릴 돈이 없다 */
+            ack->reason = src;
+            return;
+        }
+    }
+    /* 여기부터 매수는 `지정가 x 수량`이, 매도는 `수량`이 묶여 있다. 어느 길로 나가든 정리한다 */
 
     order_t o;
     memset(&o, 0, sizeof(o));
@@ -484,11 +514,17 @@ static void cancel_order(ledger_core_t *c, const msg_cancel_req_t *req,
     cancel_report_t rep;
     int rc = exec_cancel(c->map, &c->venues, req->order_id, ++c->clock, &rep);
 
-    if (rep.canceled_qty > 0 && lo->side == SIDE_BUY) {
+    if (rep.canceled_qty > 0) {
         int32_t acct = c->acct_of[req->order_id - LEDGER_LOGICAL_BASE];
-        int     rrc = acct_release(&c->store, acct,
-                                   (int64_t)lo->limit_price * rep.canceled_qty);
-        assert(rrc == ERR_OK); /* 살아 있던 수량만큼은 반드시 묶여 있었다 */
+        int     rrc;
+        if (lo->side == SIDE_BUY) {
+            rrc = acct_release(&c->store, acct,
+                               (int64_t)lo->limit_price * rep.canceled_qty);
+        } else {
+            /* 매도 취소는 묶어 둔 **수량**을 푼다(T11-01) */
+            rrc = acct_sell_release(&c->store, acct, (int64_t)rep.canceled_qty);
+        }
+        assert(rrc == ERR_OK); /* 살아 있던 만큼은 반드시 묶여 있었다 */
         (void)rrc;
     }
 
@@ -691,8 +727,24 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
         }
         ack.code = rc;
         if (rc == ERR_OK) {
+            /*
+             * 보유를 실어 준다(T11-01). **기록의 주인은 채널계다** — 원장은
+             * 메모리에만 있으므로 다시 뜨면 보유가 사라지고, 로그인마다 여기서
+             * 되살린다. 0이면 "보유 없음"을 그대로 반영한다.
+             */
+            if (req.pos_qty > 0 || req.pos_cost > 0) {
+                (void)ledger_core_seed_position(c, req.account, req.pos_qty,
+                                                req.pos_cost, 0);
+            }
             ack.code = ledger_core_balance(c, req.account, &ack.cash,
                                            &ack.reserved);
+            int64_t held = 0, cost = 0, held_res = 0, realized = 0;
+            if (ledger_core_position(c, req.account, &held, &cost, &held_res,
+                                     &realized) == ERR_OK) {
+                ack.pos_qty = held;
+                ack.pos_cost = cost;
+                ack.realized = realized;
+            }
         }
         m = msg_encode_account_ack(&ack, b, cap);
         break;
@@ -1253,6 +1305,34 @@ int ledger_core_open_account(ledger_core_t *c, const char *account,
 tick_table_t ledger_core_tick_table(const ledger_core_t *c)
 {
     return (c == NULL) ? TICK_TABLE_KRX : c->cfg.tick_table;
+}
+
+int ledger_core_seed_position(ledger_core_t *c, const char *account,
+                              int64_t qty, int64_t cost, int64_t realized)
+{
+    if (c == NULL || account == NULL) {
+        return ERR_NULL_PTR;
+    }
+    int idx = acct_find(&c->store, account);
+    if (idx < 0) {
+        return ERR_NOT_FOUND;
+    }
+    return acct_seed_position(&c->store, idx, qty, cost, realized);
+}
+
+int ledger_core_position(ledger_core_t *c, const char *account,
+                         int64_t *out_qty, int64_t *out_cost,
+                         int64_t *out_reserved, int64_t *out_realized)
+{
+    if (c == NULL || account == NULL) {
+        return ERR_NULL_PTR;
+    }
+    int idx = acct_find(&c->store, account);
+    if (idx < 0) {
+        return ERR_NOT_FOUND;
+    }
+    return acct_position(&c->store, idx, out_qty, out_cost, out_reserved,
+                         out_realized);
 }
 
 int ledger_core_balance(ledger_core_t *c, const char *account,

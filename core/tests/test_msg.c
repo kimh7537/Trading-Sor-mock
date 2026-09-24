@@ -79,8 +79,8 @@ static void test_type_table(void)
     /* 종목 종류 1바이트가 붙었다(T10-01) */
     assert(MSG_SYMBOL_SET_LEN == 13);
     assert(MSG_SYMBOL_ACK_LEN == 17);
-    assert(MSG_ACCOUNT_OPEN_LEN == 20);
-    assert(MSG_ACCOUNT_ACK_LEN == 32);
+    assert(MSG_ACCOUNT_OPEN_LEN == 36);
+    assert(MSG_ACCOUNT_ACK_LEN == 56);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -586,6 +586,8 @@ static void test_roundtrip_all(void)
               msg_decode_account_open, MSG_ACCOUNT_OPEN_LEN, {
                   snprintf(in.account, sizeof(in.account), "%s", "u00000000042");
                   in.cash = INT64_MAX;
+                  in.pos_qty = 1234;
+                  in.pos_cost = INT64_MIN;
               });
 
     ROUNDTRIP(msg_account_ack_t, msg_encode_account_ack, msg_decode_account_ack,
@@ -594,6 +596,9 @@ static void test_roundtrip_all(void)
                   in.code = INT32_MIN;
                   in.cash = INT64_MIN;
                   in.reserved = INT64_MAX;
+                  in.pos_qty = 77;
+                  in.pos_cost = 123456789;
+                  in.realized = -4242;
               });
 
     ROUNDTRIP(msg_detail_req_t, msg_encode_detail_req, msg_decode_detail_req,

@@ -220,6 +220,21 @@ int ledger_core_open_account(ledger_core_t *core, const char *account,
 /* 이 원장이 다루는 종목의 호가 단위 표. 채널계가 화면에 통화를 표시하는 데 쓴다. */
 tick_table_t ledger_core_tick_table(const ledger_core_t *core);
 
+/*
+ * 보유를 실어 준다(T11-01). 원장은 메모리에만 있어서 다시 뜨면 보유가 사라진다 —
+ * 기록을 들고 있는 채널계가 로그인할 때 이것으로 되살린다.
+ *
+ * `cost`는 평균 단가가 아니라 **매입 원가 합**이다. 미체결 매도 주문의 묶인
+ * 수량은 싣지 않는다 — 서버가 꺼져 있던 동안 그 주문은 어느 시장에도 없었다.
+ */
+int ledger_core_seed_position(ledger_core_t *core, const char *account,
+                              int64_t qty, int64_t cost, int64_t realized);
+
+/* 보유 수량·원가 합·묶인 수량·실현 손익. 없는 계좌면 ERR_NOT_FOUND. */
+int ledger_core_position(ledger_core_t *core, const char *account,
+                         int64_t *out_qty, int64_t *out_cost,
+                         int64_t *out_reserved, int64_t *out_realized);
+
 int ledger_core_balance(ledger_core_t *core, const char *account,
                         int64_t *out_cash, int64_t *out_reserved);
 

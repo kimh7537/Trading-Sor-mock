@@ -739,6 +739,10 @@ int msg_encode_account_open(const msg_account_open_t *m, uint8_t *buf, size_t ca
     p += MSG_ACCOUNT_LEN;
     wire_put_i64(p, m->cash);
     p += 8;
+    wire_put_i64(p, m->pos_qty);
+    p += 8;
+    wire_put_i64(p, m->pos_cost);
+    p += 8;
     return (int)(p - buf);
 }
 
@@ -756,6 +760,10 @@ int msg_decode_account_open(const uint8_t *buf, size_t len,
     wire_get_str(p, MSG_ACCOUNT_LEN, out->account);
     p += MSG_ACCOUNT_LEN;
     out->cash = wire_get_i64(p);
+    p += 8;
+    out->pos_qty = wire_get_i64(p);
+    p += 8;
+    out->pos_cost = wire_get_i64(p);
     p += 8;
     return (int)(p - buf);
 }
@@ -775,6 +783,12 @@ int msg_encode_account_ack(const msg_account_ack_t *m, uint8_t *buf, size_t cap)
     wire_put_i64(p, m->cash);
     p += 8;
     wire_put_i64(p, m->reserved);
+    p += 8;
+    wire_put_i64(p, m->pos_qty);
+    p += 8;
+    wire_put_i64(p, m->pos_cost);
+    p += 8;
+    wire_put_i64(p, m->realized);
     p += 8;
     return (int)(p - buf);
 }
@@ -797,6 +811,12 @@ int msg_decode_account_ack(const uint8_t *buf, size_t len,
     out->cash = wire_get_i64(p);
     p += 8;
     out->reserved = wire_get_i64(p);
+    p += 8;
+    out->pos_qty = wire_get_i64(p);
+    p += 8;
+    out->pos_cost = wire_get_i64(p);
+    p += 8;
+    out->realized = wire_get_i64(p);
     p += 8;
     return (int)(p - buf);
 }
