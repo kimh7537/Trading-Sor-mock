@@ -373,9 +373,14 @@ Open API에는 모의투자 샌드박스가 없어 같은 키로 실주문이 �
 2. `submitOrder()`는 `POST /api/orders`로 JSON을 보낸다.
 
    ```json
-   {"account":"123456789012","symbol":"005930","clOrdId":123456789,
+   {"symbol":"005930","clOrdId":123456789,
     "side":0,"type":0,"market":255,"price":70000,"qty":100}
    ```
+
+   **계좌번호가 없다**(T9-04). 예전에는 여기 있었고 채널계가 그대로 믿었다 —
+   사용자가 여럿이 되는 순간 "아무 번호나 적으면 남의 계좌로 주문이 나간다"가
+   된다. 채널계가 `CurrentAccount.required()`로 세션에서 가져와 전문에 싣는다.
+   그전에 **로그인이 필요하다** — 하지 않으면 이 경로는 401이다.
 
    숫자의 뜻은 `web/src/lib/wire.ts`에 이름으로 있다: `side 0 = 매수`, `type 0 = 지정가`,
    `market 255 = SOR 자동`. **이 숫자는 C의 `core/include/types.h`와 반드시 같아야 한다** —
@@ -3847,7 +3852,8 @@ rec_off[1] (64의 배수)      영역 1: 주문 레코드 배열 [0][1]...
 - 레코드 크기와 영역 시작점을 **64바이트(캐시라인) 배수로 올린다.** 서로 다른 워커가 이웃
   레코드를 만질 때 같은 CPU 캐시 줄을 공유해 서로를 느리게 만드는 "거짓 공유"를 막는다.
 - `ledger_core_create()`는 영역 0에 계좌 4자리, 영역 1에 64바이트짜리 4자리를 잡는다
-  (`rec_count = {4, 4}`). 실제로 여는 계좌는 기본 설정의 `123456789012` 하나다.
+  (`rec_count = {계좌 정원, 4}`, 기본 256). 기동할 때 여는 것은 설정의 데모 계좌
+  하나이고, **사람이 가입할 때마다 `MSG_ACCOUNT_OPEN`으로 하나씩 더 열린다**(T9-01).
 
 ###### 3.4 검증 설정과 결과 (`order_validate.h`)
 
@@ -3885,7 +3891,7 @@ struct ledger_core {
 };
 ```
 
-기본 설정 `LEDGER_CORE_DEFAULT`는 화면과 맞춘 값이다. 계좌 `123456789012`, 예수금 1억 원,
+기본 설정 `LEDGER_CORE_DEFAULT`는 데모용 값이다. 계좌 `123456789012`, 예수금 1억 원,
 종목 `005930`, 기준가 70,000원, 시장당 유동성 주문 1,000건, 시드 20260917, 사용자 주문
 용량 65,536건.
 
@@ -5446,7 +5452,7 @@ minisor.ledger.host=127.0.0.1
 minisor.ledger.port=9100
 minisor.ledger.connect-timeout-ms=3000
 minisor.ledger.read-timeout-ms=5000
-minisor.account=123456789012
+minisor.account=123456789012   # 데모 계좌. 로그인한 사람은 각자 계좌를 쓴다(T9-03)
 minisor.symbol=005930
 minisor.poller.enabled=true
 minisor.poller.interval-ms=1000
@@ -6207,7 +6213,7 @@ ponytail 주석: 1초마다 읽는다. 원장 접속이 1개라 주문과 같은
 
 테스트는 `channel/`에서 `./mvnw.cmd test`로 돈다(Windows). JUnit 5(`@Test`)와 AssertJ(`assertThat(...)`)를 쓴다. 각 테스트 클래스 주석에 어느 태스크의 완료 조건을 옮긴 것인지 적혀 있다.
 
-모두 **88개**다(T7-03에서 40 → 49, Phase 8에서 49 → 88). `WireCodecTest` 12, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 2, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1, `feed.SnapshotTest` 4, `feed.LiveFeedTest` 4, `feed.TossTokenSourceTest` 6, `feed.FeedReplayTest` 4, `feed.TossCandlesTest` 5, `feed.SimCandlesTest` 7, `feed.TossStocksTest` 7.
+모두 **105개**다(T7-03에서 40 → 49, Phase 8에서 49 → 88, Phase 9~11에서 88 → 105). `WireCodecTest` 12, `WireLayoutTest` 4, `LedgerConnectionPoolTest` 9, `StreamTest` 4, `OrderRegistryTest` 3, `auth.UserStoreTest` 6, `auth.AuthApiTest` 3, `store.PortfolioTest` 7, `OrderApiTest` 14, `LedgerPollerTest` 1, `ChannelStartupTests` 4, `ChannelApplicationTests` 1, `feed.SnapshotTest` 4, `feed.LiveFeedTest` 4, `feed.TossTokenSourceTest` 6, `feed.FeedReplayTest` 4, `feed.TossCandlesTest` 5, `feed.SimCandlesTest` 7, `feed.TossStocksTest` 7.
 
 ##### 10.1 WireCodecTest — 코덱이 C와 같은 바이트를 만든다 (T4-02)
 
@@ -6820,7 +6826,70 @@ C의 `tick_size.c`와 자동으로 대조하지는 않는다 — 같은 표를 �
 9. **`order` 방송의 `request`에 `marketKnown`이 붙고, `payload` 키 순서는 정해져 있지 않다.** 화면 동작에는 영향이 없다.
 10. **CORS는 프록시로 피했다.** Vite 개발 서버(또는 `vite preview`) 없이 화면 파일을 다른 곳에서 열고 채널계를 직접 부르면 주문 POST가 막힌다. WebSocket은 `setAllowedOrigins("*")`라 열린다.
 11. **전략 비교 탭은 고정 숫자다.** 벤치마크를 다시 돌려도 화면 숫자는 바뀌지 않는다.
-12. **계좌 하나, 종목 하나.** 화면·채널계 모두 데모 계좌 `123456789012`와 `005930`에 고정돼 있다.
+12. **종목은 한 번에 하나다.** 원장 호가창이 하나이고 기준가 ±30%만 펼치기 때문이다. 계좌는 사람마다 하나씩 생긴다(T9-03).
+
+---
+
+### 4.12 로그인 — `channel/auth/` (Phase 9)
+
+| 파일 | 하는 일 |
+|---|---|
+| `User.java` | 가입한 사람 하나. 아이디·소금·해시·계좌번호·가입 시각 |
+| `UserStore.java` | 가입·로그인. 비밀번호를 PBKDF2로 늘려 적고 계좌번호를 발급한다 |
+| `AuthController.java` | `POST /api/auth/signup\|login\|logout`, `GET /api/auth/me` |
+| `CurrentAccount.java` | **계좌번호는 세션에서만 나온다.** 거래 경로가 부른다 |
+| `AuthInterceptor.java` + `WebConfig.java` | 로그인 안 한 요청을 거래 경로에서 막는다 |
+| `AuthErrors.java` | 인터셉터 목록에 빠뜨려도 401이 나가게 하는 두 번째 겹 |
+
+**읽을 때 볼 것 세 가지.**
+
+1. **비밀번호는 원문이 어디에도 남지 않는다.** 소금 16바이트, PBKDF2-HMAC-SHA256
+   12만 회. 대조는 `MessageDigest.isEqual`로 한다 — 앞에서부터 비교하면 맞는
+   자리 수가 시간으로 새어 나간다. 새 의존성을 들이지 않으려고 JDK 것을 쓴다
+2. **계좌번호는 채널계가 발급한다.** 사람이 고르게 두면 남의 계좌번호를 적어 낼 수
+   있다. `u` + 11자리로 전문 규격의 12자를 채운다
+3. **"없는 아이디"와 "비밀번호 틀림"을 나눠 알리지 않는다.** 나누면 어떤 아이디가
+   있는지 찾아낼 수 있다
+
+### 4.13 거래 기록 — `channel/store/` (Phase 11)
+
+| 파일 | 하는 일 |
+|---|---|
+| `Db.java` | SQLite 파일 하나(`minisor.db`)를 열고 표 둘을 만든다 |
+| `FillStore.java` | 체결을 적고 읽는다. **이것만이 기록이다** |
+| `Portfolio.java` | 체결을 되짚어 보유·평균 단가·실현 손익·현금·수익률을 낸다 |
+
+**왜 이 계층이 생겼나.** 원장(C)은 메모리에만 있어 껐다 켜면 계좌가 사라진다.
+그런데 사람은 컴퓨터를 끄고 자고, 다음 날 어제까지의 거래 내역과 수익률을 보고
+싶어 한다. 그 기록은 프로세스보다 오래 살아야 한다.
+
+**왜 SQLite인가.** 관리형 DB(Supabase 등)를 붙이면 체결 한 건마다 네트워크 왕복이
+생긴다. 이 프로젝트가 재려는 것이 마이크로초 단위 집행 품질인데 그것과 어긋나고,
+공개 저장소라 키가 또 하나 는다. 실제 증권사도 **매칭·원장은 메모리에서 돌리고
+기록은 따로 남긴다** — 저장소는 체결의 근거가 아니라 기록이다.
+
+**표가 둘뿐인 이유.** 가입자와 체결만 적는다. 보유·현금·수익률은 **저장하지 않고
+계산한다** — 두 군데 적으면 체결 기록과 언젠가 어긋나고, 그때 어느 쪽이 맞는지
+알 방법이 없다. 체결은 일어난 일이고 나머지는 그것의 결과다.
+
+**읽을 때 볼 것.**
+
+- `Portfolio.of()`가 체결을 **순서대로** 되짚는다. 평균 단가는 합계로 구할 수 없다 —
+  팔 때 원가를 그 시점의 평균으로 덜어 내야 실현 손익이 맞는다
+- 마지막 수량을 팔면 남은 원가를 통째로 덜어 낸다. **다 팔면 원가가 정확히 0**이다
+- `kind`가 다른 체결은 서로 보지 않는다. 국내는 원, 미국은 센트라 섞으면
+  1억 원과 100만 달러가 같은 수가 된다
+- 같은 체결을 두 번 적지 않는다(유일 인덱스). 주문 응답과 주기 작업이 같은 체결을 본다
+
+**컴퓨터를 꺼도 남는 것과 안 남는 것** — 이 구분이 설계를 정했다.
+
+| | 남나 | 왜 |
+|---|---|---|
+| 거래 내역 | 남는다 | 파일에 적혀 있다 |
+| 실현 손익 | 남는다 | 기록에서 계산한다 |
+| 보유 수량·평균 단가 | 남는다 | 로그인할 때 원장에 다시 실어 준다 |
+| 평가 손익 | 마지막으로 본 시세 기준 | 꺼져 있는 동안 시세를 받는 프로세스가 없다 |
+| 미체결 주문 | 안 남는다 | 그동안 그 주문은 어느 시장에도 없었다 |
 
 ---
 
@@ -6848,7 +6917,7 @@ cmake --build build-asan && ctest --test-dir build-asan
 ```
 
 ```powershell
-# [Windows] 채널계 테스트 — 88개
+# [Windows] 채널계 테스트 — 105개
 cd channel
 ./mvnw.cmd test
 

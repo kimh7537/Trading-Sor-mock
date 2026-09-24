@@ -156,7 +156,7 @@ CLion을 Windows에 설치하고, **컴파일은 WSL의 gcc/cmake로** 하게 �
 
 > 원장이 떠 있지 않아도 채널계는 뜬다. 대신 주문은 503, 화면에는 빨간 띠 "원장에 연결되지 않음"이 뜬다.
 
-**⑤ 테스트** — `src/test/java`에서 오른쪽 클릭 → `Run 'All Tests'`. 88개가 모두 초록이어야 한다.
+**⑤ 테스트** — `src/test/java`에서 오른쪽 클릭 → `Run 'All Tests'`. 105개가 모두 초록이어야 한다.
 `WireLayoutTest`는 C 헤더(`core/include/msg.h`, `types.h`)를 **저장소에서 직접 찾아 읽으므로** 저장소 전체가 받아져 있어야 한다.
 테스트는 원장을 띄울 필요가 없다 — `FakeLedger`(시험용 가짜 원장)가 대신 답한다.
 
@@ -328,15 +328,84 @@ curl "http://localhost:8080/api/candles?interval=1m&count=120"
 바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
 
-### 3.3 명령줄로 주문 넣어 보기 (화면 없이)
+### 3.2.2 로그인하고 내 계좌로 거래하기 (Phase 9~11)
+
+화면을 처음 열면 **로그인 창**이 나온다. 가입하면 모의 계좌가 하나 열린다
+(국내 1억 원 / 미국 $100,000). 사람마다 계좌가 따로라 남의 주문·잔고는 보이지 않는다.
+
+**계좌번호는 고르지 않는다.** 가입할 때 채널계가 `u00000000001` 꼴로 발급한다 —
+사람이 고르게 두면 남의 계좌번호를 적어 낼 수 있다. 주문 전문에도 계좌번호를 싣지
+않고 세션에서 가져온다.
 
 ```powershell
-# [Windows] 호가 조회 — market 0=KRX, 1=NXT
+# 가입 (쿠키를 파일에 받아 둔다)
+curl.exe -c c.txt -X POST http://localhost:8080/api/auth/signup `
+  -H "Content-Type: application/json" -d '{\"id\":\"alice\",\"password\":\"password1\"}'
+# {"id":"alice","account":"u00000000001","cash":100000000,"reserved":0,"ledgerReady":true}
+
+# 주문 — account 필드가 없다
+curl.exe -b c.txt -X POST http://localhost:8080/api/orders `
+  -H "Content-Type: application/json" `
+  -d '{\"symbol\":\"005930\",\"clOrdId\":1,\"side\":0,\"type\":0,\"market\":255,\"price\":70000,\"qty\":10}'
+
+# 내 계좌 — 보유·평가손익·실현손익·수익률
+curl.exe -b c.txt http://localhost:8080/api/portfolio
+
+# 거래 내역
+curl.exe -b c.txt "http://localhost:8080/api/history?limit=20"
+```
+
+로그인하지 않고 `/api/orders`·`/api/balance`·`/api/portfolio`·`/api/history`를 부르면
+**401**이다. 호가·차트·종목 검색은 로그인 없이도 된다 — 시장은 누구의 것도 아니다.
+
+**거래 기록은 파일에 남는다.** 채널계가 뜬 자리에 `minisor.db`(SQLite)를 만들고
+가입자와 체결을 적는다. 보통 `channel/minisor.db`다. **백업할 파일은 이것 하나**다.
+
+| 컴퓨터를 꺼도 | |
+|---|---|
+| 거래 내역 | **남는다** — 파일에 적혀 있다 |
+| 실현 손익 | **남는다** — 기록에서 계산한다 |
+| 보유 수량·평균 단가 | **남는다** — 로그인할 때 원장에 다시 실어 준다 |
+| 평가 손익 | **마지막으로 본 시세 기준** — 꺼져 있는 동안 시세를 받는 프로세스가 없다 |
+| 미체결 주문 | **안 남는다** — 그동안 그 주문은 어느 시장에도 없었다 |
+
+옛 `users.json`이 있으면 처음 뜰 때 한 번 옮겨 담고 그다음부터 쓰지 않는다.
+
+### 3.2.3 미국 종목으로 바꾸기 (Phase 10)
+
+```powershell
+curl.exe "http://localhost:8080/api/stocks?q=apple"
+# {"stocks":[{"symbol":"AAPL","name":"Apple","market":"US"}]}
+
+curl.exe -b c.txt -X POST http://localhost:8080/api/symbol `
+  -H "Content-Type: application/json" -d '{\"symbol\":\"AAPL\"}'
+# {"code":"AAPL","name":"Apple","refPrice":25500,"kind":1}
+```
+
+**가격이 센트 정수다.** `refPrice` 25500은 $255.00이다. `price_t`가 정수라 소수점을
+담을 수 없어 1센트를 1로 세고, 화면이 100으로 나눠 달러로 보여 준다. 호가 단위도
+1센트가 되어 호가창이 촘촘해진다.
+
+**미국은 실시세가 없다.** 토스증권 Open API의 구독 토픽이 `orderbook:kr`·`trade:kr`로
+국내만 준다. 그래서 내장 목록의 **시작 가격**으로 호가창을 열고 그다음은 가상 참가자가
+움직인다(`--live`). 목록의 가격은 시세가 아니라 자리를 정하는 씨앗이다.
+
+종목을 바꾸면 원장이 새로 열려 **미체결과 잔고가 초기화된다**(한 종목짜리 원장).
+계좌 자체는 남고, 통화에 맞는 시작 자금으로 다시 열린다. 거래 기록은 그대로다.
+
+### 3.3 명령줄로 주문 넣어 보기 (화면 없이)
+
+> **주문에는 로그인이 필요하다(Phase 9).** 아래 예시는 3.2.2에서 만든 쿠키 파일
+> `c.txt`를 쓴다고 보고 `-b c.txt`를 생략했다. 그것 없이 부르면 401이다.
+> 호가 조회는 로그인 없이도 된다.
+
+```powershell
+# [Windows] 호가 조회 — market 0=KRX, 1=NXT (로그인 필요 없음)
 curl.exe http://localhost:8080/api/book?market=1
 
 # SOR 자동(market 255) 매수 70,000원 100주
 curl.exe -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" `
-  -d '{\"account\":\"123456789012\",\"symbol\":\"005930\",\"clOrdId\":1,\"side\":0,\"type\":0,\"market\":255,\"price\":70000,\"qty\":100}'
+  -d '{\"symbol\":\"005930\",\"clOrdId\":1,\"side\":0,\"type\":0,\"market\":255,\"price\":70000,\"qty\":100}'
 ```
 
 응답 예 (원장을 막 띄운 상태):
@@ -371,7 +440,7 @@ curl.exe http://localhost:8080/api/balance
           "legs":[{"market":1,"sent":10,"filled":4,"canceled":6,"notional":276000,"avgPrice":69000}]}}
 ```
 ```json
-{"account":"123456789012","cash":100000000,"reserved":0,"available":100000000}
+{"account":"u00000000001","cash":100000000,"reserved":0,"available":100000000}
 ```
 
 | 취소의 HTTP 상태 | 뜻 |
@@ -389,7 +458,7 @@ curl.exe http://localhost:8080/api/balance
 
 ```powershell
 cd channel
-./mvnw.cmd test                         # 전체 88개
+./mvnw.cmd test                         # 전체 105개
 ./mvnw.cmd clean test                   # 빌드 산출물을 지우고 처음부터
 ./mvnw.cmd test "-Dtest=OrderApiTest"   # 한 클래스만
 
@@ -771,7 +840,7 @@ cmp /tmp/qual.md bench/results/quality-2026-09-16.md && echo IDENTICAL
 10번의 명령 — NXT 매수호가 69,100원까지 72,276주를 모두 채운 뒤 남은 4주가 9번 주문에 붙는다:
 ```powershell
 curl.exe -X POST http://localhost:5173/api/orders -H "Content-Type: application/json" `
-  -d '{\"account\":\"123456789012\",\"symbol\":\"005930\",\"clOrdId\":920001,\"side\":1,\"type\":0,\"market\":1,\"price\":69000,\"qty\":72280}'
+  -d '{\"symbol\":\"005930\",\"clOrdId\":920001,\"side\":1,\"type\":0,\"market\":1,\"price\":69000,\"qty\":72280}'
 ```
 
 키보드: 입력칸 밖에서 **B** 매수·**S** 매도(한글 입력 상태에서도 된다), 가격칸 **↑↓** 한 호가, **Ctrl+Enter** 주문.
@@ -806,7 +875,7 @@ $c.Timeout = [TimeSpan]::FromSeconds(20)
 $tasks = New-Object System.Collections.Generic.List[System.Threading.Tasks.Task[System.Net.Http.HttpResponseMessage]]
 for ($i = 0; $i -lt 30; $i++) {
   $side = $i % 2; $price = if ($side -eq 0) { 69500 } else { 70500 }
-  $json = '{"account":"123456789012","symbol":"005930","clOrdId":' + (910000 + $i) + ',"side":' + $side +
+  $json = '{"symbol":"005930","clOrdId":' + (910000 + $i) + ',"side":' + $side +
           ',"type":0,"market":' + @(0,1,255)[$i % 3] + ',"price":' + $price + ',"qty":1}'
   $body = New-Object System.Net.Http.StringContent($json, [Text.Encoding]::UTF8, "application/json")
   $tasks.Add($c.PostAsync("http://localhost:5173/api/orders", $body))
