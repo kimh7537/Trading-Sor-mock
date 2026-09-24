@@ -16,9 +16,10 @@ import { Ops } from "./components/Ops";
 import { FeedMode } from "./components/FeedMode";
 import { ChartPanel } from "./components/ChartPanel";
 import { LoginPanel } from "./components/LoginPanel";
+import { AccountPanel } from "./components/AccountPanel";
 import { fetchMe, logout, type Me } from "./lib/api";
 
-type View = "trade" | "strategies" | "ops";
+type View = "trade" | "account" | "strategies" | "ops";
 
 /** 좁은 화면에서 한 번에 하나씩 보는 칸. 넓은 화면에서는 전부 나란히 놓인다 */
 type Pane = "book" | "chart" | "ticket" | "activity" | "mode";
@@ -33,6 +34,7 @@ const PANES: { id: Pane; label: string }[] = [
 
 const VIEWS: { id: View; label: string }[] = [
   { id: "trade", label: "거래" },
+  { id: "account", label: "내 계좌" },
   { id: "strategies", label: "전략 비교" },
   { id: "ops", label: "관제" },
 ];
@@ -226,6 +228,9 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
             </Panel>
           </div>
         )}
+
+        {/* 보유.손익.거래 내역. 체결이 날 때마다 다시 읽는다(T11-04) */}
+        {view === "account" && <AccountPanel tick={t.events} />}
 
         {view === "strategies" && (
           <div style={{ maxWidth: 880 }}>
