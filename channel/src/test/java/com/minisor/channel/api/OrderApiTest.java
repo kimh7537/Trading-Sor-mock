@@ -46,6 +46,8 @@ class OrderApiTest {
         reg.add("minisor.poller.enabled", () -> false);
         /* 가입 기록은 시험마다 새 임시 파일에 쓴다 — 저장소의 users.json을 건드리지 않는다 */
         reg.add("minisor.auth.users-file", () -> USERS_FILE.toString());
+        /* 시험마다 새 저장소. 같은 파일을 쓰면 계좌번호가 시험 사이에 이어진다 */
+        reg.add("minisor.db.file", () -> DB_FILE.toString());
     }
 
     /** 이 시험이 쓰는 사람. 계좌번호는 UserStore가 발급하므로 u00000000001이 된다. */
@@ -56,6 +58,10 @@ class OrderApiTest {
     private static final java.nio.file.Path USERS_FILE =
             java.nio.file.Path.of(System.getProperty("java.io.tmpdir"),
                     "minisor-orderapi-users-" + System.nanoTime() + ".json");
+
+    private static final java.nio.file.Path DB_FILE =
+            java.nio.file.Path.of(System.getProperty("java.io.tmpdir"),
+                    "minisor-orderapi-db-" + System.nanoTime() + ".db");
 
     @AfterAll
     static void dropUsersFile() throws Exception {

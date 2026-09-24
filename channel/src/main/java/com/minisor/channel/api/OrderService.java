@@ -60,6 +60,12 @@ public class OrderService {
     private final OrderRegistry registry;
     private final StreamHub hub;
 
+    /** 체결 기록(T11-02). 화면보다 기록이 먼저다 — 화면은 다시 읽으면 된다. */
+    private final com.minisor.channel.store.FillStore fills;
+
+    /** 지금 종목. 체결을 적을 때 어느 종목·통화인지 알아야 한다. */
+    private final com.minisor.channel.feed.SymbolState symbols;
+
     /**
      * 전문에 실을 논리 시각. <b>시스템 시각을 읽지 않는다</b>(CLAUDE.md).
      * 채널계는 시각의 의미를 알 필요가 없고, 늘어나기만 하면 된다.
@@ -70,11 +76,15 @@ public class OrderService {
             LedgerConnectionPool pool,
             LedgerGateway gateway,
             OrderRegistry registry,
-            StreamHub hub) {
+            StreamHub hub,
+            com.minisor.channel.store.FillStore fills,
+            com.minisor.channel.feed.SymbolState symbols) {
         this.pool = pool;
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
+        this.fills = fills;
+        this.symbols = symbols;
     }
 
     public OrderResponseDto submit(String account, OrderRequestDto req) {
@@ -165,6 +175,15 @@ public class OrderService {
 
     private void broadcastFill(String account, long clOrdId, long orderId, int side,
             int market, int price, int qty) {
+        /*
+         * 기록을 먼저 남긴다(T11-02). 화면에 알리는 것보다 남기는 것이 중요하다 —
+         * 화면은 새로고침하면 되지만 기록은 놓치면 끝이다. 같은 체결을 주기 작업이
+         * 또 봐도 저장소가 유일 인덱스로 막는다.
+         */
+        com.minisor.channel.feed.SymbolState.Current sym = symbols.current();
+        fills.record(account, sym.code(), sym.kind(), side, market, price, qty, orderId,
+                clOrdId);
+
         hub.sendTo(account,
                 StreamEvent.fill(
                         Map.of(

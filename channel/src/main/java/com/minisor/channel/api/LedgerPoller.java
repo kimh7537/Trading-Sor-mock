@@ -49,6 +49,9 @@ public class LedgerPoller {
     private final SimCandles sim;
     private final UserStore users;
     private final SymbolState symbols;
+
+    /** 체결 기록(T11-02). 나중 체결은 여기서만 보이므로 여기서 남긴다. */
+    private final com.minisor.channel.store.FillStore fills;
     private final boolean enabled;
 
     private final Map<Integer, BookController.BookDto> lastBooks = new HashMap<>();
@@ -62,7 +65,9 @@ public class LedgerPoller {
             SimCandles sim,
             SymbolState symbols,
             UserStore users,
+            com.minisor.channel.store.FillStore fills,
             @Value("${minisor.poller.enabled:true}") boolean enabled) {
+        this.fills = fills;
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
@@ -162,6 +167,12 @@ public class LedgerPoller {
                 continue;
             }
             int price = (int) ((leg.notional() - prev.notional()) / qty);
+
+            /* 나중 체결도 기록에 남는다(T11-02). 주문 응답이 본 것과 겹치면 저장소가 막는다 */
+            var sym = symbols.current();
+            fills.record(account, sym.code(), sym.kind(), after.side(), leg.market(), price,
+                    qty, after.orderId(), after.clOrdId());
+
             hub.sendTo(account,
                     StreamEvent.fill(
                             Map.of(

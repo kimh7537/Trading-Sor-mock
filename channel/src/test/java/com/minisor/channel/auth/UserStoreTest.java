@@ -3,6 +3,7 @@ package com.minisor.channel.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.minisor.channel.store.Db;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -13,8 +14,13 @@ class UserStoreTest {
 
     @TempDir Path dir;
 
+    /*
+     * 시험마다 새 SQLite 파일. 저장소가 바뀌어도(T11-02) 이 시험이 보는 것은
+     * 그대로다 - 가입.로그인.계좌 발급.
+     */
     private UserStore store() {
-        return new UserStore(dir.resolve("users.json").toString());
+        return new UserStore(new Db(dir.resolve("minisor.db").toString()),
+                dir.resolve("users.json").toString());
     }
 
     @Test
@@ -31,7 +37,9 @@ class UserStoreTest {
         UserStore s = store();
         User u = s.signup("alice", "hunter2secret");
 
-        String raw = Files.readString(dir.resolve("users.json"));
+        /* 파일을 바이트로 훑는다 - 비밀번호 원문이 어디에도 남으면 안 된다 */
+        String raw = new String(Files.readAllBytes(dir.resolve("minisor.db")),
+                java.nio.charset.StandardCharsets.ISO_8859_1);
         assertThat(raw).doesNotContain("hunter2secret");
         assertThat(u.hash()).isNotEqualTo("hunter2secret");
         /* 소금이 사람마다 다르므로 같은 비밀번호라도 해시가 다르다 */

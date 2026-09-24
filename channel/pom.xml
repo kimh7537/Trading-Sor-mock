@@ -47,6 +47,23 @@
 			<artifactId>spring-boot-starter-websocket</artifactId>
 		</dependency>
 
+		<!--
+		  거래 기록 저장소 (T11-02).
+
+		  파일 하나짜리 SQLite다. 클라우드 DB를 쓰지 않는 이유는 체결 한 건마다
+		  네트워크 왕복이 생기기 때문이다 - 이 프로젝트의 논지가 마이크로초 단위
+		  집행 품질 측정인데 그것과 어긋난다. 원장은 그대로 메모리에 있고, 여기는
+		  "무슨 일이 있었나"의 기록이다.
+
+		  JDBC만 쓴다. JPA를 들이면 스키마.엔티티.마이그레이션이 따라오는데
+		  표 두 개에 그만한 계층이 필요하지 않다.
+		-->
+		<dependency>
+			<groupId>org.xerial</groupId>
+			<artifactId>sqlite-jdbc</artifactId>
+			<version>3.50.3.0</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator-test</artifactId>

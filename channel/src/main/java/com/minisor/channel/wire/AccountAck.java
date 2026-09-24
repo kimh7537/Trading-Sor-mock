@@ -18,4 +18,16 @@ public final class AccountAck {
 
     @WireField(order = 4, type = I64)
     public long reserved;
+
+    /** 보유 수량 (T11-01). */
+    @WireField(order = 5, type = I64)
+    public long posQty;
+
+    /** 매입 원가 합. 평균 단가 = posCost / posQty. */
+    @WireField(order = 6, type = I64)
+    public long posCost;
+
+    /** 실현 손익 누계. 판 것에서만 생긴다. */
+    @WireField(order = 7, type = I64)
+    public long realized;
 }

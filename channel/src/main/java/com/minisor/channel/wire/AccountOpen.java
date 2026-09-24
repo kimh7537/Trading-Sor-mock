@@ -19,4 +19,18 @@ public final class AccountOpen {
     /** 처음 넣어 줄 돈. 이미 있는 계좌면 무시된다. */
     @WireField(order = 2, type = I64)
     public long cash;
+
+    /**
+     * 실어 줄 보유 수량 (T11-01).
+     *
+     * <p>원장은 메모리에만 있어서 다시 뜨면 보유가 사라진다. <b>기록의 주인은
+     * 채널계</b>이므로, 로그인할 때 거래 기록을 되짚어 지금 있어야 할 보유를 실어 준다.
+     * 이쪽은 이미 있는 계좌에도 반영된다.
+     */
+    @WireField(order = 3, type = I64)
+    public long posQty;
+
+    /** 매입 원가 <b>합</b>. 평균 단가가 아니다 — 평균을 주고받으면 오차가 쌓인다. */
+    @WireField(order = 4, type = I64)
+    public long posCost;
 }

@@ -3,6 +3,7 @@ package com.minisor.channel.auth;
 import com.minisor.channel.api.LedgerGateway;
 import com.minisor.channel.feed.SymbolState;
 import com.minisor.channel.ledger.LedgerException;
+import com.minisor.channel.store.Portfolio;
 import com.minisor.channel.wire.AccountAck;
 import com.minisor.channel.wire.AccountOpen;
 import jakarta.servlet.http.HttpSession;
@@ -46,6 +47,10 @@ public class AuthController {
     private final UserStore users;
     private final LedgerGateway gateway;
     private final SymbolState symbols;
+
+    /** 거래 기록에서 지금 있어야 할 예수금·보유를 구한다(T11-02). */
+    private final Portfolio portfolio;
+
     private final long signupCash;
     private final long signupCashUs;
 
@@ -53,11 +58,13 @@ public class AuthController {
             UserStore users,
             LedgerGateway gateway,
             SymbolState symbols,
+            Portfolio portfolio,
             @Value("${minisor.auth.signup-cash:100000000}") long signupCash,
             @Value("${minisor.auth.signup-cash-us:10000000}") long signupCashUs) {
         this.users = users;
         this.gateway = gateway;
         this.symbols = symbols;
+        this.portfolio = portfolio;
         this.signupCash = signupCash;
         this.signupCashUs = signupCashUs;
     }
@@ -124,9 +131,24 @@ public class AuthController {
          * 시작 자금은 통화를 따른다(T10-02). 국내는 원, 미국은 센트라 같은 숫자를
          * 쓰면 1억 원짜리 계좌가 미국 종목에서 100만 달러가 된다.
          */
+        SymbolState.Current now = symbols.current();
+        long seed = now.us() ? signupCashUs : signupCash;
+
+        /*
+         * **기록에서 되살린다**(T11-02). 원장은 메모리에만 있어서 다시 뜨면 계좌가
+         * 사라진다. 어제까지의 거래는 저장소에 남아 있으므로, 그것을 되짚어 지금
+         * 있어야 할 예수금과 보유를 구해 함께 보낸다.
+         *
+         * 미체결 주문은 되살리지 않는다 — 꺼져 있던 동안 그 주문은 어느 시장에도
+         * 없었고, 되살리면 "밤새 체결됐어야 한다"는 거짓말이 된다.
+         */
+        Portfolio.Snapshot s = portfolio.of(account, now.code(), now.kind(), seed);
+
         AccountOpen req = new AccountOpen();
         req.account = account;
-        req.cash = symbols.us() ? signupCashUs : signupCash;
+        req.cash = s.cash();
+        req.posQty = s.qty();
+        req.posCost = s.cost();
         try {
             AccountAck ack = gateway.call(req, AccountAck.class);
             if (ack.code != 0) {

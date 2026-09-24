@@ -1,20 +1,21 @@
 package com.minisor.channel.auth;
 
+import com.minisor.channel.store.Db;
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
@@ -26,11 +27,11 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * 가입한 사람들. JSON 파일 하나에 적는다(T9-03).
+ * 가입한 사람들 (T9-03, 저장소는 T11-02에서 SQLite로).
  *
- * <p><b>왜 파일인가.</b> 이 저장소에 데이터베이스 계층이 없다. 사람 몇 명이 쓰는
- * 시뮬레이터에 DB를 들이면 설정·스키마·마이그레이션이 따라오는데, 여기서 지켜야 할
- * 불변조건은 "아이디가 겹치지 않는다" 하나뿐이다. 파일 하나와 메서드 단위 잠금으로 충분하다.
+ * <p>처음에는 JSON 파일 하나였다. 거래 기록을 남기면서 SQLite가 들어왔고, 가입자를
+ * 따로 둘 이유가 없어져 같은 파일로 옮겼다 — <b>백업할 파일이 하나</b>가 된다.
+ * 예전 {@code users.json}이 있으면 처음 뜰 때 한 번 옮겨 담는다.
  *
  * <p><b>비밀번호는 PBKDF2-HMAC-SHA256으로 늘려 적는다.</b> 새 의존성을 들이지 않으려고
  * JDK에 있는 것을 쓴다. 사람마다 다른 소금을 쓰므로 같은 비밀번호라도 해시가 다르다.
@@ -39,9 +40,6 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p><b>계좌번호는 여기서 발급한다.</b> 사람이 고르게 두면 남의 계좌번호를 적어
  * 낼 수 있다. {@code u} + 11자리 일련번호로 전문 규격의 12자를 채운다.
- *
- * <p>ponytail: 파일을 통째로 읽어 메모리에 들고 있다가 통째로 쓴다. 가입자가 수만 명이
- * 되면 다시 볼 일이지만, 그때는 파일이 아니라 DB를 봐야 하는 때다.
  */
 @Component
 public class UserStore {
@@ -60,16 +58,12 @@ public class UserStore {
     private static final int PASSWORD_MIN = 8;
     private static final int PASSWORD_MAX = 100;
 
-    private final Path file;
-    private final ObjectMapper json = new ObjectMapper();
+    private final Db db;
     private final SecureRandom random = new SecureRandom();
 
-    /** 아이디 -> 사람. 순서를 지켜 계좌번호 일련이 파일에서도 읽힌다. */
-    private final Map<String, User> users = new LinkedHashMap<>();
-
-    public UserStore(@Value("${minisor.auth.users-file:users.json}") String path) {
-        this.file = Path.of(path);
-        load();
+    public UserStore(Db db, @Value("${minisor.auth.users-file:users.json}") String legacy) {
+        this.db = db;
+        importLegacy(legacy);
     }
 
     /** 가입이 거절되는 까닭. 화면이 그대로 보여 줄 수 있는 말을 담는다. */
@@ -79,44 +73,25 @@ public class UserStore {
         }
     }
 
-    private synchronized void load() {
-        if (!Files.exists(file)) {
-            log.info("사용자 파일이 없다. 첫 가입 때 만든다: {}", file.toAbsolutePath());
+    /**
+     * 옛 {@code users.json}을 한 번 옮겨 담는다.
+     *
+     * <p>이미 표에 사람이 있으면 건너뛴다 — 옮긴 뒤에 지워진 계정이 파일에 남아 있다가
+     * 되살아나면 안 된다.
+     */
+    private void importLegacy(String path) {
+        Path file = Path.of(path);
+        if (!Files.exists(file) || size() > 0) {
             return;
         }
         try {
-            User[] read = json.readValue(Files.readString(file), User[].class);
+            User[] read = new ObjectMapper().readValue(Files.readString(file), User[].class);
             for (User u : read) {
-                users.put(u.id(), u);
+                insert(u);
             }
-            log.info("사용자 {}명을 읽었다: {}", users.size(), file.toAbsolutePath());
+            log.info("옛 사용자 파일에서 {}명을 옮겨 담았다: {}", read.length, file);
         } catch (IOException | RuntimeException e) {
-            /*
-             * 읽지 못한 파일을 빈 것으로 치고 덮어쓰면 가입 기록이 통째로 날아간다.
-             * 뜨지 않는 편이 낫다 — 사람이 파일을 보고 고쳐야 한다.
-             */
-            throw new IllegalStateException(
-                    "사용자 파일을 읽지 못했다: " + file.toAbsolutePath(), e);
-        }
-    }
-
-    /** 통째로 쓰고 제자리로 옮긴다. 쓰다 죽어도 반쪽짜리 파일이 남지 않는다. */
-    private void save() {
-        try {
-            Path dir = file.toAbsolutePath().getParent();
-            if (dir != null) {
-                Files.createDirectories(dir);
-            }
-            Path tmp = Path.of(file.toAbsolutePath() + ".tmp");
-            Files.writeString(tmp, json.writeValueAsString(new ArrayList<>(users.values())));
-            try {
-                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING,
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException("사용자 파일을 쓰지 못했다: " + file, e);
+            log.warn("옛 사용자 파일을 읽지 못했다 {}: {}", file, e.toString());
         }
     }
 
@@ -133,18 +108,22 @@ public class UserStore {
                 || password.length() > PASSWORD_MAX) {
             throw new SignupException("비밀번호는 " + PASSWORD_MIN + "자 이상이어야 한다");
         }
-        if (users.containsKey(id)) {
+        if (find(id).isPresent()) {
             throw new SignupException("이미 있는 아이디다");
         }
 
         byte[] salt = new byte[SALT_BYTES];
         random.nextBytes(salt);
-        String saltB64 = Base64.getEncoder().encodeToString(salt);
-        String hash = Base64.getEncoder().encodeToString(derive(password, salt));
+        User u = new User(
+                id,
+                Base64.getEncoder().encodeToString(salt),
+                Base64.getEncoder().encodeToString(derive(password, salt)),
+                nextAccount(),
+                Instant.now().toString());
 
-        User u = new User(id, saltB64, hash, nextAccount(), Instant.now().toString());
-        users.put(id, u);
-        save();
+        if (!insert(u)) {
+            throw new SignupException("이미 있는 아이디다");
+        }
         log.info("가입: {} -> 계좌 {}", id, u.account());
         return u;
     }
@@ -155,27 +134,97 @@ public class UserStore {
      * <p><b>둘을 구분해 알리지 않는다</b> — "없는 아이디"와 "비밀번호 틀림"을 나눠 주면
      * 어떤 아이디가 있는지 찾아낼 수 있다.
      */
-    public synchronized Optional<User> login(String id, String password) {
-        User u = (id == null) ? null : users.get(id);
-        if (u == null || password == null) {
+    public Optional<User> login(String id, String password) {
+        Optional<User> found = find(id);
+        if (found.isEmpty() || password == null) {
             return Optional.empty();
         }
+        User u = found.get();
         byte[] want = Base64.getDecoder().decode(u.hash());
         byte[] got = derive(password, Base64.getDecoder().decode(u.salt()));
-        return MessageDigest.isEqual(want, got) ? Optional.of(u) : Optional.empty();
+        return MessageDigest.isEqual(want, got) ? found : Optional.empty();
     }
 
-    public synchronized Optional<User> find(String id) {
-        return Optional.ofNullable(users.get(id));
+    public Optional<User> find(String id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        try (Connection c = db.connection();
+                PreparedStatement ps = c.prepareStatement("SELECT * FROM users WHERE id = ?")) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(read(rs)) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("사용자를 읽지 못했다: " + id, e);
+        }
+    }
+
+    /** 계좌번호로 찾는다. 주기 작업이 세션의 계좌만 들고 있을 때 쓴다. */
+    public Optional<User> byAccount(String account) {
+        if (account == null) {
+            return Optional.empty();
+        }
+        try (Connection c = db.connection();
+                PreparedStatement ps =
+                        c.prepareStatement("SELECT * FROM users WHERE account = ?")) {
+            ps.setString(1, account);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(read(rs)) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("계좌로 사용자를 읽지 못했다: " + account, e);
+        }
     }
 
     /** 가입한 모든 사람의 계좌번호. 주기 작업이 누구의 잔고를 읽을지 정하는 데 쓴다. */
-    public synchronized List<String> accounts() {
-        return users.values().stream().map(User::account).toList();
+    public List<String> accounts() {
+        List<String> out = new ArrayList<>();
+        try (Connection c = db.connection();
+                PreparedStatement ps =
+                        c.prepareStatement("SELECT account FROM users ORDER BY account")) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(rs.getString(1));
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("계좌 목록을 읽지 못했다: {}", e.getMessage());
+        }
+        return out;
     }
 
-    public synchronized int size() {
-        return users.size();
+    public int size() {
+        try (Connection c = db.connection();
+                PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) FROM users");
+                ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        } catch (SQLException e) {
+            return 0;
+        }
+    }
+
+    // ------------------------------------------------------------------
+
+    private static User read(ResultSet rs) throws SQLException {
+        return new User(rs.getString("id"), rs.getString("salt"), rs.getString("hash"),
+                rs.getString("account"), rs.getString("created_at"));
+    }
+
+    /** 넣는다. 아이디나 계좌가 겹치면 false. */
+    private boolean insert(User u) {
+        String sql = "INSERT OR IGNORE INTO users (id, salt, hash, account, created_at) "
+                + "VALUES (?, ?, ?, ?, ?)";
+        try (Connection c = db.connection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, u.id());
+            ps.setString(2, u.salt());
+            ps.setString(3, u.hash());
+            ps.setString(4, u.account());
+            ps.setString(5, u.createdAt());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new IllegalStateException("사용자를 적지 못했다: " + u.id(), e);
+        }
     }
 
     /**
@@ -186,9 +235,9 @@ public class UserStore {
      */
     private String nextAccount() {
         long max = 0;
-        for (User u : users.values()) {
+        for (String a : accounts()) {
             try {
-                max = Math.max(max, Long.parseLong(u.account().substring(1)));
+                max = Math.max(max, Long.parseLong(a.substring(1)));
             } catch (NumberFormatException | IndexOutOfBoundsException ignored) {
                 // 손으로 적어 넣은 번호. 일련번호 계산에서만 빼고 그대로 둔다
             }

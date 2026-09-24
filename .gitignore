@@ -26,3 +26,8 @@ web/dist/
 Testing/
 users.json
 users.json.tmp
+
+# 거래 기록 저장소 (T11-02). 남의 가입·체결 기록을 공개 저장소에 올리지 않는다
+minisor.db
+minisor.db-wal
+minisor.db-shm

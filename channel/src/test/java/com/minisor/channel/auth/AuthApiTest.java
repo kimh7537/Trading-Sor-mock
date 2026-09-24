@@ -33,6 +33,10 @@ class AuthApiTest {
             Path.of(System.getProperty("java.io.tmpdir"),
                     "minisor-auth-users-" + System.nanoTime() + ".json");
 
+    private static final Path DB_FILE =
+            Path.of(System.getProperty("java.io.tmpdir"),
+                    "minisor-auth-db-" + System.nanoTime() + ".db");
+
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry reg) throws Exception {
         ledger = new FakeLedger();
@@ -40,6 +44,8 @@ class AuthApiTest {
         reg.add("minisor.ledger.read-timeout-ms", () -> 500);
         reg.add("minisor.poller.enabled", () -> false);
         reg.add("minisor.auth.users-file", () -> USERS_FILE.toString());
+        /* 시험마다 새 저장소. 같은 파일을 쓰면 계좌번호가 시험 사이에 이어진다 */
+        reg.add("minisor.db.file", () -> DB_FILE.toString());
     }
 
     @AfterAll
