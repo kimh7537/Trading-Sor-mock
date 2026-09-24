@@ -11,6 +11,10 @@ import jakarta.validation.constraints.Size;
 /**
  * 주문 접수 요청.
  *
+ * <p><b>계좌번호를 받지 않는다</b>(T9-04). 예전에는 화면이 여기에 계좌번호를 적어 보냈고
+ * 채널계가 그대로 믿었다. 사용자가 여럿이 되는 순간 그것은 "아무 번호나 적으면 남의 계좌로
+ * 주문이 나간다"는 뜻이 된다. 계좌는 세션에서만 나온다.
+ *
  * <p>형식만 봐도 아는 잘못은 여기서 끝낸다 — 원장까지 왕복한 뒤 거절되면 느리다.
  * 증거금·한도처럼 계좌 상태를 봐야 아는 것은 원장(T3-07)이 판단한다.
  *
@@ -19,7 +23,6 @@ import jakarta.validation.constraints.Size;
  * 어긋났다(T6-01). 상수는 C 헤더와 테스트로 대조되므로 여기가 다시 따로 놀 수 없다.
  */
 public record OrderRequestDto(
-        @NotBlank @Size(min = 12, max = 12) String account,
         @NotBlank @Size(min = 1, max = 8) String symbol,
         @Min(1) long clOrdId,
         @Min(SIDE_BUY) @Max(SIDE_SELL) int side,

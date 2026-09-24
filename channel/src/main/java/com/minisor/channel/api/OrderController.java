@@ -1,6 +1,8 @@
 package com.minisor.channel.api;
 
+import com.minisor.channel.auth.CurrentAccount;
 import com.minisor.channel.ledger.LedgerException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -39,15 +41,16 @@ public class OrderController {
 
     /** 이 채널계가 낸 주문과 마지막으로 본 상태, 최근 것부터(T7-03). */
     @GetMapping
-    public List<OrderView> list() {
-        return service.orders();
+    public List<OrderView> list(HttpServletRequest http) {
+        return service.orders(CurrentAccount.required(http));
     }
 
     /** 주문 하나의 지금 상태를 원장에서 읽는다. 없거나 남의 주문이면 404. */
     @GetMapping("/{orderId}")
-    public ResponseEntity<OrderView> detail(@PathVariable long orderId) {
+    public ResponseEntity<OrderView> detail(@PathVariable long orderId,
+            HttpServletRequest http) {
         try {
-            OrderView v = service.detail(orderId);
+            OrderView v = service.detail(CurrentAccount.required(http), orderId);
             return v == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(v);
         } catch (LedgerException e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
@@ -65,10 +68,12 @@ public class OrderController {
      * </ul>
      */
     @DeleteMapping("/{orderId}")
-    public ResponseEntity<OrderService.CancelResult> cancel(@PathVariable long orderId) {
+    public ResponseEntity<OrderService.CancelResult> cancel(@PathVariable long orderId,
+            HttpServletRequest http) {
+        String account = CurrentAccount.required(http);
         OrderService.CancelResult r;
         try {
-            r = service.cancel(orderId);
+            r = service.cancel(account, orderId);
         } catch (LedgerException e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
@@ -76,7 +81,7 @@ public class OrderController {
             return ResponseEntity.ok(r);
         }
         if (r.reason() == OrderService.ERR_NOT_FOUND) {
-            return service.knows(orderId)
+            return service.knows(account, orderId)
                     ? ResponseEntity.status(HttpStatus.CONFLICT).body(r)
                     : ResponseEntity.status(HttpStatus.NOT_FOUND).body(r);
         }
@@ -84,10 +89,11 @@ public class OrderController {
     }
 
     @PostMapping
-    public ResponseEntity<OrderResponseDto> submit(@Valid @RequestBody OrderRequestDto req) {
+    public ResponseEntity<OrderResponseDto> submit(@Valid @RequestBody OrderRequestDto req,
+            HttpServletRequest http) {
         OrderResponseDto res;
         try {
-            res = service.submit(req);
+            res = service.submit(CurrentAccount.required(http), req);
         } catch (LedgerException e) {
             /*
              * 붙지 못했다 = **주문이 나가지 않은 것이 확실하다.** 모호하지

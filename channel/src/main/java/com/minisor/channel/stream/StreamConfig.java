@@ -17,6 +17,14 @@ public class StreamConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(new StreamHandler(hub), "/ws/stream").setAllowedOrigins("*");
+        /*
+         * 악수(handshake) 때 HTTP 세션 속성을 들고 온다(T9-04). 그래야 이 접속이 누구
+         * 것인지 알 수 있고, 잔고·내 주문을 그 사람에게만 보낼 수 있다. 이것이 없으면
+         * WebSocket 쪽에는 로그인 정보가 전혀 닿지 않는다.
+         */
+        registry.addHandler(new StreamHandler(hub), "/ws/stream")
+                .addInterceptors(new org.springframework.web.socket.server.support
+                        .HttpSessionHandshakeInterceptor())
+                .setAllowedOrigins("*");
     }
 }

@@ -1,6 +1,8 @@
 package com.minisor.channel.api;
 
+import com.minisor.channel.auth.CurrentAccount;
 import com.minisor.channel.ledger.LedgerException;
+import jakarta.servlet.http.HttpServletRequest;
 import com.minisor.channel.wire.BalanceAck;
 import com.minisor.channel.wire.BalanceReq;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,17 +26,16 @@ public class BalanceController {
     }
 
     private final LedgerGateway gateway;
-    private final String account;
 
-    public BalanceController(LedgerGateway gateway, @Value("${minisor.account}") String account) {
+    public BalanceController(LedgerGateway gateway) {
         this.gateway = gateway;
-        this.account = account;
     }
 
+    /** 로그인한 사람의 잔고(T9-04). 계좌는 세션에서만 나온다. */
     @GetMapping("/api/balance")
-    public ResponseEntity<BalanceDto> balance() {
+    public ResponseEntity<BalanceDto> balance(HttpServletRequest http) {
         try {
-            BalanceAck ack = fetch(gateway, account);
+            BalanceAck ack = fetch(gateway, CurrentAccount.required(http));
             return ack.reason == 0
                     ? ResponseEntity.ok(BalanceDto.from(ack))
                     : ResponseEntity.notFound().build();

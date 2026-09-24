@@ -37,6 +37,36 @@ class LedgerPollerTest {
         reg.add("minisor.ledger.port", ledger::port);
         reg.add("minisor.ledger.read-timeout-ms", () -> 500);
         reg.add("minisor.poller.enabled", () -> false);
+        reg.add("minisor.auth.users-file", () -> USERS_FILE.toString());
+    }
+
+    private static final java.nio.file.Path USERS_FILE =
+            java.nio.file.Path.of(System.getProperty("java.io.tmpdir"),
+                    "minisor-poller-users-" + System.nanoTime() + ".json");
+
+    @org.junit.jupiter.api.AfterAll
+    static void dropUsersFile() throws Exception {
+        java.nio.file.Files.deleteIfExists(USERS_FILE);
+    }
+
+    /**
+     * 로그인하고 세션 쿠키를 돌려준다(T9-04).
+     *
+     * <p>잔고와 내 주문은 <b>그 계좌로 붙은 접속에만</b> 간다. 그래서 WebSocket 악수에도
+     * 같은 쿠키를 실어야 한다 — 실지 않으면 호가만 받고 잔고는 영영 오지 않는다.
+     */
+    private String logIn() throws Exception {
+        String body = "{\"id\":\"poller\",\"password\":\"password1\"}";
+        HttpResponse<String> res = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://127.0.0.1:" + port + "/api/auth/signup"))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(res.statusCode()).isIn(200, 409);
+        return res.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
     }
 
     @LocalServerPort private int port;
@@ -64,10 +94,13 @@ class LedgerPollerTest {
 
     @Test
     void pushesOnlyChanges() throws Exception {
+        String cookie = logIn();
+
         Sink sink = new Sink();
         WebSocket ws =
                 HttpClient.newHttpClient()
                         .newWebSocketBuilder()
+                        .header("Cookie", cookie)
                         .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
                         .get(5, TimeUnit.SECONDS);
         for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
@@ -76,7 +109,7 @@ class LedgerPollerTest {
 
         /* 걸어 두는 주문 하나 — 체결 없음 */
         String json =
-                "{\"account\":\"123456789012\",\"symbol\":\"005930\",\"clOrdId\":50,"
+                "{\"symbol\":\"005930\",\"clOrdId\":50,"
                         + "\"side\":0,\"type\":0,\"market\":1,\"price\":70000,\"qty\":10}";
         HttpResponse<String> res =
                 HttpClient.newHttpClient()
@@ -85,6 +118,7 @@ class LedgerPollerTest {
                                         .uri(URI.create("http://127.0.0.1:" + port + "/api/orders"))
                                         .timeout(Duration.ofSeconds(10))
                                         .header("Content-Type", "application/json")
+                                        .header("Cookie", cookie)
                                         .POST(HttpRequest.BodyPublishers.ofString(json))
                                         .build(),
                                 HttpResponse.BodyHandlers.ofString());

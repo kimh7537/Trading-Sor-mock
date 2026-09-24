@@ -27,6 +27,19 @@ public class StreamHub {
 
     private volatile String ledgerDownWhy = "";
 
+    /**
+     * 접속 하나가 어느 계좌의 것인지(T9-04). 로그인하지 않고 붙은 접속은 여기에 없고,
+     * 호가처럼 <b>모두가 보는 것</b>만 받는다.
+     */
+    private final Map<String, String> accountOf = new ConcurrentHashMap<>();
+
+    public void add(WebSocketSession s, String account) {
+        if (account != null) {
+            accountOf.put(s.getId(), account);
+        }
+        add(s);
+    }
+
     public void add(WebSocketSession s) {
         sessions.put(s.getId(), s);
         /* 이미 끊긴 뒤에 들어온 화면도 알아야 한다. 방송은 바뀌는 순간에만 가므로 따로 보낸다 */
@@ -58,6 +71,30 @@ public class StreamHub {
 
     public void remove(WebSocketSession s) {
         sessions.remove(s.getId());
+        accountOf.remove(s.getId());
+    }
+
+    /**
+     * 그 계좌로 로그인한 접속에만 보낸다(T9-04).
+     *
+     * <p>잔고·내 주문·내 체결은 <b>방송하면 안 된다.</b> 한 사람의 잔고가 모든 화면에
+     * 뜨는 일은 사용자가 하나일 때는 티가 나지 않지만, 둘이 되는 순간 남의 돈이 보인다.
+     *
+     * <p>같은 사람이 창을 여럿 열었으면 그 창들 모두에 간다.
+     */
+    public void sendTo(String account, StreamEvent event) {
+        if (account == null) {
+            return;
+        }
+        String text = json.writeValueAsString(event);
+        accountOf.forEach((id, owner) -> {
+            if (account.equals(owner)) {
+                WebSocketSession s = sessions.get(id);
+                if (s != null) {
+                    send(id, s, text);
+                }
+            }
+        });
     }
 
     public int subscriberCount() {

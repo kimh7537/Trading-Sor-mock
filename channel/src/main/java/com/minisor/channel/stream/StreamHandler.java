@@ -13,9 +13,15 @@ public class StreamHandler extends TextWebSocketHandler {
         this.hub = hub;
     }
 
+    /**
+     * 악수 때 실려 온 HTTP 세션 속성에서 계좌를 꺼낸다(T9-04). 로그인하지 않고 붙었으면
+     * null이고, 그 접속은 호가처럼 모두가 보는 것만 받는다.
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        hub.add(session);
+        Object account = session.getAttributes()
+                .get(com.minisor.channel.auth.AuthController.SESSION_ACCOUNT);
+        hub.add(session, account instanceof String s ? s : null);
     }
 
     @Override

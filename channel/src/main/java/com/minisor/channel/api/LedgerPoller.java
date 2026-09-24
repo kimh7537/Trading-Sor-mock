@@ -1,5 +1,6 @@
 package com.minisor.channel.api;
 
+import com.minisor.channel.auth.UserStore;
 import com.minisor.channel.ledger.LedgerException;
 import com.minisor.channel.stream.StreamEvent;
 import com.minisor.channel.feed.SimCandles;
@@ -46,12 +47,13 @@ public class LedgerPoller {
     private final OrderRegistry registry;
     private final StreamHub hub;
     private final SimCandles sim;
-    private final String account;
+    private final UserStore users;
     private final SymbolState symbols;
     private final boolean enabled;
 
     private final Map<Integer, BookController.BookDto> lastBooks = new HashMap<>();
-    private BalanceController.BalanceDto lastBalance;
+    /** 계좌 -> 마지막으로 보낸 잔고. 바뀐 사람에게만 보낸다. */
+    private final Map<String, BalanceController.BalanceDto> lastBalance = new HashMap<>();
 
     public LedgerPoller(
             LedgerGateway gateway,
@@ -59,13 +61,13 @@ public class LedgerPoller {
             StreamHub hub,
             SimCandles sim,
             SymbolState symbols,
-            @Value("${minisor.account}") String account,
+            UserStore users,
             @Value("${minisor.poller.enabled:true}") boolean enabled) {
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
         this.sim = sim;
-        this.account = account;
+        this.users = users;
         this.symbols = symbols;
         this.enabled = enabled;
     }
@@ -107,20 +109,30 @@ public class LedgerPoller {
         sim.sample(raw[0], raw[1]);
     }
 
+    /**
+     * 가입한 사람 <b>각자의</b> 잔고를 읽어 그 사람에게만 보낸다(T9-04).
+     *
+     * <p>예전에는 계좌 하나를 읽어 모두에게 방송했다. 사용자가 둘이 되는 순간 그것은
+     * 남의 돈을 보여 주는 일이 된다.
+     */
     private void balance() {
-        BalanceAck ack = BalanceController.fetch(gateway, account);
-        if (ack.reason != 0) {
-            return;
-        }
-        BalanceController.BalanceDto now = BalanceController.BalanceDto.from(ack);
-        if (!now.equals(lastBalance)) {
-            lastBalance = now;
-            hub.broadcast(StreamEvent.balance(now));
+        for (String account : users.accounts()) {
+            BalanceAck ack = BalanceController.fetch(gateway, account);
+            if (ack.reason != 0) {
+                continue; /* 원장에 아직 없는 계좌. 로그인할 때 열린다 */
+            }
+            BalanceController.BalanceDto now = BalanceController.BalanceDto.from(ack);
+            if (!now.equals(lastBalance.get(account))) {
+                lastBalance.put(account, now);
+                hub.sendTo(account, StreamEvent.balance(now));
+            }
         }
     }
 
     private void orders() {
-        for (OrderView before : registry.open()) {
+        for (OrderRegistry.OpenOrder open : registry.openAll()) {
+            String account = open.account();
+            OrderView before = open.view();
             DetailReq req = new DetailReq();
             req.account = account;
             req.orderId = before.orderId();
@@ -132,13 +144,13 @@ public class LedgerPoller {
             if (after.equals(before)) {
                 continue;
             }
-            registry.put(after);
-            hub.broadcast(StreamEvent.orderUpdate(after));
-            broadcastNewFills(before, after);
+            registry.put(account, after);
+            hub.sendTo(account, StreamEvent.orderUpdate(after));
+            broadcastNewFills(account, before, after);
         }
     }
 
-    private void broadcastNewFills(OrderView before, OrderView after) {
+    private void broadcastNewFills(String account, OrderView before, OrderView after) {
         for (OrderView.LegView leg : after.legs()) {
             OrderView.LegView prev =
                     before.legs().stream()
@@ -150,7 +162,7 @@ public class LedgerPoller {
                 continue;
             }
             int price = (int) ((leg.notional() - prev.notional()) / qty);
-            hub.broadcast(
+            hub.sendTo(account,
                     StreamEvent.fill(
                             Map.of(
                                     "clOrdId", after.clOrdId(),

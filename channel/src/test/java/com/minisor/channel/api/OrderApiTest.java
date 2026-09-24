@@ -13,7 +13,9 @@ import java.util.List;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,6 +44,72 @@ class OrderApiTest {
         reg.add("minisor.ledger.read-timeout-ms", () -> 500);
         /* 주기 작업이 끼어들면 방송 개수를 세는 시험이 흔들린다. 주기 작업은 LedgerPollerTest가 본다 */
         reg.add("minisor.poller.enabled", () -> false);
+        /* 가입 기록은 시험마다 새 임시 파일에 쓴다 — 저장소의 users.json을 건드리지 않는다 */
+        reg.add("minisor.auth.users-file", () -> USERS_FILE.toString());
+    }
+
+    /** 이 시험이 쓰는 사람. 계좌번호는 UserStore가 발급하므로 u00000000001이 된다. */
+    private static final String TEST_ID = "tester";
+    private static final String TEST_PW = "password1";
+    static final String ACCOUNT = "u00000000001";
+
+    private static final java.nio.file.Path USERS_FILE =
+            java.nio.file.Path.of(System.getProperty("java.io.tmpdir"),
+                    "minisor-orderapi-users-" + System.nanoTime() + ".json");
+
+    @AfterAll
+    static void dropUsersFile() throws Exception {
+        java.nio.file.Files.deleteIfExists(USERS_FILE);
+    }
+
+    /**
+     * 쿠키를 들고 다니는 클라이언트 하나를 공유한다. 요청마다 새로 만들면 세션이
+     * 이어지지 않아 모든 주문이 401이 된다(T9-04).
+     */
+    private HttpClient client;
+
+    private java.net.CookieManager cookies;
+
+    @BeforeEach
+    void logIn() throws Exception {
+        if (client != null) {
+            return;
+        }
+        cookies = new java.net.CookieManager();
+        client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .cookieHandler(cookies)
+                .build();
+        String body = "{\"id\":\"" + TEST_ID + "\",\"password\":\"" + TEST_PW + "\"}";
+        HttpResponse<String> res = send("/api/auth/signup", body);
+        if (res.statusCode() == 409) {
+            res = send("/api/auth/login", body);
+        }
+        assertThat(res.statusCode()).isEqualTo(200);
+        assertThat(res.body()).contains(ACCOUNT);
+        /*
+         * 쿠키 관리자가 Set-Cookie를 먹어 응답 헤더에는 남지 않는다. 저장소에서 꺼낸다.
+         */
+        sessionCookie = cookies.getCookieStore().getCookies().stream()
+                .map(c -> c.getName() + "=" + c.getValue())
+                .reduce((a, b) -> a + "; " + b)
+                .orElseThrow();
+    }
+
+    /**
+     * 세션 쿠키. WebSocket 악수에도 실어야 한다(T9-04) — 잔고·내 주문·내 체결은
+     * <b>그 계좌로 붙은 접속에만</b> 가므로, 쿠키 없이 붙으면 호가만 받는다.
+     */
+    private static String sessionCookie;
+
+    private HttpResponse<String> send(String path, String json) throws Exception {
+        HttpRequest r = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:" + port + path))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return client.send(r, HttpResponse.BodyHandlers.ofString());
     }
 
     @LocalServerPort private int port;
@@ -58,7 +126,7 @@ class OrderApiTest {
     }
 
     private HttpResponse<String> get(String path) throws Exception {
-        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpClient c = client;
         HttpRequest r =
                 HttpRequest.newBuilder()
                         .uri(URI.create("http://127.0.0.1:" + port + path))
@@ -69,7 +137,7 @@ class OrderApiTest {
     }
 
     private HttpResponse<String> post(String json) throws Exception {
-        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpClient c = client;
         HttpRequest r =
                 HttpRequest.newBuilder()
                         .uri(URI.create("http://127.0.0.1:" + port + "/api/orders"))
@@ -88,7 +156,7 @@ class OrderApiTest {
      */
     private static String order(long clOrdId) {
         return """
-               {"account":"123456789012","symbol":"005930","clOrdId":%d,
+               {"symbol":"005930","clOrdId":%d,
                 "side":0,"type":0,"market":0,"price":70000,"qty":10}
                """
                 .formatted(clOrdId);
@@ -170,6 +238,7 @@ class OrderApiTest {
         WebSocket ws =
                 HttpClient.newHttpClient()
                         .newWebSocketBuilder()
+                        .header("Cookie", sessionCookie)
                         .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
                         .get(5, TimeUnit.SECONDS);
         for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
@@ -212,6 +281,7 @@ class OrderApiTest {
         WebSocket ws =
                 HttpClient.newHttpClient()
                         .newWebSocketBuilder()
+                        .header("Cookie", sessionCookie)
                         .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
                         .get(5, TimeUnit.SECONDS);
         for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
@@ -245,6 +315,7 @@ class OrderApiTest {
         WebSocket ws =
                 HttpClient.newHttpClient()
                         .newWebSocketBuilder()
+                        .header("Cookie", sessionCookie)
                         .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
                         .get(5, TimeUnit.SECONDS);
         for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
@@ -270,7 +341,7 @@ class OrderApiTest {
     }
 
     private HttpResponse<String> delete(String path) throws Exception {
-        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpClient c = client;
         HttpRequest r =
                 HttpRequest.newBuilder()
                         .uri(URI.create("http://127.0.0.1:" + port + path))
@@ -329,7 +400,7 @@ class OrderApiTest {
         HttpResponse<String> res = get("/api/balance");
         assertThat(res.statusCode()).isEqualTo(200);
         assertThat(res.body())
-                .contains("\"account\":\"123456789012\"")
+                .contains("\"account\":\"" + ACCOUNT + "\"")
                 .contains("\"cash\":100000000")
                 .contains("\"reserved\":700000")
                 .contains("\"available\":99300000");
@@ -346,6 +417,7 @@ class OrderApiTest {
         WebSocket ws =
                 HttpClient.newHttpClient()
                         .newWebSocketBuilder()
+                        .header("Cookie", sessionCookie)
                         .buildAsync(URI.create("ws://127.0.0.1:" + port + "/ws/stream"), sink)
                         .get(5, TimeUnit.SECONDS);
         for (int i = 0; i < 100 && hub.subscriberCount() == 0; i++) {
@@ -384,7 +456,8 @@ class OrderApiTest {
     void malformedOrderReturns400() throws Exception {
         int before = ledger.requests();
 
-        String bad = order(12).replace("\"123456789012\"", "\"12\"");
+        /* 수량 0은 @Min(1)에 걸린다. 계좌번호는 더 이상 본문에 없다(T9-04) */
+        String bad = order(12).replace("\"qty\":10", "\"qty\":0");
         HttpResponse<String> res = post(bad);
 
         assertThat(res.statusCode()).isEqualTo(400);

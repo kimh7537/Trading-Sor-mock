@@ -59,7 +59,6 @@ public class OrderService {
     private final LedgerGateway gateway;
     private final OrderRegistry registry;
     private final StreamHub hub;
-    private final String account;
 
     /**
      * 전문에 실을 논리 시각. <b>시스템 시각을 읽지 않는다</b>(CLAUDE.md).
@@ -71,78 +70,77 @@ public class OrderService {
             LedgerConnectionPool pool,
             LedgerGateway gateway,
             OrderRegistry registry,
-            StreamHub hub,
-            @Value("${minisor.account}") String account) {
+            StreamHub hub) {
         this.pool = pool;
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
-        this.account = account;
     }
 
-    public OrderResponseDto submit(OrderRequestDto req) {
-        OrderResponseDto res = send(req);
-        hub.broadcast(StreamEvent.order(Map.of("request", req, "result", res)));
+    public OrderResponseDto submit(String account, OrderRequestDto req) {
+        OrderResponseDto res = send(account, req);
+        hub.sendTo(account, StreamEvent.order(Map.of("request", req, "result", res)));
         if (res.outcome() != OrderResponseDto.Outcome.ACCEPTED) {
             return res;
         }
 
-        OrderView view = readView(req.account(), res.orderId(), req.type());
+        OrderView view = readView(account, res.orderId(), req.type());
         if (view == null) {
             /*
              * 접수는 됐는데 상세를 못 읽었다. 목록에는 넣고(끝나지 않은 것으로 — 주기 작업이 다시
              * 읽는다), 체결은 접수 응답대로 알린다. 시장은 고른 값(255면 SOR)으로 둘 수밖에 없다.
              */
-            registry.put(OrderView.fromAccepted(req, res));
+            registry.put(account, OrderView.fromAccepted(req, res));
             if (res.filledQty() > 0) {
-                broadcastFill(res.clOrdId(), res.orderId(), req.side(), req.market(),
-                        res.avgPrice(), res.filledQty());
+                broadcastFill(account, res.clOrdId(), res.orderId(), req.side(),
+                        req.market(), res.avgPrice(), res.filledQty());
             }
             return res;
         }
-        registry.put(view);
+        registry.put(account, view);
         for (OrderView.LegView leg : view.legs()) {
             if (leg.filled() > 0) {
-                broadcastFill(view.clOrdId(), view.orderId(), view.side(), leg.market(),
-                        leg.avgPrice(), leg.filled());
+                broadcastFill(account, view.clOrdId(), view.orderId(), view.side(),
+                        leg.market(), leg.avgPrice(), leg.filled());
             }
         }
         return res;
     }
 
     /** 이 채널계가 낸 주문, 최근 것부터. */
-    public List<OrderView> orders() {
-        return registry.newestFirst();
+    public List<OrderView> orders(String account) {
+        return registry.newestFirst(account);
     }
 
-    public boolean knows(long orderId) {
-        return registry.contains(orderId);
+    public boolean knows(String account, long orderId) {
+        return registry.contains(account, orderId);
     }
 
     /**
      * 원장에서 다시 읽는다. 없거나 남의 주문이면 null. 원장에 못 붙으면 {@link LedgerException}.
      * 목록({@link OrderRegistry})은 고치지 않는다 — 그것은 {@link LedgerPoller}의 일이다.
      */
-    public OrderView detail(long orderId) {
-        int type = registry.get(orderId).map(OrderView::type).orElse(0);
+    public OrderView detail(String account, long orderId) {
+        int type = registry.get(account, orderId).map(OrderView::type).orElse(0);
         DetailAck d = fetchDetail(account, orderId);
         return d.reason == 0 ? OrderView.from(d, type) : null;
     }
 
     /** 살아 있는 물리 주문을 모두 취소한다. 원장에 못 붙으면 {@link LedgerException}. */
-    public CancelResult cancel(long orderId) {
+    public CancelResult cancel(String account, long orderId) {
         CancelReq r = new CancelReq();
         r.account = account;
         r.orderId = orderId;
-        r.clOrdId = registry.get(orderId).map(OrderView::clOrdId).orElse(0L);
+        r.clOrdId = registry.get(account, orderId).map(OrderView::clOrdId).orElse(0L);
         CancelAck ack = gateway.call(r, CancelAck.class);
 
         OrderView view = null;
-        if (registry.contains(orderId)) {
-            view = readView(account, orderId, registry.get(orderId).map(OrderView::type).orElse(0));
+        if (registry.contains(account, orderId)) {
+            view = readView(account, orderId,
+                    registry.get(account, orderId).map(OrderView::type).orElse(0));
             if (view != null) {
-                registry.put(view);
-                hub.broadcast(StreamEvent.orderUpdate(view));
+                registry.put(account, view);
+                hub.sendTo(account, StreamEvent.orderUpdate(view));
             }
         }
         return new CancelResult(orderId, ack.reason, ack.status, ack.canceledQty, view);
@@ -165,8 +163,9 @@ public class OrderService {
         }
     }
 
-    private void broadcastFill(long clOrdId, long orderId, int side, int market, int price, int qty) {
-        hub.broadcast(
+    private void broadcastFill(String account, long clOrdId, long orderId, int side,
+            int market, int price, int qty) {
+        hub.sendTo(account,
                 StreamEvent.fill(
                         Map.of(
                                 "clOrdId", clOrdId,
@@ -177,9 +176,9 @@ public class OrderService {
                                 "qty", qty)));
     }
 
-    private OrderResponseDto send(OrderRequestDto req) {
+    private OrderResponseDto send(String account, OrderRequestDto req) {
         OrderReq m = new OrderReq();
-        m.account = req.account();
+        m.account = account;
         m.symbol = req.symbol();
         m.clOrdId = req.clOrdId();
         m.side = req.side();
