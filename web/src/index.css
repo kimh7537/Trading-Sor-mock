@@ -959,3 +959,66 @@ kbd {
 :root[data-theme="light"] .lvl.bid .bar { background: rgba(214, 48, 63, 0.16); }
 :root[data-theme="light"] .lvl.ask .bar { background: rgba(22, 98, 212, 0.16); }
 :root[data-theme="light"] .lvl:hover { background: var(--bg-hover); }
+
+/* ---------------------------------------------------------------------------
+ * 로그인·회원가입 (T9-05)
+ *
+ * 거래 화면과 달리 한가운데 한 칸만 둔다. 이 화면에서 할 일이 하나뿐이라
+ * 고를 것을 늘어놓으면 오히려 헤맨다.
+ * ------------------------------------------------------------------------- */
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.login {
+  width: min(380px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.login .brand { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.login .brand strong { font-size: 20px; letter-spacing: -0.02em; }
+.login .brand span { font-size: 12px; color: var(--text-dim); }
+
+.login .tabs { display: flex; gap: 6px; }
+.login .tabs button { flex: 1; }
+.login .tabs button.on {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.login label { display: flex; flex-direction: column; gap: 6px; }
+.login label span { font-size: 12px; color: var(--text-dim); }
+.login input { width: 100%; }
+
+.login button.primary {
+  margin-top: 4px;
+  padding: 10px;
+  font-weight: 600;
+  background: var(--sell-bg);
+  border-color: var(--sell);
+  color: var(--sell);
+}
+
+.login .error {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 6px;
+}
+
+.login .note { margin: 0; font-size: 11px; line-height: 1.6; color: var(--text-faint); }
+
+.symbol button.ghost { padding: 2px 8px; font-size: 11px; }

@@ -1,7 +1,7 @@
 import type { ConnState } from "../lib/useStream";
 import type { Balance, Book, FeedStatus, Market } from "../lib/types";
 import { SymbolPicker } from "./SymbolPicker";
-import { ACCOUNT, type CurrentSymbol } from "../lib/api";
+import type { CurrentSymbol, Me } from "../lib/api";
 import { won } from "../lib/format";
 import { useFlash } from "../lib/useFlash";
 
@@ -46,6 +46,8 @@ export function Header({
   onPickSymbol,
   theme,
   onToggleTheme,
+  me,
+  onLogout,
 }: {
   ws: { state: ConnState; attempt: number };
   ledgerDown: string | null;
@@ -60,6 +62,9 @@ export function Header({
   onPickSymbol: (code: string) => Promise<{ ok: boolean; message: string }>;
   theme: "dark" | "light";
   onToggleTheme: () => void;
+  /** 로그인한 사람. 계좌번호는 여기서만 온다 — 화면이 정하지 않는다(T9-05) */
+  me: Me;
+  onLogout: () => void;
 }) {
   const live = feed?.mode === "live";
   const cells: [key: keyof Balance, label: string][] = [
@@ -80,7 +85,12 @@ export function Header({
         </div>
         <div className="symbol">
           <SymbolPicker current={symbol} onPick={onPickSymbol} />
-          <span className="num">계좌 {ACCOUNT}</span>
+          <span className="num" title={`계좌 ${me.account}`}>
+            {me.id} · {me.account}
+          </span>
+          <button type="button" className="ghost" onClick={onLogout}>
+            로그아웃
+          </button>
         </div>
         <div className="quote">
           <div>

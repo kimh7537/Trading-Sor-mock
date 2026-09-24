@@ -4,8 +4,49 @@ import { marketName } from "./wire";
 // 기본은 같은 출처. 개발 서버가 /api를 채널계로 넘긴다(vite.config.ts).
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
-/** 원장 데몬의 데모 계좌(ledger/src/ledger_core.c의 기본값) */
-export const ACCOUNT = "123456789012";
+/**
+ * 로그인한 사람(T9-05).
+ *
+ * 계좌번호는 **화면이 정하지 않는다.** 가입할 때 채널계가 발급하고, 주문에는 아예
+ * 실리지 않는다 — 세션에 있는 것만 쓰인다. 예전에 여기 상수로 박혀 있던 계좌번호는
+ * 사용자가 하나일 때만 성립하는 것이었다.
+ */
+export interface Me {
+  id: string;
+  account: string;
+  cash: number;
+  reserved: number;
+  /** 원장에 계좌가 열려 있나. false면 시세는 보이지만 주문은 나가지 않는다 */
+  ledgerReady: boolean;
+}
+
+/** 지금 로그인돼 있으면 그 사람, 아니면 null. */
+export async function fetchMe(): Promise<Me | null> {
+  const res = await fetch(`${BASE}/api/auth/me`);
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error("로그인 상태를 읽지 못했다");
+  return (await res.json()) as Me;
+}
+
+async function authPost(path: string, id: string, password: string): Promise<Me> {
+  const res = await fetch(`${BASE}/api/auth/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, password }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? "요청이 거절됐다");
+  }
+  return (await res.json()) as Me;
+}
+
+export const login = (id: string, password: string) => authPost("login", id, password);
+export const signup = (id: string, password: string) => authPost("signup", id, password);
+
+export async function logout(): Promise<void> {
+  await fetch(`${BASE}/api/auth/logout`, { method: "POST" });
+}
 
 /**
  * 처음 종목. **그 뒤로는 사용자가 고른 것을 쓴다**(T8-10).
@@ -67,7 +108,7 @@ export async function switchSymbol(
 export type Outcome = "ACCEPTED" | "REJECTED" | "IN_DOUBT";
 
 export interface OrderRequest {
-  account: string;
+  /* 계좌번호는 싣지 않는다 — 채널계가 세션에서 가져온다(T9-04) */
   symbol: string;
   clOrdId: number;
   side: number;   // wire.ts — SIDE_BUY(0) / SIDE_SELL(1)

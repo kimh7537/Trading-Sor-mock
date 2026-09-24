@@ -15,6 +15,8 @@ import { Strategies } from "./components/Strategies";
 import { Ops } from "./components/Ops";
 import { FeedMode } from "./components/FeedMode";
 import { ChartPanel } from "./components/ChartPanel";
+import { LoginPanel } from "./components/LoginPanel";
+import { fetchMe, logout, type Me } from "./lib/api";
 
 type View = "trade" | "strategies" | "ops";
 
@@ -35,7 +37,30 @@ const VIEWS: { id: View; label: string }[] = [
   { id: "ops", label: "관제" },
 ];
 
+/**
+ * 로그인 전에는 거래 화면을 아예 만들지 않는다(T9-05).
+ *
+ * 훅을 조건부로 부를 수 없어서 바깥에 한 겹을 둔다 — 로그인하지 않은 채
+ * `useTrading`이 돌면 잔고·주문 요청이 매초 401을 받는다.
+ */
 export default function App() {
+  const [me, setMe] = useState<Me | null>(null);
+  /** 아직 /api/auth/me를 못 물어봤다. 그 사이 로그인 창을 깜빡이지 않게 한다 */
+  const [asking, setAsking] = useState(true);
+
+  useEffect(() => {
+    void fetchMe()
+      .then(setMe)
+      .catch(() => setMe(null))
+      .finally(() => setAsking(false));
+  }, []);
+
+  if (asking) return <div className="login-wrap" />;
+  if (!me) return <LoginPanel onDone={setMe} />;
+  return <Trading me={me} onLogout={() => void logout().then(() => setMe(null))} />;
+}
+
+function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const t = useTrading();
   const { toasts, notify, dismiss } = useToasts();
   const [view, setView] = useState<View>("trade");
@@ -118,6 +143,8 @@ export default function App() {
         onPickSymbol={t.pickSymbol}
         theme={theme}
         onToggleTheme={toggleTheme}
+        me={me}
+        onLogout={onLogout}
       />
 
       <nav className="tabs" role="tablist" aria-label="화면">

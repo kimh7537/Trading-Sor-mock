@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ACCOUNT,
   SYMBOL,
   cancelOrder,
   fetchSymbol,
@@ -304,7 +303,6 @@ export function useTrading(): Trading {
       lastClOrdId.current = Math.max(now, lastClOrdId.current + 1);
       const res = await submitOrder({
         ...o,
-        account: ACCOUNT,
         symbol: symbol.code,
         clOrdId: lastClOrdId.current,
       });
