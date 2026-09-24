@@ -9,6 +9,12 @@
 
 match_engine_t *match_engine_create(price_t base_price, int32_t capacity)
 {
+    return match_engine_create_in(TICK_TABLE_KRX, base_price, capacity);
+}
+
+match_engine_t *match_engine_create_in(tick_table_t table, price_t base_price,
+                                       int32_t capacity)
+{
     if (capacity <= 0) {
         return NULL;
     }
@@ -19,7 +25,7 @@ match_engine_t *match_engine_create(price_t base_price, int32_t capacity)
     }
 
     eng->capacity = capacity;
-    eng->book = book_create(base_price);
+    eng->book = book_create_in(table, base_price);
     eng->pool = order_pool_create(capacity);
     eng->index = index_create(capacity);
 

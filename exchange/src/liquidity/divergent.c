@@ -98,12 +98,12 @@ static uint64_t derive_seed(uint64_t base, market_t market)
     return x != 0 ? x : 1; /* 시드 0은 생성기가 거절한다 */
 }
 
-static price_t shifted_ref(price_t base, int32_t shift_ticks)
+static price_t shifted_ref(tick_table_t table, price_t base, int32_t shift_ticks)
 {
     if (shift_ticks == 0) {
         return base;
     }
-    price_t tick = tick_size_of(base);
+    price_t tick = tick_size_in(table, base);
     assert(tick > 0);
 
     int64_t raw = (int64_t)base + (int64_t)shift_ticks * (int64_t)tick;
@@ -113,7 +113,7 @@ static price_t shifted_ref(price_t base, int32_t shift_ticks)
     if (raw > PRICE_MAX) {
         raw = PRICE_MAX;
     }
-    price_t aligned = round_to_tick((price_t)raw, false);
+    price_t aligned = round_to_tick_in(table, (price_t)raw, false);
     return aligned != 0 ? aligned : base;
 }
 
@@ -147,7 +147,8 @@ divergent_t *divergent_create(const divergent_config_t *cfg)
         sc.price_decay = mp->decay;
         sc.qty_min = mp->qty_min;
         sc.qty_max = mp->qty_max;
-        sc.ref_price = shifted_ref(cfg->ref_price, mp->ref_shift_ticks);
+        sc.tick_table = cfg->tick_table;
+        sc.ref_price = shifted_ref(cfg->tick_table, cfg->ref_price, mp->ref_shift_ticks);
         sc.price_low = cfg->price_low;
         sc.price_high = cfg->price_high;
         sc.market = (market_t)m;

@@ -110,7 +110,7 @@ static price_t nxt_resolve_price(const order_book_t *book, const order_t *req)
     price_t mid = (bid + ask) / 2;
 
     /* 스프레드가 한 틱이면 내림 결과가 매수호가와 같아진다. 그것도 유효한 답이다. */
-    return round_to_tick(mid, false);
+    return round_to_tick_in(book_tick_table(book), mid, false);
 }
 
 static bool nxt_allows_reprice(order_type_t type)

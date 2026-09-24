@@ -28,7 +28,7 @@ static int check_price(const match_engine_t *eng, const order_t *req,
         req->price > book_price_high(eng->book)) {
         return REJECT(ERR_PRICE_LIMIT);
     }
-    if (!is_valid_tick(req->price)) {
+    if (!is_valid_tick_in(book_tick_table(eng->book), req->price)) {
         return REJECT(ERR_INVALID_TICK);
     }
     return ERR_OK;

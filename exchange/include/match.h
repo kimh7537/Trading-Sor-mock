@@ -61,6 +61,13 @@ typedef struct match_engine match_engine_t;
  * 인자가 잘못됐거나 할당에 실패하면 NULL.
  */
 match_engine_t *match_engine_create(price_t base_price, int32_t capacity);
+
+/*
+ * 호가 단위 표를 지정해 만든다(T10-01). 미국 종목은 센트 정수라 표가 다르다.
+ * `match_engine_create()`는 국내 표를 쓰는 짧은 이름이다.
+ */
+match_engine_t *match_engine_create_in(tick_table_t table, price_t base_price,
+                                       int32_t capacity);
 void match_engine_destroy(match_engine_t *eng);
 
 /*

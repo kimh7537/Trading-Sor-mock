@@ -738,6 +738,7 @@ static int seed_liquidity(ledger_core_t *c)
     d.scenario = cfg->scenario;
     d.seed = cfg->seed;
     d.ref_price = cfg->ref_price;
+    d.tick_table = cfg->tick_table;
     /* 가격 제한폭 ±30%(docs/SPEC.md 3.1) 안에서 만든다 */
     d.price_low = cfg->ref_price - cfg->ref_price * 3 / 10;
     d.price_high = cfg->ref_price + cfg->ref_price * 3 / 10;
@@ -763,7 +764,7 @@ static int seed_liquidity(ledger_core_t *c)
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         price_t base = (div != NULL) ? divergent_ref_price(div, (market_t)m)
                                      : cfg->ref_price;
-        c->eng[m] = match_engine_create(base, cap);
+        c->eng[m] = match_engine_create_in(cfg->tick_table, base, cap);
         if (c->eng[m] == NULL) {
             divergent_destroy(div);
             return ERR_POOL_EXHAUSTED;
@@ -863,6 +864,7 @@ ledger_core_t *ledger_core_create(const ledger_core_config_t *cfg)
     }
 
     vcfg_init(&c->vcfg);
+    c->vcfg.tick_table = cfg->tick_table;
     if (vcfg_add_symbol(&c->vcfg, cfg->symbol, MARGIN_BP_FULL, true) != ERR_OK) {
         ledger_core_destroy(c);
         return NULL;
@@ -912,22 +914,22 @@ static uint64_t drift_next(uint64_t *state)
 }
 
 /* 기준가에서 n호가 떨어진 유효 호가. 구간이 바뀌는 자리를 넘어도 맞는 값이 나온다. */
-static price_t step_price(price_t from, int steps)
+static price_t step_price(tick_table_t table, price_t from, int steps)
 {
     price_t p = from;
     for (int i = 0; i < steps; i++) {
-        price_t t = tick_size_of(p);
+        price_t t = tick_size_in(table, p);
         if (t <= 0) {
             return p;
         }
-        p = round_to_tick(p + t, true);
+        p = round_to_tick_in(table, p + t, true);
     }
     for (int i = 0; i > steps; i--) {
-        price_t t = tick_size_of(p);
+        price_t t = tick_size_in(table, p);
         if (t <= 0) {
             return p;
         }
-        p = round_to_tick(p - t, false);
+        p = round_to_tick_in(table, p - t, false);
     }
     return p;
 }
@@ -976,7 +978,7 @@ static void drift_ref_price(ledger_core_t *c)
     }
 
     price_t anchor = fed_anchor(c);
-    c->drift_base = (anchor > 0) ? anchor : step_price(c->drift_base, c->drift_dir);
+    c->drift_base = (anchor > 0) ? anchor : step_price(c->cfg.tick_table, c->drift_base, c->drift_dir);
 
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         synth_gen_t *gen = divergent_gen(c->div, (market_t)m);
@@ -995,7 +997,7 @@ static void drift_ref_price(ledger_core_t *c)
             }
             c->drift_off[m] = off;
         }
-        (void)synth_set_ref_price(gen, step_price(c->drift_base, c->drift_off[m]));
+        (void)synth_set_ref_price(gen, step_price(c->cfg.tick_table, c->drift_base, c->drift_off[m]));
     }
 }
 
@@ -1246,6 +1248,11 @@ int ledger_core_open_account(ledger_core_t *c, const char *account,
         return idx;
     }
     return (cash > 0) ? acct_deposit(&c->store, idx, cash) : ERR_OK;
+}
+
+tick_table_t ledger_core_tick_table(const ledger_core_t *c)
+{
+    return (c == NULL) ? TICK_TABLE_KRX : c->cfg.tick_table;
 }
 
 int ledger_core_balance(ledger_core_t *c, const char *account,

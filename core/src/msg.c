@@ -705,6 +705,7 @@ int msg_encode_symbol_set(const msg_symbol_set_t *m, uint8_t *buf, size_t cap)
     p += MSG_SYMBOL_LEN;
     wire_put_i32(p, m->ref_price);
     p += 4;
+    *p++ = m->kind;
     return (int)(p - buf);
 }
 
@@ -722,6 +723,7 @@ int msg_decode_symbol_set(const uint8_t *buf, size_t len, msg_symbol_set_t *out)
     p += MSG_SYMBOL_LEN;
     out->ref_price = wire_get_i32(p);
     p += 4;
+    out->kind = *p++;
     return (int)(p - buf);
 }
 
@@ -813,6 +815,7 @@ int msg_encode_symbol_ack(const msg_symbol_ack_t *m, uint8_t *buf, size_t cap)
     p += 4;
     wire_put_i32(p, m->code);
     p += 4;
+    *p++ = m->kind;
     return (int)(p - buf);
 }
 
@@ -832,6 +835,7 @@ int msg_decode_symbol_ack(const uint8_t *buf, size_t len, msg_symbol_ack_t *out)
     p += 4;
     out->code = wire_get_i32(p);
     p += 4;
+    out->kind = *p++;
     return (int)(p - buf);
 }
 

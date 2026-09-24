@@ -76,8 +76,11 @@ static void test_type_table(void)
     assert(MSG_BALANCE_REQ_LEN == 12);
     assert(MSG_BALANCE_ACK_LEN == 32);
     assert(MSG_BOOK_FEED_LEN == 178);
-    assert(MSG_SYMBOL_SET_LEN == 12);
-    assert(MSG_SYMBOL_ACK_LEN == 16);
+    /* 종목 종류 1바이트가 붙었다(T10-01) */
+    assert(MSG_SYMBOL_SET_LEN == 13);
+    assert(MSG_SYMBOL_ACK_LEN == 17);
+    assert(MSG_ACCOUNT_OPEN_LEN == 20);
+    assert(MSG_ACCOUNT_ACK_LEN == 32);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
     for (size_t i = 0; i < TABLE_N; i++) {
@@ -328,13 +331,15 @@ static void test_symbol_set_layout(void)
     static const uint8_t SYM[8] = {'0', '0', '0', '6', '6', '0', 0, 0};
     assert(memcmp(buf, SYM, sizeof(SYM)) == 0);
     assert(buf[8] == 0x01 && buf[9] == 0x02 && buf[10] == 0x03 &&
-           buf[11] == 0x04); /* 빅엔디언 i32 */
+           buf[11] == 0x04);            /* 빅엔디언 i32 */
+    assert(buf[12] == MSG_SYMBOL_KR);   /* 종목 종류가 맨 뒤에 붙는다 */
 
     msg_symbol_ack_t a;
     memset(&a, 0, sizeof(a));
     snprintf(a.symbol, sizeof(a.symbol), "%s", "000660");
     a.ref_price = 260000;
     a.code = -7;
+    a.kind = MSG_SYMBOL_US;
 
     uint8_t abuf[MSG_SYMBOL_ACK_LEN];
     assert(msg_encode_symbol_ack(&a, abuf, sizeof(abuf)) == MSG_SYMBOL_ACK_LEN);
@@ -343,6 +348,7 @@ static void test_symbol_set_layout(void)
     assert(msg_decode_symbol_ack(abuf, MSG_SYMBOL_ACK_LEN, &back) ==
            MSG_SYMBOL_ACK_LEN);
     assert(back.code == -7 && back.ref_price == 260000);
+    assert(back.kind == MSG_SYMBOL_US);
 }
 
 static void test_detail_ack_layout(void)
@@ -565,6 +571,7 @@ static void test_roundtrip_all(void)
               MSG_SYMBOL_SET_LEN, {
                   snprintf(in.symbol, sizeof(in.symbol), "%s", "000660");
                   in.ref_price = INT32_MAX;
+                  in.kind = MSG_SYMBOL_US;
               });
 
     ROUNDTRIP(msg_symbol_ack_t, msg_encode_symbol_ack, msg_decode_symbol_ack,
@@ -572,6 +579,7 @@ static void test_roundtrip_all(void)
                   snprintf(in.symbol, sizeof(in.symbol), "%s", "000660");
                   in.ref_price = 260000;
                   in.code = INT32_MIN;
+                  in.kind = MSG_SYMBOL_US;
               });
 
     ROUNDTRIP(msg_account_open_t, msg_encode_account_open,

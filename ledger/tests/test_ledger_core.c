@@ -1936,8 +1936,78 @@ static void test_opened_account_can_trade(void)
     ledger_core_destroy(c);
 }
 
+/* AAPL 지정가 매수 한 건. 종목을 인자로 받는 헬퍼가 없어 전문을 직접 만든다. */
+static int send_us(ledger_core_t *c, price_t price, uint64_t cl)
+{
+    msg_order_req_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", ACCT);
+    snprintf(req.symbol, sizeof(req.symbol), "%s", "AAPL");
+    req.cl_ord_id = cl;
+    req.side = SIDE_BUY;
+    req.type = ORDER_LIMIT;
+    req.market = MARKET_KRX;
+    req.price = price;
+    req.qty = 5;
+
+    uint8_t body[MSG_ORDER_REQ_LEN];
+    assert(msg_encode_order_req(&req, body, sizeof(body)) ==
+           (int)MSG_ORDER_REQ_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_ORDER_REQ;
+    h.body_len = MSG_ORDER_REQ_LEN;
+    h.seq = cl;
+
+    uint8_t out[256];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_ORDER_ACK_LEN));
+
+    msg_order_ack_t ack;
+    assert(msg_decode_order_ack(out + WIRE_HEADER_LEN, MSG_ORDER_ACK_LEN, &ack) >= 0);
+    return ack.reason;
+}
+
+/*
+ * 미국 종목(T10-01).
+ *
+ * 가격은 **센트 정수**다. AAPL $191.23 = 19,123센트. 국내 호가 단위 표로 열면
+ * 이 값이 "50원 단위" 구간(20,000 미만은 10원)에 걸려 **정상 가격이 거절된다.**
+ * 그것이 표를 둘로 나눈 이유다.
+ */
+static void test_us_symbol_takes_cent_prices(void)
+{
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 0;
+    cfg.order_capacity = 64;
+    cfg.symbol = "AAPL";
+    cfg.ref_price = 19123; /* $191.23 */
+    cfg.tick_table = TICK_TABLE_US;
+    cfg.cash = 10000000; /* $100,000 */
+
+    ledger_core_t *c = ledger_core_create(&cfg);
+    assert(c != NULL);
+    assert(ledger_core_tick_table(c) == TICK_TABLE_US);
+
+    /* 1센트 단위 가격이 그대로 통한다 */
+    assert(send_us(c, 19123, 1) == ERR_OK);
+    assert(send_us(c, 19124, 2) == ERR_OK);
+
+    ledger_core_destroy(c);
+
+    /* 같은 가격을 국내 표 원장에 내면 호가 단위에서 걸린다 */
+    cfg.tick_table = TICK_TABLE_KRX;
+    ledger_core_t *kr = ledger_core_create(&cfg);
+    assert(kr != NULL);
+    assert(send_us(kr, 19123, 3) == ERR_INVALID_TICK);
+    ledger_core_destroy(kr);
+}
+
 int main(void)
 {
+    STEP(test_us_symbol_takes_cent_prices);
     STEP(test_account_open_is_idempotent);
     STEP(test_opened_account_can_trade);
     STEP(test_buy_takes_liquidity);

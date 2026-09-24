@@ -101,7 +101,7 @@ int match_modify(match_engine_t *eng, order_id_t id, price_t new_price,
         new_price > book_price_high(eng->book)) {
         return REJECT(ERR_PRICE_LIMIT);
     }
-    if (!is_valid_tick(new_price)) {
+    if (!is_valid_tick_in(book_tick_table(eng->book), new_price)) {
         return REJECT(ERR_INVALID_TICK);
     }
     /* new_qty는 원 주문 수량이다. 기체결분보다 커야 잔량이 남는다. */

@@ -6,6 +6,7 @@
 
 #include "account.h"
 #include "msg.h"
+#include "tick_size.h"
 
 /*
  * 주문 검증 — 거래소로 보내기 전에 원장이 막을 것을 막는다.
@@ -79,6 +80,13 @@ typedef struct {
 
     /* 주문 한 건의 금액 한도(원). 0 이하면 한도를 보지 않는다. */
     int64_t max_order_notional;
+
+    /*
+     * 호가 단위 표(T10-01). 이 원장이 다루는 종목이 국내인가 미국인가.
+     * 검증이 호가창과 **같은 표**를 봐야 한다 — 다르면 엔진은 받아들이는 가격을
+     * 검증이 막거나, 그 반대가 된다.
+     */
+    tick_table_t tick_table;
 } validate_config_t;
 
 /* 검증 결과. 거부돼도 왜 거부됐는지 남는다. */

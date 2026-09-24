@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "order.h"
+#include "tick_size.h"
 #include "types.h"
 
 /*
@@ -45,6 +46,9 @@ typedef struct {
     market_t   market;
     ts_t       start_ts; /* 첫 주문의 논리 시각 기준점 */
     order_id_t first_id; /* 주문번호 시작값. 0이면 생성 실패 */
+
+    /* 호가 단위 표(T10-01). 국내는 원, 미국은 센트라 정렬 기준이 다르다. */
+    tick_table_t tick_table;
 } synth_config_t;
 
 typedef struct synth_gen synth_gen_t;

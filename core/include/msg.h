@@ -196,8 +196,16 @@
  * **기준가 0은 묻기만 하는 것이다.** 아무것도 바꾸지 않고 지금 종목과 기준가를 답한다 —
  * 채널계가 다시 떴을 때 원장이 무엇을 다루고 있는지 맞추는 데 쓴다.
  */
-#define MSG_SYMBOL_SET_LEN (MSG_SYMBOL_LEN + 4)
-#define MSG_SYMBOL_ACK_LEN (MSG_SYMBOL_LEN + 4 + 4)
+/*
+ * 종목 종류(T10-01). 호가 단위 표와 통화가 여기서 갈린다.
+ * 0 = 국내(원), 1 = 미국(센트). 전문에 실어야 원장이 그 종목에 맞는
+ * 호가창을 연다 — 국내 표로 연 호가창은 $191.23을 거절한다.
+ */
+#define MSG_SYMBOL_KR 0
+#define MSG_SYMBOL_US 1
+
+#define MSG_SYMBOL_SET_LEN (MSG_SYMBOL_LEN + 4 + 1)
+#define MSG_SYMBOL_ACK_LEN (MSG_SYMBOL_LEN + 4 + 4 + 1)
 
 /*
  * 계좌 개설(T9-01).
@@ -448,12 +456,14 @@ typedef struct {
 typedef struct {
     char    symbol[MSG_SYMBOL_LEN + 1];
     price_t ref_price; /* 그 종목의 현재가. 호가창이 펼칠 가격대의 중심 */
+    uint8_t kind;      /* MSG_SYMBOL_KR / MSG_SYMBOL_US */
 } msg_symbol_set_t;
 
 typedef struct {
     char    symbol[MSG_SYMBOL_LEN + 1]; /* 바뀐 뒤의 종목. 실패하면 그대로인 종목 */
     price_t ref_price;
     int32_t code; /* 0이면 바뀌었다. 음수면 errors.h의 에러코드 */
+    uint8_t kind; /* 지금 다루는 종목의 종류 */
 } msg_symbol_ack_t;
 
 typedef struct {

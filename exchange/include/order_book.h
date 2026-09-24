@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "price_level.h"
+#include "tick_size.h"
 #include "types.h"
 
 /*
@@ -31,7 +32,18 @@ typedef struct order_book order_book_t;
  * base_price가 [PRICE_MIN, PRICE_MAX] 밖이거나 할당에 실패하면 NULL.
  */
 order_book_t *book_create(price_t base_price);
+
+/*
+ * 호가 단위 표를 지정해 만든다(T10-01). 미국 종목은 센트 정수라 표가 다르다 —
+ * 국내 표로 만들면 $191.23(19,123센트)이 "50원 단위" 구간에 걸려 거절된다.
+ * `book_create()`는 국내 표를 쓰는 짧은 이름이다.
+ */
+order_book_t *book_create_in(tick_table_t table, price_t base_price);
+
 void book_destroy(order_book_t *book);
+
+/* 이 호가창이 쓰는 호가 단위 표. 엔진과 규칙이 같은 표를 쓰게 하는 데 필요하다. */
+tick_table_t book_tick_table(const order_book_t *book);
 
 /* 이 호가창이 다루는 가격 구간. 제한폭을 호가 단위로 정렬한 값이다. */
 price_t book_price_low(const order_book_t *book);

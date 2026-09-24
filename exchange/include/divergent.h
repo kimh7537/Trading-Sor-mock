@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "synthetic.h"
+#include "tick_size.h"
 #include "types.h"
 
 /*
@@ -36,6 +37,9 @@ typedef struct {
 
     ts_t    start_ts;
     int32_t orders_per_market; /* 각 시장에 넣을 주문 수 */
+
+    /* 호가 단위 표(T10-01). 국내는 원, 미국은 센트라 정렬 기준이 다르다. */
+    tick_table_t tick_table;
 } divergent_config_t;
 
 typedef struct divergent divergent_t;

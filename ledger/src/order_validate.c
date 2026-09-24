@@ -136,7 +136,7 @@ int validate_order(account_store_t *store, const validate_config_t *cfg,
         out->reason = ERR_INVALID_PRICE;
         return out->reason;
     }
-    if (!is_valid_tick(req->price)) {
+    if (!is_valid_tick_in(cfg->tick_table, req->price)) {
         out->reason = ERR_INVALID_TICK;
         return out->reason;
     }

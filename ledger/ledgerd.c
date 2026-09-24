@@ -103,24 +103,28 @@ static void on_idle(void *ctx)
  * **새 코어를 먼저 만들고 성공했을 때만 갈아끼운다.** 먼저 부수면 만들기가 실패했을 때
  * 돌아갈 곳이 없다. 공유 메모리는 익명 매핑이라 둘이 동시에 있어도 부딪히지 않는다.
  */
-static int rebase_symbol(live_ctx_t *lc, const char *symbol, price_t ref_price)
+static int rebase_symbol(live_ctx_t *lc, const char *symbol, price_t ref_price,
+                         tick_table_t table)
 {
     if (symbol[0] == '\0' || ref_price < PRICE_MIN || ref_price > PRICE_MAX) {
         return ERR_INVALID_ARG;
     }
 
-    char prev[MSG_SYMBOL_LEN + 1];
-    price_t prev_ref = lc->cfg.ref_price;
+    char         prev[MSG_SYMBOL_LEN + 1];
+    price_t      prev_ref = lc->cfg.ref_price;
+    tick_table_t prev_table = lc->cfg.tick_table;
     snprintf(prev, sizeof(prev), "%s", lc->symbol);
 
     snprintf(lc->symbol, sizeof(lc->symbol), "%s", symbol);
     lc->cfg.symbol = lc->symbol;
     lc->cfg.ref_price = ref_price;
+    lc->cfg.tick_table = table;
 
     ledger_core_t *fresh = ledger_core_create(&lc->cfg);
     if (fresh == NULL) {
         snprintf(lc->symbol, sizeof(lc->symbol), "%s", prev);
         lc->cfg.ref_price = prev_ref;
+        lc->cfg.tick_table = prev_table;
         return ERR_INVALID_ARG;
     }
 
@@ -173,10 +177,15 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
          */
         msg_symbol_ack_t ack;
         memset(&ack, 0, sizeof(ack));
-        ack.code = (req.ref_price == 0) ? ERR_OK
-                                        : rebase_symbol(lc, req.symbol, req.ref_price);
+        tick_table_t want = (req.kind == MSG_SYMBOL_US) ? TICK_TABLE_US
+                                                        : TICK_TABLE_KRX;
+        ack.code = (req.ref_price == 0)
+                       ? ERR_OK
+                       : rebase_symbol(lc, req.symbol, req.ref_price, want);
         snprintf(ack.symbol, sizeof(ack.symbol), "%s", lc->symbol);
         ack.ref_price = lc->cfg.ref_price;
+        ack.kind = (lc->cfg.tick_table == TICK_TABLE_US) ? MSG_SYMBOL_US
+                                                        : MSG_SYMBOL_KR;
 
         /* 시퀀스·시각은 요청이 들고 온 것을 그대로 쓴다(원장 코어와 같다) */
         wire_header_t h;

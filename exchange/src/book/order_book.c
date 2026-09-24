@@ -22,6 +22,13 @@ typedef struct {
 } book_segment_t;
 
 struct order_book {
+    /*
+     * 이 호가창이 쓰는 호가 단위 표(T10-01). 국내와 미국이 다르다.
+     * 전역에 두지 않고 여기 두는 이유는 종목을 바꾸는 동안 새 호가창과 옛
+     * 호가창이 잠시 함께 있기 때문이다 — 전역이면 한쪽이 남의 표를 쓴다.
+     */
+    tick_table_t tick_table;
+
     price_t base_price;
     price_t low;  /* 제한폭 하한을 호가 단위로 올림한 값 */
     price_t high; /* 제한폭 상한을 호가 단위로 내림한 값 */
@@ -76,7 +83,8 @@ static price_t index_to_price(const order_book_t *book, int32_t idx)
 /* --- 생성 --- */
 
 /* 제한폭 경계를 유효 호가로 정렬한다. 실패하면 false. */
-static bool compute_band(price_t base, price_t *out_low, price_t *out_high)
+static bool compute_band(tick_table_t table, price_t base, price_t *out_low,
+                         price_t *out_high)
 {
     /* types.h의 _Static_assert가 이 곱셈이 price_t를 넘지 않음을 보장한다. */
     price_t raw_low = base * (100 - PRICE_LIMIT_PCT) / 100;
@@ -90,8 +98,9 @@ static bool compute_band(price_t base, price_t *out_low, price_t *out_high)
         raw_high = PRICE_MAX;
     }
 
-    price_t low = round_to_tick(raw_low, true);    /* 하한 이상의 첫 유효 호가 */
-    price_t high = round_to_tick(raw_high, false); /* 상한 이하의 마지막 유효 호가 */
+    /* 하한 이상의 첫 유효 호가 / 상한 이하의 마지막 유효 호가 */
+    price_t low = round_to_tick_in(table, raw_low, true);
+    price_t high = round_to_tick_in(table, raw_high, false);
 
     if (low == 0 || high == 0 || low > high) {
         return false;
@@ -113,8 +122,8 @@ static bool build_segments(order_book_t *book)
             return false;
         }
 
-        price_t tick = tick_size_of(p);
-        price_t seg_end = tick_segment_end(p); /* 배타적 상한 */
+        price_t tick = tick_size_in(book->tick_table, p);
+        price_t seg_end = tick_segment_end_in(book->tick_table, p); /* 배타적 상한 */
         assert(tick > 0 && seg_end > p);
         assert(p % tick == 0);
 
@@ -138,6 +147,11 @@ static bool build_segments(order_book_t *book)
 
 order_book_t *book_create(price_t base_price)
 {
+    return book_create_in(TICK_TABLE_KRX, base_price);
+}
+
+order_book_t *book_create_in(tick_table_t table, price_t base_price)
+{
     if (base_price < PRICE_MIN || base_price > PRICE_MAX) {
         return NULL;
     }
@@ -146,11 +160,12 @@ order_book_t *book_create(price_t base_price)
     if (book == NULL) {
         return NULL;
     }
+    book->tick_table = table;
     book->base_price = base_price;
     book->best[SIDE_BUY] = BOOK_PRICE_NONE;
     book->best[SIDE_SELL] = BOOK_PRICE_NONE;
 
-    if (!compute_band(base_price, &book->low, &book->high) ||
+    if (!compute_band(table, base_price, &book->low, &book->high) ||
         !build_segments(book)) {
         book_destroy(book);
         return NULL;
@@ -166,6 +181,11 @@ order_book_t *book_create(price_t base_price)
     }
 
     return book;
+}
+
+tick_table_t book_tick_table(const order_book_t *book)
+{
+    return (book == NULL) ? TICK_TABLE_KRX : book->tick_table;
 }
 
 void book_destroy(order_book_t *book)

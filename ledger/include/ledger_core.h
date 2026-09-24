@@ -6,6 +6,7 @@
 
 #include "divergent.h"
 #include "msg.h"
+#include "tick_size.h"
 #include "order_book.h"
 #include "types.h"
 #include "wire.h"
@@ -105,6 +106,15 @@ typedef struct {
      * 락까지 100바이트대라 넉넉히 잡아도 부담이 없다.
      */
     int32_t    account_capacity;
+
+    /*
+     * 다루는 종목이 국내인가 미국인가(T10-01).
+     *
+     * 호가 단위 표와 가격의 뜻이 여기서 갈린다 — 국내는 원, 미국은 **센트** 정수다.
+     * 호가창·엔진·검증이 모두 이 값을 따라야 한다. 하나라도 어긋나면 엔진은
+     * 받아들이는 가격을 검증이 막는다.
+     */
+    tick_table_t tick_table;
 } ledger_core_config_t;
 
 /* 화면(web)과 맞춘 기본값 — 계좌 123456789012, 005930, 기준가 70,000원. */
@@ -207,6 +217,9 @@ int ledger_core_open_account(ledger_core_t *core, const char *account,
                              int64_t cash);
 
 /* 계좌의 예수금·묶인 금액. 없는 계좌면 ERR_NOT_FOUND. */
+/* 이 원장이 다루는 종목의 호가 단위 표. 채널계가 화면에 통화를 표시하는 데 쓴다. */
+tick_table_t ledger_core_tick_table(const ledger_core_t *core);
+
 int ledger_core_balance(ledger_core_t *core, const char *account,
                         int64_t *out_cash, int64_t *out_reserved);
 

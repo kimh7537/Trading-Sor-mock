@@ -91,7 +91,7 @@ static price_t price_at_offset(const synth_gen_t *gen, side_t side,
                                double offset_ticks)
 {
     price_t ref = gen->cfg.ref_price;
-    price_t tick = tick_size_of(ref);
+    price_t tick = tick_size_in(gen->cfg.tick_table, ref);
     assert(tick > 0);
 
     /* 이격이 지나치게 크면 어차피 잘리므로 미리 막아 오버플로를 피한다. */
@@ -116,15 +116,15 @@ static price_t price_at_offset(const synth_gen_t *gen, side_t side,
      * 기준가의 호가 단위로 곱했으므로 다른 구간으로 넘어가면 어긋날 수 있다.
      * 매수는 내림, 매도는 올림으로 맞춘다 — 각자 제 방향으로 미는 것이 자연스럽다.
      */
-    price_t aligned = round_to_tick((price_t)raw, side == SIDE_SELL);
+    price_t aligned = round_to_tick_in(gen->cfg.tick_table, (price_t)raw, side == SIDE_SELL);
     if (aligned == 0) {
         aligned = (price_t)raw;
     }
     if (aligned < gen->cfg.price_low) {
-        aligned = round_to_tick(gen->cfg.price_low, true);
+        aligned = round_to_tick_in(gen->cfg.tick_table, gen->cfg.price_low, true);
     }
     if (aligned > gen->cfg.price_high) {
-        aligned = round_to_tick(gen->cfg.price_high, false);
+        aligned = round_to_tick_in(gen->cfg.tick_table, gen->cfg.price_high, false);
     }
     return aligned;
 }
