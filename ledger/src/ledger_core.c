@@ -89,6 +89,7 @@ const ledger_core_config_t LEDGER_CORE_DEFAULT = {
     .seed = 20260917,
     .liquidity_per_market = 1000,
     .order_capacity = 65536,
+    .account_capacity = LEDGER_ACCOUNT_CAP_DEFAULT,
 };
 
 struct ledger_core {
@@ -670,6 +671,33 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
         break;
     }
     /*
+     * 계좌를 연다(T9-01). **이미 있으면 그대로 두고 잔고만 답한다** — 채널계는
+     * 로그인할 때마다 이것을 보내고, 원장이 다시 떠서 계좌가 사라졌으면 그때
+     * 되살아난다. 있는 계좌에 다시 입금하지 않으므로 여러 번 불러도 안전하다.
+     */
+    case MSG_ACCOUNT_OPEN: {
+        msg_account_open_t req;
+        if (msg_decode_account_open(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+
+        msg_account_ack_t ack;
+        memset(&ack, 0, sizeof(ack));
+        memcpy(ack.account, req.account, sizeof(ack.account));
+
+        int rc = ledger_core_open_account(c, req.account, req.cash);
+        if (rc == ERR_DUPLICATE) {
+            rc = ERR_OK; /* 이미 쓸 수 있는 계좌다 */
+        }
+        ack.code = rc;
+        if (rc == ERR_OK) {
+            ack.code = ledger_core_balance(c, req.account, &ack.cash,
+                                           &ack.reserved);
+        }
+        m = msg_encode_account_ack(&ack, b, cap);
+        break;
+    }
+    /*
      * 스냅샷을 심고 **심은 뒤의 호가창**을 돌려준다(T8-03). 심다가 실패해도 응답은
      * 호가창이다 — 보낸 쪽이 "그래서 지금 어떻게 됐나"를 한 번에 본다.
      */
@@ -816,7 +844,10 @@ ledger_core_t *ledger_core_create(const ledger_core_config_t *cfg)
     }
     c->submitting = ORDER_ID_INVALID;
 
-    const int32_t rec_count[SHM_REGION_COUNT] = {4, 4};
+    const int32_t acct_cap = (c->cfg.account_capacity > 0)
+                                 ? c->cfg.account_capacity
+                                 : LEDGER_ACCOUNT_CAP_DEFAULT;
+    const int32_t rec_count[SHM_REGION_COUNT] = {acct_cap, 4};
     const size_t  rec_size[SHM_REGION_COUNT] = {sizeof(account_t), 64};
     c->seg = shm_create(rec_count, rec_size);
     if (c->seg == NULL || acct_store_init(&c->store, c->seg) != ERR_OK) {

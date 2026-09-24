@@ -1855,8 +1855,91 @@ static void test_feed_message_answers_with_book(void)
 }
 
 
+/*
+ * 계좌 개설 전문(T9-01).
+ *
+ * 사용자마다 계좌가 하나씩 생기므로 **같은 요청이 두 번 와도 돈이 불어나면 안 된다** —
+ * 채널계는 로그인할 때마다 이것을 보낸다.
+ */
+static void test_account_open_is_idempotent(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    msg_account_open_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", "u00000000007");
+    req.cash = 5000000;
+
+    uint8_t body[MSG_ACCOUNT_OPEN_LEN];
+    assert(msg_encode_account_open(&req, body, sizeof(body)) ==
+           (int)MSG_ACCOUNT_OPEN_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_ACCOUNT_OPEN;
+    h.body_len = MSG_ACCOUNT_OPEN_LEN;
+    h.seq = 11;
+
+    uint8_t out[WIRE_HEADER_LEN + MSG_ACCOUNT_ACK_LEN];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_ACCOUNT_ACK_LEN));
+
+    wire_header_t rh;
+    assert(wire_decode_header(out, (size_t)n, &rh) == (int)WIRE_HEADER_LEN);
+    assert(rh.type == MSG_ACCOUNT_ACK && rh.seq == 11);
+
+    msg_account_ack_t ack;
+    assert(msg_decode_account_ack(out + WIRE_HEADER_LEN, rh.body_len, &ack) ==
+           (int)MSG_ACCOUNT_ACK_LEN);
+    assert(ack.code == ERR_OK);
+    assert(strcmp(ack.account, "u00000000007") == 0);
+    assert(ack.cash == 5000000 && ack.reserved == 0);
+
+    /* 두 번째 개설 — 열린 계좌를 그대로 답하고 입금은 하지 않는다 */
+    h.seq = 12;
+    n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_ACCOUNT_ACK_LEN));
+    assert(msg_decode_account_ack(out + WIRE_HEADER_LEN, MSG_ACCOUNT_ACK_LEN,
+                                  &ack) == (int)MSG_ACCOUNT_ACK_LEN);
+    assert(ack.code == ERR_OK);
+    assert(ack.cash == 5000000); /* 1000만 원이 되지 않는다 */
+
+    /* 길이가 규격과 다른 바디는 접속을 끊는다 */
+    h.body_len = MSG_ACCOUNT_OPEN_LEN - 1;
+    assert(ledger_core_handle(&h, body, out, sizeof(out), c) < 0);
+
+    ledger_core_destroy(c);
+}
+
+/* 새로 연 계좌로 실제 주문이 나가고, 데모 계좌는 그대로다. */
+static void test_opened_account_can_trade(void)
+{
+    ledger_core_t *c = empty_core(64);
+
+    assert(ledger_core_open_account(c, "u00000000008", 10000000) == ERR_OK);
+
+    msg_order_ack_t ack;
+    assert(send_order_ex(c, "u00000000008", SIDE_BUY, ORDER_LIMIT, MARKET_KRX,
+                         69000, 10, 1, &ack, NULL, NULL) == ERR_OK);
+
+    int64_t cash = 0, reserved = 0;
+    assert(ledger_core_balance(c, "u00000000008", &cash, &reserved) == ERR_OK);
+    assert(cash - reserved < 10000000); /* 증거금이 묶였다 */
+
+    /* 처음부터 있던 데모 계좌는 이 주문에 영향받지 않는다 */
+    int64_t demo_cash = 0, demo_reserved = 0;
+    assert(ledger_core_balance(c, LEDGER_CORE_DEFAULT.account, &demo_cash,
+                               &demo_reserved) == ERR_OK);
+    assert(demo_reserved == 0);
+
+    ledger_core_destroy(c);
+}
+
 int main(void)
 {
+    STEP(test_account_open_is_idempotent);
+    STEP(test_opened_account_can_trade);
     STEP(test_buy_takes_liquidity);
     STEP(test_sell_takes_liquidity);
     STEP(test_resting_then_maker_fill);

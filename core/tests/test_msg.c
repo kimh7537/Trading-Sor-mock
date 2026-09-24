@@ -37,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 23);
+    assert(TABLE_N == 25);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -123,6 +123,9 @@ static void test_reply_pairs(void)
     /* 종목 전환은 바뀐 결과를 따로 답한다(T8-10). */
     assert(msg_reply_type(MSG_SYMBOL_SET) == MSG_SYMBOL_ACK);
     assert(msg_reply_type(MSG_SYMBOL_ACK) == MSG_UNKNOWN);
+    /* 계좌 개설의 답은 그 계좌의 잔고다(T9-01). */
+    assert(msg_reply_type(MSG_ACCOUNT_OPEN) == MSG_ACCOUNT_ACK);
+    assert(msg_reply_type(MSG_ACCOUNT_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_DETAIL_REQ) == MSG_DETAIL_ACK);
     assert(msg_reply_type(MSG_BALANCE_REQ) == MSG_BALANCE_ACK);
@@ -571,6 +574,20 @@ static void test_roundtrip_all(void)
                   in.code = INT32_MIN;
               });
 
+    ROUNDTRIP(msg_account_open_t, msg_encode_account_open,
+              msg_decode_account_open, MSG_ACCOUNT_OPEN_LEN, {
+                  snprintf(in.account, sizeof(in.account), "%s", "u00000000042");
+                  in.cash = INT64_MAX;
+              });
+
+    ROUNDTRIP(msg_account_ack_t, msg_encode_account_ack, msg_decode_account_ack,
+              MSG_ACCOUNT_ACK_LEN, {
+                  snprintf(in.account, sizeof(in.account), "%s", "u00000000042");
+                  in.code = INT32_MIN;
+                  in.cash = INT64_MIN;
+                  in.reserved = INT64_MAX;
+              });
+
     ROUNDTRIP(msg_detail_req_t, msg_encode_detail_req, msg_decode_detail_req,
               MSG_DETAIL_REQ_LEN, {
                   snprintf(in.account, sizeof(in.account), "%s", "123456789012");
@@ -706,6 +723,9 @@ static void test_decode_rejects_wrong_length(void)
     CHECK_LEN(msg_decode_book_feed, msg_book_feed_t, MSG_BOOK_FEED_LEN);
     CHECK_LEN(msg_decode_symbol_set, msg_symbol_set_t, MSG_SYMBOL_SET_LEN);
     CHECK_LEN(msg_decode_symbol_ack, msg_symbol_ack_t, MSG_SYMBOL_ACK_LEN);
+    CHECK_LEN(msg_decode_account_open, msg_account_open_t,
+              MSG_ACCOUNT_OPEN_LEN);
+    CHECK_LEN(msg_decode_account_ack, msg_account_ack_t, MSG_ACCOUNT_ACK_LEN);
 
 #undef CHECK_LEN
 }

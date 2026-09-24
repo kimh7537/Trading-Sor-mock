@@ -63,6 +63,8 @@ msg_type_t msg_reply_type(uint8_t req_type)
         return MSG_BOOK_ACK;
     case MSG_SYMBOL_SET:
         return MSG_SYMBOL_ACK;
+    case MSG_ACCOUNT_OPEN:
+        return MSG_ACCOUNT_ACK;
     case MSG_DETAIL_REQ:
         return MSG_DETAIL_ACK;
     case MSG_BALANCE_REQ:
@@ -720,6 +722,80 @@ int msg_decode_symbol_set(const uint8_t *buf, size_t len, msg_symbol_set_t *out)
     p += MSG_SYMBOL_LEN;
     out->ref_price = wire_get_i32(p);
     p += 4;
+    return (int)(p - buf);
+}
+
+int msg_encode_account_open(const msg_account_open_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_ACCOUNT_OPEN_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_ACCOUNT_LEN, m->account);
+    p += MSG_ACCOUNT_LEN;
+    wire_put_i64(p, m->cash);
+    p += 8;
+    return (int)(p - buf);
+}
+
+int msg_decode_account_open(const uint8_t *buf, size_t len,
+                            msg_account_open_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_ACCOUNT_OPEN_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_ACCOUNT_LEN, out->account);
+    p += MSG_ACCOUNT_LEN;
+    out->cash = wire_get_i64(p);
+    p += 8;
+    return (int)(p - buf);
+}
+
+int msg_encode_account_ack(const msg_account_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_ACCOUNT_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    uint8_t *p = buf;
+    wire_put_str(p, MSG_ACCOUNT_LEN, m->account);
+    p += MSG_ACCOUNT_LEN;
+    wire_put_i32(p, m->code);
+    p += 4;
+    wire_put_i64(p, m->cash);
+    p += 8;
+    wire_put_i64(p, m->reserved);
+    p += 8;
+    return (int)(p - buf);
+}
+
+int msg_decode_account_ack(const uint8_t *buf, size_t len,
+                           msg_account_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_ACCOUNT_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint8_t *p = buf;
+    wire_get_str(p, MSG_ACCOUNT_LEN, out->account);
+    p += MSG_ACCOUNT_LEN;
+    out->code = wire_get_i32(p);
+    p += 4;
+    out->cash = wire_get_i64(p);
+    p += 8;
+    out->reserved = wire_get_i64(p);
+    p += 8;
     return (int)(p - buf);
 }
 

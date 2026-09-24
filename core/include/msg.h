@@ -200,6 +200,21 @@
 #define MSG_SYMBOL_ACK_LEN (MSG_SYMBOL_LEN + 4 + 4)
 
 /*
+ * 계좌 개설(T9-01).
+ *
+ * 이 원장은 처음에 계좌 하나를 설정에서 받아 열었다. 사용자마다 따로 모의투자를
+ * 하려면 **계좌가 붙는 쪽의 요청으로 생겨야 한다** — 채널계가 회원가입을 받은
+ * 그 자리에서 원장에 계좌를 연다.
+ *
+ * **다시 불러도 된다.** 이미 있는 계좌면 아무것도 바꾸지 않고 지금 잔고를 답한다
+ * (`code`는 0). 원장은 메모리에만 있어서 껐다 켜면 계좌가 사라지는데, 그때
+ * 이미 가입한 사람이 다시 로그인하면 채널계가 이 전문으로 계좌를 되살린다.
+ * 없는 계좌를 만들 때만 `cash`를 입금하므로 **다시 불러도 돈이 불어나지 않는다.**
+ */
+#define MSG_ACCOUNT_OPEN_LEN (MSG_ACCOUNT_LEN + 8)
+#define MSG_ACCOUNT_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8)
+
+/*
  * 종별 목록. X(이름, 코드, 바디 길이, 설명).
  *
  * 코드는 0을 쓰지 않는다 — 0으로 초기화된 버퍼가 유효한 종별로 보이면 안 된다.
@@ -227,7 +242,9 @@
     X(MSG_BALANCE_ACK, 20, MSG_BALANCE_ACK_LEN, "잔고 조회 응답")            \
     X(MSG_BOOK_FEED, 21, MSG_BOOK_FEED_LEN, "호가 스냅샷 주입")           \
     X(MSG_SYMBOL_SET, 22, MSG_SYMBOL_SET_LEN, "종목 전환 요청")           \
-    X(MSG_SYMBOL_ACK, 23, MSG_SYMBOL_ACK_LEN, "종목 전환 응답")
+    X(MSG_SYMBOL_ACK, 23, MSG_SYMBOL_ACK_LEN, "종목 전환 응답")           \
+    X(MSG_ACCOUNT_OPEN, 24, MSG_ACCOUNT_OPEN_LEN, "계좌 개설 요청")       \
+    X(MSG_ACCOUNT_ACK, 25, MSG_ACCOUNT_ACK_LEN, "계좌 개설 응답")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -439,6 +456,18 @@ typedef struct {
     int32_t code; /* 0이면 바뀌었다. 음수면 errors.h의 에러코드 */
 } msg_symbol_ack_t;
 
+typedef struct {
+    char    account[MSG_ACCOUNT_LEN + 1];
+    int64_t cash; /* 새로 열 때만 입금한다. 이미 있으면 무시 */
+} msg_account_open_t;
+
+typedef struct {
+    char    account[MSG_ACCOUNT_LEN + 1];
+    int32_t code; /* 0이면 쓸 수 있는 계좌다(새로 열었든 이미 있었든) */
+    int64_t cash;
+    int64_t reserved;
+} msg_account_ack_t;
+
 /*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
@@ -471,6 +500,12 @@ int msg_encode_symbol_set(const msg_symbol_set_t *m, uint8_t *buf, size_t cap);
 int msg_decode_symbol_set(const uint8_t *buf, size_t len, msg_symbol_set_t *out);
 int msg_encode_symbol_ack(const msg_symbol_ack_t *m, uint8_t *buf, size_t cap);
 int msg_decode_symbol_ack(const uint8_t *buf, size_t len, msg_symbol_ack_t *out);
+int msg_encode_account_open(const msg_account_open_t *m, uint8_t *buf, size_t cap);
+int msg_decode_account_open(const uint8_t *buf, size_t len,
+                            msg_account_open_t *out);
+int msg_encode_account_ack(const msg_account_ack_t *m, uint8_t *buf, size_t cap);
+int msg_decode_account_ack(const uint8_t *buf, size_t len,
+                           msg_account_ack_t *out);
 
 int msg_encode_book_feed(const msg_book_feed_t *m, uint8_t *buf, size_t cap);
 

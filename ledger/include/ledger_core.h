@@ -84,6 +84,9 @@
 
 typedef struct ledger_core ledger_core_t;
 
+/* 계좌 정원 기본값. 설정이 0이면 이 값을 쓴다. */
+#define LEDGER_ACCOUNT_CAP_DEFAULT 256
+
 typedef struct {
     const char *account; /* 데모 계좌번호. MSG_ACCOUNT_LEN(12)자 */
     int64_t     cash;    /* 처음 입금액(원) */
@@ -94,6 +97,14 @@ typedef struct {
     uint64_t   seed;                 /* 유동성 생성 시드. 같은 시드 -> 같은 호가창 */
     int32_t    liquidity_per_market; /* 시장당 미리 넣는 유동성 주문 수 */
     int32_t    order_capacity;       /* 받을 수 있는 사용자 주문 수 */
+
+    /*
+     * 동시에 열어 둘 수 있는 계좌 수(T9-01). 0이면 기본값.
+     *
+     * 사용자마다 계좌를 하나씩 여니까 **가입 정원이 곧 이 값이다.** 계좌 하나가
+     * 락까지 100바이트대라 넉넉히 잡아도 부담이 없다.
+     */
+    int32_t    account_capacity;
 } ledger_core_config_t;
 
 /* 화면(web)과 맞춘 기본값 — 계좌 123456789012, 005930, 기준가 70,000원. */

@@ -38,12 +38,53 @@
  */
 #define LEDGERD_TICK_MIN_MS 10
 
+/*
+ * 열린 계좌를 기억해 두는 자리(T9-02).
+ *
+ * 종목을 바꾸면 코어를 통째로 갈아끼운다. 그러면 **그때까지 열린 계좌가 전부
+ * 사라진다** — 혼자 쓰던 때는 설정의 데모 계좌가 새 코어에서 다시 열려 티가 나지
+ * 않았지만, 사람마다 계좌를 하나씩 여는 지금은 종목 하나 바꾸는 것으로 모두가
+ * 거래를 못 하게 된다.
+ *
+ * 그래서 연 계좌를 여기 적어 두고 새 코어에 다시 연다. **잔고는 처음 입금액으로
+ * 돌아간다** — 미체결과 잔고가 초기화되는 것은 종목 전환의 원래 성질이고
+ * (앞 종목의 주문을 다른 가격대 호가창에 남겨 둘 자리가 없다), 여기서 바꾸지 않는다.
+ */
+#define LEDGERD_ACCOUNT_MAX 256
+
+typedef struct {
+    char    no[MSG_ACCOUNT_LEN + 1];
+    int64_t cash;
+} opened_account_t;
+
 typedef struct {
     ledger_core_t       *core;
     ledger_core_config_t cfg;
     char                 symbol[MSG_SYMBOL_LEN + 1];
     int32_t              per_tick;
+
+    opened_account_t opened[LEDGERD_ACCOUNT_MAX];
+    int32_t          opened_n;
 } live_ctx_t;
+
+/*
+ * 이미 적어 둔 계좌면 아무것도 하지 않는다. 자리가 없으면 조용히 넘어간다 —
+ * 계좌 자체는 코어가 열어 줬고, 못 적는 것은 종목 전환 때 못 살린다는 뜻일 뿐이다.
+ */
+static void remember_account(live_ctx_t *lc, const char *no, int64_t cash)
+{
+    for (int32_t i = 0; i < lc->opened_n; i++) {
+        if (strcmp(lc->opened[i].no, no) == 0) {
+            return;
+        }
+    }
+    if (lc->opened_n >= LEDGERD_ACCOUNT_MAX) {
+        return;
+    }
+    snprintf(lc->opened[lc->opened_n].no, sizeof(lc->opened[0].no), "%s", no);
+    lc->opened[lc->opened_n].cash = cash;
+    lc->opened_n++;
+}
 
 /* 기다리다 심심하면 호가창을 한 틱 움직인다(T8-01). */
 static void on_idle(void *ctx)
@@ -83,8 +124,24 @@ static int rebase_symbol(live_ctx_t *lc, const char *symbol, price_t ref_price)
         return ERR_INVALID_ARG;
     }
 
+    /*
+     * 새 코어에 계좌를 다시 연다(T9-02). 못 연 계좌가 있어도 전환 자체는 되돌리지
+     * 않는다 — 이미 옛 코어는 버릴 참이고, 계좌 하나 때문에 모두를 앞 종목에
+     * 묶어 두는 편이 더 나쁘다. 못 연 것은 로그로 남긴다.
+     */
+    int32_t failed = 0;
+    for (int32_t i = 0; i < lc->opened_n; i++) {
+        if (ledger_core_open_account(fresh, lc->opened[i].no,
+                                     lc->opened[i].cash) != ERR_OK) {
+            failed++;
+        }
+    }
+
     ledger_core_destroy(lc->core);
     lc->core = fresh;
+    if (failed > 0) {
+        printf("  계좌 %d개를 새 종목에서 열지 못했다\n", failed);
+    }
     printf("종목 전환: %s -> %s, 기준가 %d원 (가격대 %d ~ %d원)\n", prev, lc->symbol,
            ref_price, ref_price - ref_price * 3 / 10,
            ref_price + ref_price * 3 / 10);
@@ -138,6 +195,27 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
             return -1;
         }
         return n + m;
+    }
+
+    /*
+     * 계좌 개설은 코어가 처리하지만, **누가 열렸는지는 여기가 기억한다**(T9-02).
+     * 종목을 바꿀 때 새 코어에 다시 열어 줘야 하기 때문이다.
+     */
+    if (hdr->type == MSG_ACCOUNT_OPEN) {
+        msg_account_open_t req;
+        if (msg_decode_account_open(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+        int n = ledger_core_handle(hdr, body, out, out_cap, lc->core);
+        if (n > 0) {
+            msg_account_ack_t ack;
+            if (msg_decode_account_ack(out + WIRE_HEADER_LEN,
+                                       MSG_ACCOUNT_ACK_LEN, &ack) >= 0 &&
+                ack.code == ERR_OK) {
+                remember_account(lc, req.account, req.cash);
+            }
+        }
+        return n;
     }
 
     return ledger_core_handle(hdr, body, out, out_cap, lc->core);
