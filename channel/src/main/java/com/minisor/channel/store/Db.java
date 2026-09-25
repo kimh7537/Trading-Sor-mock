@@ -84,8 +84,20 @@ public class Db {
                       qty        INTEGER NOT NULL,
                       order_id   INTEGER NOT NULL,
                       cl_ord_id  INTEGER NOT NULL,
-                      at         TEXT    NOT NULL
+                      at         TEXT    NOT NULL,
+                      feed       INTEGER NOT NULL DEFAULT 0
                     )""");
+            /*
+             * feed는 **어느 시세로 체결했나**다(0=시뮬, 1=실시세). 시뮬 가격은 가상
+             * 참가자가 지어낸 값이고 실시세 가격은 바깥에서 받은 실호가다. 둘을 한
+             * 수익률에 섞으면 그 숫자는 아무것도 뜻하지 않으므로 **장부를 따로 둔다**
+             * — 통화를 섞지 않는 것과 같은 이유다.
+             *
+             * 칸이 생기기 전에 적힌 체결은 시뮬로 본다(기본값 0). 어느 시세로 냈는지
+             * 알 길이 없고, 모르는 것을 실시세 성적에 넣는 것보다 낫다.
+             */
+            addColumnIfMissing(c, "fills", "feed", "INTEGER NOT NULL DEFAULT 0");
+
             st.execute("CREATE INDEX IF NOT EXISTS fills_by_account "
                     + "ON fills(account, id)");
             /*
@@ -96,6 +108,25 @@ public class Db {
                     + "ON fills(account, order_id, market, price, qty, cl_ord_id)");
         } catch (SQLException e) {
             throw new IllegalStateException("거래 기록 저장소를 열지 못했다: " + url, e);
+        }
+    }
+
+    /**
+     * 없으면 칸을 더한다.
+     *
+     * <p>SQLite에 {@code ADD COLUMN IF NOT EXISTS}가 없어서 먼저 확인한다. 이미 쓰던
+     * 파일에 칸이 생길 때 필요하다 — 지우고 다시 만들면 <b>거래 기록이 날아간다.</b>
+     */
+    private void addColumnIfMissing(Connection c, String table, String column,
+            String definition) throws SQLException {
+        try (var rs = c.getMetaData().getColumns(null, null, table, column)) {
+            if (rs.next()) {
+                return;
+            }
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+            log.info("{} 표에 {} 칸을 더했다", table, column);
         }
     }
 }

@@ -73,10 +73,15 @@ class LiveFeedTest {
                                 new int[][] {{69900, 12}, {69800, 5}},
                                 new int[][] {{70000, 7}}));
 
-        assertThat(ledger.feeds()).isEqualTo(before + 1);
+        /*
+         * **두 시장에 심는다**(점검에서 고침). 한 시장에만 심으면 나머지 시장은
+         * 가상 참가자가 계속 움직여, 실시세 모드인데 호가가 걸어가고 SOR이 그쪽으로
+         * 보낸 주문이 가짜 호가에 체결된다.
+         */
+        assertThat(ledger.feeds()).isEqualTo(before + 2);
         BookFeed sent = ledger.lastFeed();
         assertThat(sent.symbol).isEqualTo("005930");
-        assertThat(sent.market).isZero();
+        assertThat(sent.market).isEqualTo(1); /* 마지막으로 심은 것은 NXT */
         assertThat(sent.feedTs).isEqualTo(32_400_000_000_000L);
         assertThat(sent.bidPrice[0]).isEqualTo(69900);
         assertThat(sent.bidQty[0]).isEqualTo(12);

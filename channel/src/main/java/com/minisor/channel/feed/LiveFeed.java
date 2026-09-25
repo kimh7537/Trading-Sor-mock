@@ -107,16 +107,41 @@ public class LiveFeed {
      * <p>원장이 답하지 않으면 {@link LedgerException}을 그대로 올린다 — 부르는 쪽(피드 루프)이
      * 다시 붙을지 그만둘지를 정한다. 여기서 삼키면 피드가 조용히 멈춘 것을 아무도 모른다.
      */
-    public BookAck apply(Snapshot s) {
-        BookFeed f = new BookFeed();
-        f.symbol = symbols.code();
-        f.market = props.market();
-        f.feedTs = s.tsNanos();
-        BookFeed.fill(f.bidPrice, f.bidQty, s.bids());
-        BookFeed.fill(f.askPrice, f.askQty, s.asks());
+    /** 원장이 다루는 시장 수(KRX·NXT). C의 `MARKET_COUNT`와 같다. */
+    private static final int MARKETS = 2;
 
-        BookAck ack = gateway.call(f, BookAck.class);
-        checkPlanted(f, ack);
+    public BookAck apply(Snapshot s) {
+        /*
+         * **두 시장에 모두 심는다**(점검에서 고침).
+         *
+         * 예전에는 설정의 한 시장(KRX)에만 심었다. 그런데 원장이 가상 참가자 틱을
+         * 멈추는 기준이 **시장별**이라(`fed[m]`), 피드를 한 번도 못 받은 NXT는
+         * 실시세 모드에서도 계속 혼자 움직였다. 장이 닫힌 밤에도 호가가 걸어가는
+         * 것이 그 때문이고, 더 나쁜 것은 **SOR이 그 시장으로 보낸 주문이 가짜
+         * 호가에 체결**된다는 점이다. 실제로 그렇게 됐다.
+         *
+         * 토스 국내 시세는 **통합(KRX+NXT)** 이라 두 시장에 같은 값을 심는 것이
+         * 오히려 사실에 가깝다. 두 시장이 다 받으면 둘 다 틱을 멈추고, 어느 쪽으로
+         * 라우팅돼도 실호가에 체결된다. 장이 닫히면 둘 다 그 자리에 선다.
+         */
+        BookAck ack = null;
+        for (int market = 0; market < MARKETS; market++) {
+            BookFeed f = new BookFeed();
+            f.symbol = symbols.code();
+            f.market = market;
+            f.feedTs = s.tsNanos();
+            BookFeed.fill(f.bidPrice, f.bidQty, s.bids());
+            BookFeed.fill(f.askPrice, f.askQty, s.asks());
+
+            BookAck got = gateway.call(f, BookAck.class);
+            if (market == props.market()) {
+                ack = got;
+                checkPlanted(f, got);
+            }
+        }
+        if (ack == null) {
+            throw new IllegalStateException("심을 시장 설정이 범위 밖이다: " + props.market());
+        }
 
         applied.incrementAndGet();
         lastFeedTs.set(s.tsNanos());
@@ -275,11 +300,34 @@ public class LiveFeed {
         }
     }
 
+    /**
+     * 장부가 바뀌면 계좌를 그 장부의 예수금·보유로 다시 싣는다(점검).
+     *
+     * <p>setter로 받는 이유는 **순환 의존** 때문이다 — 싣는 쪽은 지금 모드를 알아야
+     * 하고(이 클래스), 이 클래스는 모드가 뒤집힐 때 싣는 쪽을 불러야 한다.
+     */
+    private com.minisor.channel.store.AccountSeeder seeder;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSeeder(com.minisor.channel.store.AccountSeeder seeder) {
+        this.seeder = seeder;
+    }
+
+    private void reseed() {
+        if (seeder != null) {
+            seeder.seedAll();
+        }
+    }
+
     /** 실시세를 밀어 넣는 쪽이 자기 이름과 함께 켠다("toss", "replay"). */
     public void enterLive(String source) {
+        boolean wasSim = mode == Mode.SIM;
         this.source = source;
         this.mode = Mode.LIVE;
         this.lastError = null;
+        if (wasSim) {
+            reseed(); /* 시뮬 장부 -> 실시세 장부 */
+        }
         hub.broadcast(new StreamEvent("feed-mode", status()));
     }
 
@@ -298,6 +346,11 @@ public class LiveFeed {
     public void enterSim() {
         boolean wasLive = mode == Mode.LIVE;
         this.source = "sim";
+        if (wasLive) {
+            /* 실시세 장부 -> 시뮬 장부. 모드를 내리기 전에 실어야 지금 장부가 맞다 */
+            this.mode = Mode.SIM;
+            reseed();
+        }
         this.mode = Mode.SIM;
         if (wasLive) {
             try {
@@ -312,6 +365,21 @@ public class LiveFeed {
             }
         }
         hub.broadcast(new StreamEvent("feed-mode", status()));
+    }
+
+    /**
+     * 지금 장부 번호 (0=시뮬, 1=실시세).
+     *
+     * <p><b>시뮬 체결과 실시세 체결은 다른 장부에 쌓인다</b>(점검에서 더함). 시뮬
+     * 가격은 가상 참가자가 지어낸 값이라, 실호가에 체결한 것과 한 수익률에 섞으면
+     * 그 숫자가 아무것도 뜻하지 않는다. 통화를 섞지 않는 것과 같은 이유다.
+     *
+     * <p>녹화 재생은 실시세 쪽으로 친다 — 바깥에서 받은 실호가를 시각만 옮겨 다시
+     * 트는 것이기 때문이다. 같은 파일을 여러 번 재생하면 같은 장세를 여러 번 거래한
+     * 기록이 남는다는 것은 알고 쓴다.
+     */
+    public int book() {
+        return mode == Mode.LIVE ? 1 : 0;
     }
 
     public Mode mode() {

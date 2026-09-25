@@ -32,18 +32,22 @@ class PortfolioTest {
         portfolio = new Portfolio(fills);
     }
 
+    /** 기본은 실시세 장부(1)로 적는다. 장부를 보는 시험만 따로 지정한다. */
     private void buy(String symbol, int kind, long price, long qty, long orderId) {
-        fills.record(ACC, symbol, kind, 0, 0, price, qty, orderId, orderId);
+        fills.record(ACC, symbol, kind, 0, 0, price, qty, orderId, orderId, LIVE);
     }
 
     private void sell(String symbol, int kind, long price, long qty, long orderId) {
-        fills.record(ACC, symbol, kind, 1, 0, price, qty, orderId, orderId);
+        fills.record(ACC, symbol, kind, 1, 0, price, qty, orderId, orderId, LIVE);
     }
+
+    private static final int SIM = 0;
+    private static final int LIVE = 1;
 
     /** 거래가 없으면 시작 자금 그대로다. */
     @Test
     void emptyAccountIsJustSeedCash() {
-        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(s.qty()).isZero();
         assertThat(s.cash()).isEqualTo(SEED);
         assertThat(s.realized()).isZero();
@@ -56,7 +60,7 @@ class PortfolioTest {
         buy(KR, 0, 70_000, 10, 1);
         buy(KR, 0, 80_000, 10, 2);
 
-        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(s.qty()).isEqualTo(20);
         assertThat(s.cost()).isEqualTo(1_500_000);
         assertThat(s.avgCost()).isEqualTo(75_000);
@@ -75,7 +79,7 @@ class PortfolioTest {
         buy(KR, 0, 80_000, 10, 2);
         sell(KR, 0, 90_000, 10, 3);
 
-        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(s.qty()).isEqualTo(10);
         assertThat(s.realized()).isEqualTo(150_000);
         assertThat(s.avgCost()).isEqualTo(75_000); /* 남은 것의 평균은 그대로 */
@@ -83,7 +87,7 @@ class PortfolioTest {
 
         /* 나머지도 판다 — 보유도 원가도 0 */
         sell(KR, 0, 60_000, 10, 4);
-        Portfolio.Snapshot flat = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot flat = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(flat.qty()).isZero();
         assertThat(flat.cost()).isZero();
         /* 두 번째는 주당 15,000 손해라 이익과 정확히 상쇄된다 */
@@ -98,7 +102,7 @@ class PortfolioTest {
     void unrealizedAndReturnUseCurrentPrice() {
         buy(KR, 0, 70_000, 100, 1); /* 700만 원어치 */
 
-        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(s.unrealized(77_000)).isEqualTo(700_000); /* 주당 7,000 이익 */
         assertThat(s.equity(77_000)).isEqualTo(SEED + 700_000);
         assertThat(s.returnRate(77_000, SEED)).isCloseTo(0.007, within(1e-9));
@@ -116,11 +120,11 @@ class PortfolioTest {
         buy(KR, 0, 70_000, 10, 1);     /* 국내 */
         buy("AAPL", 1, 25_500, 10, 2); /* 미국 */
 
-        Portfolio.Snapshot kr = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot kr = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(kr.qty()).isEqualTo(10);
         assertThat(kr.cash()).isEqualTo(SEED - 700_000); /* 미국 매수가 섞이지 않았다 */
 
-        Portfolio.Snapshot us = portfolio.of(ACC, "AAPL", 1, 10_000_000);
+        Portfolio.Snapshot us = portfolio.of(ACC, "AAPL", 1, LIVE, 10_000_000);
         assertThat(us.qty()).isEqualTo(10);
         assertThat(us.cash()).isEqualTo(10_000_000 - 255_000);
     }
@@ -128,12 +132,38 @@ class PortfolioTest {
     /** 같은 체결이 두 번 들어와도 한 번만 센다 — 주문 응답과 주기 작업이 같은 것을 본다. */
     @Test
     void duplicateFillIsIgnored() {
-        assertThat(fills.record(ACC, KR, 0, 0, 0, 70_000, 10, 100, 1)).isTrue();
-        assertThat(fills.record(ACC, KR, 0, 0, 0, 70_000, 10, 100, 1)).isFalse();
+        assertThat(fills.record(ACC, KR, 0, 0, 0, 70_000, 10, 100, 1, LIVE)).isTrue();
+        assertThat(fills.record(ACC, KR, 0, 0, 0, 70_000, 10, 100, 1, LIVE)).isFalse();
 
-        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot s = portfolio.of(ACC, KR, 0, LIVE, SEED);
         assertThat(s.qty()).isEqualTo(10);
         assertThat(s.fills()).isEqualTo(1);
+    }
+
+    /**
+     * <b>시뮬 체결은 실시세 성적에 섞이지 않는다</b>(점검).
+     *
+     * <p>시뮬 가격은 가상 참가자가 지어낸 값이다. 실호가에 체결한 것과 한 수익률에
+     * 넣으면 그 숫자는 모의투자 성적으로서 아무 뜻이 없다.
+     */
+    @Test
+    void simFillsDoNotTouchTheLiveBook() {
+        /* 시뮬에서 싸게 잔뜩 산다 */
+        fills.record(ACC, KR, 0, 0, 0, 10_000, 100, 1, 1, SIM);
+
+        Portfolio.Snapshot liveBook = portfolio.of(ACC, KR, 0, LIVE, SEED);
+        assertThat(liveBook.qty()).isZero();
+        assertThat(liveBook.cash()).isEqualTo(SEED); /* 실시세 장부는 손도 타지 않았다 */
+        assertThat(liveBook.fills()).isZero();
+
+        Portfolio.Snapshot simBook = portfolio.of(ACC, KR, 0, SIM, SEED);
+        assertThat(simBook.qty()).isEqualTo(100);
+        assertThat(simBook.cash()).isEqualTo(SEED - 1_000_000);
+
+        /* 실시세에서 따로 산다 — 시뮬 장부가 움직이지 않는다 */
+        buy(KR, 0, 70_000, 10, 2);
+        assertThat(portfolio.of(ACC, KR, 0, LIVE, SEED).qty()).isEqualTo(10);
+        assertThat(portfolio.of(ACC, KR, 0, SIM, SEED).qty()).isEqualTo(100);
     }
 
     /** 기록은 파일에 남는다 — 채널계를 다시 띄워도 어제 거래가 그대로 있다. */
@@ -144,7 +174,7 @@ class PortfolioTest {
         Db again = new Db(dir.resolve("minisor.db").toString());
         Portfolio reopened = new Portfolio(new FillStore(again));
 
-        Portfolio.Snapshot s = reopened.of(ACC, KR, 0, SEED);
+        Portfolio.Snapshot s = reopened.of(ACC, KR, 0, LIVE, SEED);
         assertThat(s.qty()).isEqualTo(10);
         assertThat(s.cash()).isEqualTo(SEED - 700_000);
     }

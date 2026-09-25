@@ -31,6 +31,8 @@ public class FillStore {
      *
      * @param kind 0=국내(원), 1=미국(센트). 통화가 다르므로 섞어 더하면 안 된다
      * @param side 0=매수, 1=매도 (WireEnums)
+     * @param feed 0=시뮬(가상 참가자), 1=실시세. **장부를 나누는 값이다** — 지어낸
+     *             가격에 체결한 것과 실호가에 체결한 것을 한 수익률에 섞지 않는다
      */
     public record Fill(
             long id,
@@ -43,7 +45,8 @@ public class FillStore {
             long qty,
             long orderId,
             long clOrdId,
-            String at) {
+            String at,
+            int feed) {
 
         /** 체결 금액. 가격 x 수량. */
         public long notional() {
@@ -63,14 +66,15 @@ public class FillStore {
      * @return 새로 적었으면 true
      */
     public boolean record(String account, String symbol, int kind, int side, int market,
-            long price, long qty, long orderId, long clOrdId) {
+            long price, long qty, long orderId, long clOrdId, int feed) {
         if (account == null || qty <= 0) {
             return false;
         }
         String sql = """
                 INSERT OR IGNORE INTO fills
-                  (account, symbol, kind, side, market, price, qty, order_id, cl_ord_id, at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""";
+                  (account, symbol, kind, side, market, price, qty, order_id, cl_ord_id,
+                   at, feed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""";
         try (Connection c = db.connection(); PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, account);
             ps.setString(2, symbol == null ? "" : symbol);
@@ -82,6 +86,7 @@ public class FillStore {
             ps.setLong(8, orderId);
             ps.setLong(9, clOrdId);
             ps.setString(10, Instant.now().toString());
+            ps.setInt(11, feed);
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             /*
@@ -124,7 +129,8 @@ public class FillStore {
                             rs.getLong("qty"),
                             rs.getLong("order_id"),
                             rs.getLong("cl_ord_id"),
-                            rs.getString("at")));
+                            rs.getString("at"),
+                            rs.getInt("feed")));
                 }
             }
         } catch (SQLException e) {

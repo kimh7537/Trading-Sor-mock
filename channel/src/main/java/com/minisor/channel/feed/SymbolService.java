@@ -42,6 +42,14 @@ public class SymbolService {
 
     private final UsStocks us = new UsStocks();
 
+    /** 종목이 바뀌면 계좌를 그 종목의 보유로 다시 싣는다(점검). */
+    private com.minisor.channel.store.AccountSeeder seeder;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSeeder(com.minisor.channel.store.AccountSeeder seeder) {
+        this.seeder = seeder;
+    }
+
     private static final Logger log = LoggerFactory.getLogger(SymbolService.class);
 
     /** 원장 전문의 종목 칸은 8바이트다. 그 밖의 글자는 보내기 전에 막는다. */
@@ -228,12 +236,27 @@ public class SymbolService {
         candles.clear();
         sim.reset();
         /* 실시세라면 새 종목으로 다시 구독한다. 시뮬이면 가상 참가자가 새 가격대에서 돈다 */
-        if (live.mode() == LiveFeed.Mode.LIVE && !state.us()) {
-            client.resubscribe();
+        if (live.mode() == LiveFeed.Mode.LIVE) {
+            if (state.us()) {
+                /*
+                 * **미국으로 바꾸면 실시세를 끈다**(점검에서 고침). 시세 제공자가
+                 * 국내만 주므로, 켜 둔 채로 두면 화면은 "실시세"라고 적는데 호가는
+                 * 가상 참가자가 지어낸 값이 된다. 모의투자 성적을 재는 화면에서
+                 * 그것은 거짓말이다.
+                 */
+                client.stop();
+                live.enterSim();
+                log.info("미국 종목이라 실시세를 끄고 시뮬로 내린다: {}", code);
+            } else {
+                client.resubscribe();
+            }
         }
 
         log.info("종목 전환: {} {} 기준가 {}{}", code, name, ack.refPrice,
                 state.us() ? "센트" : "원");
+        /* 원장이 새로 열렸다 — 모든 계좌를 이 종목·장부의 값으로 다시 싣는다 */
+        seeder.seedAll();
+
         hub.broadcast(new StreamEvent("symbol", state.current()));
         return state.current();
     }

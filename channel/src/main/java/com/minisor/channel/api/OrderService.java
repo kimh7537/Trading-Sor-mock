@@ -66,6 +66,9 @@ public class OrderService {
     /** 지금 종목. 체결을 적을 때 어느 종목·통화인지 알아야 한다. */
     private final com.minisor.channel.feed.SymbolState symbols;
 
+    /** 지금 시세 모드. 시뮬 체결과 실시세 체결을 다른 장부에 적는다(점검). */
+    private final com.minisor.channel.feed.LiveFeed live;
+
     /**
      * 전문에 실을 논리 시각. <b>시스템 시각을 읽지 않는다</b>(CLAUDE.md).
      * 채널계는 시각의 의미를 알 필요가 없고, 늘어나기만 하면 된다.
@@ -78,13 +81,15 @@ public class OrderService {
             OrderRegistry registry,
             StreamHub hub,
             com.minisor.channel.store.FillStore fills,
-            com.minisor.channel.feed.SymbolState symbols) {
+            com.minisor.channel.feed.SymbolState symbols,
+            com.minisor.channel.feed.LiveFeed live) {
         this.pool = pool;
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
         this.fills = fills;
         this.symbols = symbols;
+        this.live = live;
     }
 
     public OrderResponseDto submit(String account, OrderRequestDto req) {
@@ -182,7 +187,7 @@ public class OrderService {
          */
         com.minisor.channel.feed.SymbolState.Current sym = symbols.current();
         fills.record(account, sym.code(), sym.kind(), side, market, price, qty, orderId,
-                clOrdId);
+                clOrdId, live.book());
 
         hub.sendTo(account,
                 StreamEvent.fill(

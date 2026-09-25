@@ -45,6 +45,10 @@ public class PortfolioController {
     private final FillStore fills;
     private final SymbolState symbols;
     private final LedgerGateway gateway;
+
+    /** 지금 시세 모드. 시뮬 장부와 실시세 장부가 따로다(점검). */
+    private final com.minisor.channel.feed.LiveFeed live;
+
     private final long seedKr;
     private final long seedUs;
 
@@ -53,12 +57,14 @@ public class PortfolioController {
             FillStore fills,
             SymbolState symbols,
             LedgerGateway gateway,
+            com.minisor.channel.feed.LiveFeed live,
             @Value("${minisor.auth.signup-cash:100000000}") long seedKr,
             @Value("${minisor.auth.signup-cash-us:10000000}") long seedUs) {
         this.portfolio = portfolio;
         this.fills = fills;
         this.symbols = symbols;
         this.gateway = gateway;
+        this.live = live;
         this.seedKr = seedKr;
         this.seedUs = seedUs;
     }
@@ -69,7 +75,7 @@ public class PortfolioController {
         SymbolState.Current now = symbols.current();
         long seed = now.us() ? seedUs : seedKr;
 
-        Portfolio.Snapshot s = portfolio.of(account, now.code(), now.kind(), seed);
+        Portfolio.Snapshot s = portfolio.of(account, now.code(), now.kind(), live.book(), seed);
         long price = lastPrice(now.code());
 
         return new PortfolioDto(

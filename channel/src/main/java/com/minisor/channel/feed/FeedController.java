@@ -39,12 +39,25 @@ public class FeedController {
     private final FeedReplayer replay;
     private final FeedProperties props;
 
+    /** 지금 종목. 미국이면 실시세를 줄 수 없어 모드 전환을 막는다. */
+    private final SymbolState symbols;
+
+    /** 장부가 바뀌면 계좌를 그 장부의 값으로 다시 싣는다(점검). */
+    private final com.minisor.channel.store.AccountSeeder seeder;
+
     public FeedController(
-            LiveFeed live, TossFeedClient toss, FeedReplayer replay, FeedProperties props) {
+            LiveFeed live,
+            TossFeedClient toss,
+            FeedReplayer replay,
+            FeedProperties props,
+            SymbolState symbols,
+            com.minisor.channel.store.AccountSeeder seeder) {
         this.live = live;
         this.toss = toss;
         this.replay = replay;
         this.props = props;
+        this.symbols = symbols;
+        this.seeder = seeder;
     }
 
     @GetMapping("/api/feed")
@@ -58,10 +71,23 @@ public class FeedController {
             toss.stop();
             replay.stop();
             live.enterSim();
+            /* 장부가 바뀌었다 — 모든 계좌를 시뮬 장부의 예수금·보유로 다시 싣는다 */
+            seeder.seedAll();
             return ResponseEntity.ok(live.status());
         }
         if (!"live".equals(mode)) {
             return ResponseEntity.badRequest().build();
+        }
+        /*
+         * **미국 종목은 실시세를 줄 수 없다**(점검에서 고침).
+         *
+         * 쓰는 시세 제공자(토스 Open API)의 구독 토픽이 `orderbook:kr`·`trade:kr`로
+         * 국내만 준다. 그런데도 실시세 모드를 켜 두면 화면은 "실시세"라고 적는데
+         * 호가는 가상 참가자가 지어낸 값이다 — 모의투자 성적을 재는 화면에서
+         * 그것은 거짓말이다. 켤 수 없다고 분명히 말하고 시뮬로 둔다.
+         */
+        if (symbols.us()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(live.status());
         }
         /*
          * **토스가 이미 붙기를 포기하고 있으면 재생으로 넘어간다.**

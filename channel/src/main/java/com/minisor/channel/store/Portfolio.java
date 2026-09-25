@@ -87,9 +87,12 @@ public class Portfolio {
      * @param symbol   보유를 셀 종목. 현금은 <b>같은 통화의 모든 종목</b>을 함께 센다 —
      *                 다른 종목을 사고판 것도 예수금을 움직였기 때문이다
      * @param kind     0=국내, 1=미국. 다른 통화의 체결은 아예 보지 않는다
+     * @param feed     0=시뮬, 1=실시세. **다른 장부의 체결은 아예 보지 않는다** —
+     *                 시뮬 가격은 가상 참가자가 지어낸 값이라, 실호가에 체결한 것과
+     *                 한 수익률에 섞으면 그 숫자가 아무것도 뜻하지 않는다
      * @param seedCash 가입할 때 넣어 준 돈(그 통화)
      */
-    public Snapshot of(String account, String symbol, int kind, long seedCash) {
+    public Snapshot of(String account, String symbol, int kind, int feed, long seedCash) {
         List<FillStore.Fill> all = fills.all(account);
 
         long qty = 0;
@@ -100,8 +103,8 @@ public class Portfolio {
         int counted = 0;
 
         for (FillStore.Fill f : all) {
-            if (f.kind() != kind) {
-                continue; /* 통화가 다르다 */
+            if (f.kind() != kind || f.feed() != feed) {
+                continue; /* 통화가 다르거나 장부가 다르다 */
             }
             counted++;
             if (f.side() == 0) { /* 매수 */

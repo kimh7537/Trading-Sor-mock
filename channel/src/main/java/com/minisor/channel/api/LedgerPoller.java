@@ -52,6 +52,9 @@ public class LedgerPoller {
 
     /** 체결 기록(T11-02). 나중 체결은 여기서만 보이므로 여기서 남긴다. */
     private final com.minisor.channel.store.FillStore fills;
+
+    /** 지금 시세 모드. 시뮬 체결과 실시세 체결을 다른 장부에 적는다(점검). */
+    private final com.minisor.channel.feed.LiveFeed live;
     private final boolean enabled;
 
     private final Map<Integer, BookController.BookDto> lastBooks = new HashMap<>();
@@ -66,8 +69,10 @@ public class LedgerPoller {
             SymbolState symbols,
             UserStore users,
             com.minisor.channel.store.FillStore fills,
+            com.minisor.channel.feed.LiveFeed live,
             @Value("${minisor.poller.enabled:true}") boolean enabled) {
         this.fills = fills;
+        this.live = live;
         this.gateway = gateway;
         this.registry = registry;
         this.hub = hub;
@@ -171,7 +176,7 @@ public class LedgerPoller {
             /* 나중 체결도 기록에 남는다(T11-02). 주문 응답이 본 것과 겹치면 저장소가 막는다 */
             var sym = symbols.current();
             fills.record(account, sym.code(), sym.kind(), after.side(), leg.market(), price,
-                    qty, after.orderId(), after.clOrdId());
+                    qty, after.orderId(), after.clOrdId(), live.book());
 
             hub.sendTo(account,
                     StreamEvent.fill(

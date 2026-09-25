@@ -51,6 +51,9 @@ public class AuthController {
     /** 거래 기록에서 지금 있어야 할 예수금·보유를 구한다(T11-02). */
     private final Portfolio portfolio;
 
+    /** 지금 시세 모드. 시뮬 장부와 실시세 장부가 따로다(점검). */
+    private final com.minisor.channel.feed.LiveFeed live;
+
     private final long signupCash;
     private final long signupCashUs;
 
@@ -59,12 +62,14 @@ public class AuthController {
             LedgerGateway gateway,
             SymbolState symbols,
             Portfolio portfolio,
+            com.minisor.channel.feed.LiveFeed live,
             @Value("${minisor.auth.signup-cash:100000000}") long signupCash,
             @Value("${minisor.auth.signup-cash-us:10000000}") long signupCashUs) {
         this.users = users;
         this.gateway = gateway;
         this.symbols = symbols;
         this.portfolio = portfolio;
+        this.live = live;
         this.signupCash = signupCash;
         this.signupCashUs = signupCashUs;
     }
@@ -142,7 +147,7 @@ public class AuthController {
          * 미체결 주문은 되살리지 않는다 — 꺼져 있던 동안 그 주문은 어느 시장에도
          * 없었고, 되살리면 "밤새 체결됐어야 한다"는 거짓말이 된다.
          */
-        Portfolio.Snapshot s = portfolio.of(account, now.code(), now.kind(), seed);
+        Portfolio.Snapshot s = portfolio.of(account, now.code(), now.kind(), live.book(), seed);
 
         AccountOpen req = new AccountOpen();
         req.account = account;
