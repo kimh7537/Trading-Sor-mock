@@ -4,6 +4,7 @@ import { SymbolPicker } from "./SymbolPicker";
 import type { CurrentSymbol, Me } from "../lib/api";
 import {  money, moneyUnit } from "../lib/format";
 import { useFlash } from "../lib/useFlash";
+import { feedLabel } from "../lib/feedLabel";
 
 const CONN_LABEL: Record<ConnState, string> = {
   connecting: "연결 중",
@@ -67,6 +68,8 @@ export function Header({
   onLogout: () => void;
 }) {
   const live = feed?.mode === "live";
+  /* 호가를 무엇이 만드는지 한 곳에서 적는다 — 네 군데가 각자 쓰다 말이 달라졌다(점검) */
+  const label = feedLabel(feed);
   const cells: [key: keyof Balance, label: string][] = [
     ["cash", "예수금"],
     ["reserved", "묶인 금액"],
@@ -139,10 +142,10 @@ export function Header({
         </button>
 
         <span
-          className={`mode-badge${live ? " live" : ""}`}
-          title={live ? "바깥 시세를 원장 호가창에 심고 있다. 주문은 모의다" : "가상 참가자가 호가를 만든다"}
+          className={`mode-badge${live ? " live" : ""}${label.synthetic ? " sim" : ""}`}
+          title={label.long}
         >
-          {live ? "실시세 · 주문은 모의" : "시뮬"}
+          {label.badge}
         </span>
 
         <span className={`conn ${ws.state}`} title="채널계 실시간 방송 연결">

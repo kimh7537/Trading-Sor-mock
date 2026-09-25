@@ -93,6 +93,11 @@
 | 재현성 | 시드 고정 | 녹화 파일 재생이 같은 결과를 만든다 |
 | 피드가 멈추면 | 해당 없음 | **호가창이 얼어붙는다.** 가상 참가자가 대신 끼어들지 않는다 — 그러면 "실시세인 척하는 시뮬"이 된다 |
 | 모의투자 장부 | 따로 | 따로. 시뮬 가격은 **지어낸 값**이라 한 수익률에 섞으면 성적으로서 뜻이 없다 |
+| 화면이 적는 말 | `시뮬 · 가상 참가자가 호가를 만든다` (틱이 꺼져 있으면 `시뮬 · 호가 정지`) | `실시세 · 주문은 모의` |
+
+**호가가 돈다고 실시세가 아니다.** 시뮬 모드에서 호가창을 움직이는 것은 `ledgerd --live`로
+켠 **가상 참가자**다. 예전에는 배지가 "시뮬"이라고만 적어서 실시세로 오해하는 일이 실제로
+났다 — 지금은 무엇이 호가를 만드는지 화면이 그대로 적는다.
 
 **모드를 바꾸면 장부가 바뀐다.** 예수금·보유는 그 장부의 값으로 다시 실리고, **걸어 둔
 미체결 주문은 취소된다** — 시뮬 호가를 보고 건 주문이 실시세 호가에 체결되면 지어낸 판단이
@@ -138,6 +143,7 @@ cmake --build build-asan && ctest --test-dir build-asan
 # 1. 원장 (WSL). 9100번에서 기다린다
 ./build/ledger/ledgerd
 # --live <초당 주문 수>를 주면 가상 참가자가 계속 주문을 내 호가창이 스스로 움직인다
+# (이름과 달리 "실시세"가 아니다 — 화면에서 실시세를 켜면 원장이 오히려 이 틱을 멈춘다)
 ./build/ledger/ledgerd 9100 --live 40
 
 # 2. 채널계 (Windows, channel/). 8080번
@@ -217,7 +223,7 @@ cmake -B build-rel -DCMAKE_BUILD_TYPE=Release && cmake --build build-rel
 | [`docs/FINANCE-101.md`](docs/FINANCE-101.md) | **금융 기초** — 호가·체결·스프레드·SOR. 도메인 지식 없이 읽기 시작하는 사람이 **가장 먼저** 볼 것 |
 | [`docs/GUIDE.md`](docs/GUIDE.md) | **처음 읽는 사람용 전체 안내서** — 읽는 순서, 기초 기술, 모듈별 코드 |
 | [`docs/ENGINEERING-NOTES.md`](docs/ENGINEERING-NOTES.md) | **오류·해결·설계 판단 기록** (기술 면접용) |
-| [`docs/RUNNING.md`](docs/RUNNING.md) | **실행·테스트 안내서** — CLion(WSL)·IntelliJ·명령줄 실행, 테스트 166개(C 58 · Java 108)와 벤치마크의 데이터·방법·결과 |
+| [`docs/RUNNING.md`](docs/RUNNING.md) | **실행·테스트 안내서** — CLion(WSL)·IntelliJ·명령줄 실행, 테스트 167개(C 58 · Java 109)와 벤치마크의 데이터·방법·결과 |
 | [`docs/PLAN.md`](docs/PLAN.md) | 기획서. 왜 만드는가, 진행 경로 |
 | [`docs/SPEC.md`](docs/SPEC.md) | 시장 규칙 명세 (거래시간, 호가단위, 매칭규칙) |
 | [`docs/TASKS.md`](docs/TASKS.md) | 작업 목록 (Phase 1~6) |

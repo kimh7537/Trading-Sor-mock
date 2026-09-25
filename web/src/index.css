@@ -809,6 +809,30 @@ kbd {
   color: var(--warn, #b45309);
   border-color: currentColor;
 }
+/*
+ * **시뮬도 눈에 띄어야 한다**(점검). 예전에는 회색으로 가라앉아 "시뮬"이라고만 적었고,
+ * 가상 참가자가 만든 호가가 활발히 도는 것을 보고 실시세로 오해하는 일이 실제로 났다.
+ * 지어낸 호가라는 사실은 흐리게 적을 것이 아니다.
+ */
+.mode-badge.sim {
+  color: var(--text-dim);
+  border-color: var(--line);
+  border-style: dashed;
+}
+
+/* "지금 호가를 만드는 것" 한 줄. 시세 모드 패널 맨 위 */
+.now-driving {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 8px);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.now-driving.synthetic {
+  border-style: dashed;
+}
 
 .mode-switch {
   display: grid;

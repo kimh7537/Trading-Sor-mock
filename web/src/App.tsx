@@ -18,6 +18,7 @@ import { ChartPanel } from "./components/ChartPanel";
 import { LoginPanel } from "./components/LoginPanel";
 import { AccountPanel } from "./components/AccountPanel";
 import { fetchMe, logout, type Me } from "./lib/api";
+import { feedLabel } from "./lib/feedLabel";
 
 type View = "trade" | "account" | "strategies" | "ops";
 
@@ -104,6 +105,8 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
    * 0으로 돌려 그 시장의 호가를 따르게 한다.
    */
   const live = t.feed?.mode === "live";
+  /* 호가를 무엇이 만드는지 한 곳에서 적는다(점검) */
+  const feedText = feedLabel(t.feed);
   /* 실시세는 통합 시세라 시장이 하나다. 그 시장만 보인다(T8-05) */
   const only = live && t.feed ? (marketName(t.feed.market) as "KRX" | "NXT") : undefined;
   /*
@@ -175,7 +178,12 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
         {view === "trade" && (
           <div className="workspace" data-pane={pane}>
-            <Panel className="area-book" title="호가" sub="누르면 가격·방향을 주문창에 담는다" flush>
+            <Panel
+              className="area-book"
+              title="호가"
+              sub={`${feedText.sub} · 누르면 가격·방향을 주문창에 담는다`}
+              flush
+            >
               {t.bookError && (
                 <div className="alert-bar danger" role="alert">
                   원장 호가를 읽지 못했다 — ledgerd와 채널계가 떠 있는지 확인
@@ -187,7 +195,7 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Panel
               className="area-chart"
               title="차트"
-              sub={live ? "바깥 시세 · 주문은 모의" : "가상 참가자가 만드는 호가"}
+              sub={live ? "바깥 시세 · 주문은 모의" : feedText.sub}
             >
               <ChartPanel key={t.symbol.code} ticks={t.ticks} feed={t.feed} />
             </Panel>

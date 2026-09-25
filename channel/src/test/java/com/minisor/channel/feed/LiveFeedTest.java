@@ -155,4 +155,25 @@ class LiveFeedTest {
         live.enterSim();
         assertThat(live.status().mode()).isEqualTo("sim");
     }
+
+    /**
+     * 점검 — <b>화면이 "호가를 무엇이 만드는가"를 안다.</b>
+     *
+     * <p>"시뮬"이라고만 적어 두니 호가가 도는 것을 보고 실시세로 오해하는 일이 실제로 났다.
+     * 상태에 가상 참가자 켜짐이 실려야 화면이 그것을 말할 수 있다. 값은 <b>원장이 답한
+     * 것</b>이지 보낸 것이 아니다.
+     */
+    @Test
+    void statusSaysWhoMovesTheBook() {
+        live.enterSim();
+        assertThat(live.status().simTicks()).isTrue();
+        assertThat(ledger.ticksOn()).isTrue();
+
+        live.enterLive("replay");
+        assertThat(live.status().simTicks()).isFalse(); /* 실시세가 가상 참가자를 끈다 */
+        assertThat(ledger.ticksOn()).isFalse();
+
+        live.enterSim();
+        assertThat(live.status().simTicks()).isTrue();
+    }
 }

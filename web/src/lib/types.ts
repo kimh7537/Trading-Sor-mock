@@ -102,6 +102,13 @@ export interface FeedStatus {
   note: string;
   /** 마지막으로 붙지 못한 이유. 붙어 있으면 null */
   error: string | null;
+  /**
+   * 지금 **가상 참가자**가 호가를 만들고 있는가.
+   *
+   * 시뮬 모드에서 호가창을 움직이는 것은 이것뿐이다. "시뮬"이라고만 적어 두면
+   * 호가가 도는 것을 보고 실시세로 오해한다 — 실제로 그랬다.
+   */
+  simTicks: boolean;
 }
 
 /**

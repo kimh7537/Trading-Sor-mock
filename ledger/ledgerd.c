@@ -275,7 +275,12 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
 
         msg_tick_ack_t ack;
         memset(&ack, 0, sizeof(ack));
-        ack.on = lc->ticks_on ? 1 : 0;
+        /*
+         * **스위치가 아니라 "정말 틱이 나가는가"를 답한다**(점검). `--live` 없이 띄우면
+         * 유휴 콜백 자체가 등록되지 않아 한 건도 안 나가는데, 스위치만 보면 1이 나가
+         * 화면이 "가상 참가자 켜짐"이라고 거짓말을 한다.
+         */
+        ack.on = (lc->ticks_on && lc->per_tick > 0) ? 1 : 0;
         ack.code = ERR_OK;
 
         wire_header_t h;
@@ -311,7 +316,12 @@ static void live_pace(long rate, int *out_ms, int32_t *out_per_tick)
 int main(int argc, char **argv)
 {
     uint16_t port = LEDGERD_DEFAULT_PORT;
-    long     live_rate = 0; /* 0이면 실시세 모드가 아니다 */
+    /*
+     * **`--live`는 "실시세"가 아니라 "가상 참가자"다.** 이름이 화면의 실시세 모드와
+     * 겹쳐 실제로 두 번 헷갈렸다 — 실시세 모드가 켜면 이쪽이 오히려 꺼진다.
+     * 0이면 가상 참가자가 한 건도 내지 않아 호가창이 그대로 선다.
+     */
+    long     live_rate = 0;
     long     ref_price = 0; /* 0이면 기본 기준가를 쓴다 */
 
     for (int i = 1; i < argc; i++) {
@@ -400,7 +410,7 @@ int main(int argc, char **argv)
         int tick_ms = 0;
         live_pace(live_rate, &tick_ms, &live.per_tick);
         listener_set_idle(ln, on_idle, &live, tick_ms);
-        printf("  실시세 모드: 시장마다 초당 %ld건 (%dms마다 %d건)\n", live_rate,
+        printf("  가상 참가자: 시장마다 초당 %ld건 (%dms마다 %d건)\n", live_rate,
                tick_ms, live.per_tick);
     }
     fflush(stdout);

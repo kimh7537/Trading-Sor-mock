@@ -70,7 +70,16 @@ public class LiveFeed {
              * <p>원장의 논리 시각과 달리 "얼마나 오래 조용한가"를 재는 데 쓴다 — 장이 닫히면
              * 피드가 멈추고 호가창이 얼어붙는데, 그것을 화면이 말해 줘야 한다.
              */
-            long lastFeedAt) {}
+            long lastFeedAt,
+            /**
+             * 지금 <b>가상 참가자</b>가 호가를 만들고 있는가(점검).
+             *
+             * <p>시뮬 모드에서 호가창을 움직이는 것은 이것뿐이다. 그런데 화면이 "시뮬"이라고만
+             * 적어 두니 "호가가 도는데 실시세 아니냐"는 오해가 실제로 났다. 원장이 답한 값을
+             * 그대로 올린다 — {@code ledgerd}를 {@code --live} 없이 띄우면 거짓이고, 그때
+             * 호가창은 그 자리에 서 있다.
+             */
+            boolean simTicks) {}
 
     private final LedgerGateway gateway;
     private final StreamHub hub;
@@ -336,6 +345,17 @@ public class LiveFeed {
      * <p>원장에 못 붙어도 모드 전환 자체는 막지 않는다 — 다음 전환이나 재시작에서
      * 다시 맞춰진다. 못 붙은 것은 로그로 남긴다.
      */
+    /**
+     * 지금 가상 참가자가 정말 호가를 내고 있는가. <b>원장이 답한 값</b>이다 —
+     * 보낸 값이 아니다. {@code --live} 없이 띄운 원장은 켜라고 해도 0을 답한다.
+     *
+     * <p><b>한계: 모드를 한 번도 바꾸지 않았으면 물어본 적이 없다.</b> 원장의 기본값과 같은
+     * {@code true}로 시작하고, 모드가 바뀌는 순간 진짜 값으로 맞춰진다. 띄우자마자 물어보게도
+     * 해 봤는데, 기동이 원장 왕복 한 번을 기다리게 되고 원장이 없으면 타임아웃만큼 멈췄다 —
+     * 화면 문구 하나를 위해 치를 값이 아니다.
+     */
+    private volatile boolean simTicks = true;
+
     private void setTicks(boolean on) {
         TickSet req = new TickSet();
         req.on = on ? 1 : 0;
@@ -343,11 +363,17 @@ public class LiveFeed {
             TickAck ack = gateway.call(req, TickAck.class);
             if (ack.code != 0) {
                 log.warn("가상 참가자 스위치를 원장이 거절했다: code={}", ack.code);
+                return;
+            }
+            simTicks = ack.on != 0;
+            if (on && !simTicks) {
+                log.info("원장이 --live 없이 떠 있다 — 시뮬 모드에서도 호가창이 움직이지 않는다");
             }
         } catch (RuntimeException e) {
             log.warn("가상 참가자 스위치를 보내지 못했다: {}", e.toString());
         }
     }
+
 
     /** 실시세를 밀어 넣는 쪽이 자기 이름과 함께 켠다("toss", "replay"). */
     public void enterLive(String source) {
@@ -466,6 +492,7 @@ public class LiveFeed {
                 lastFeedTs.get(),
                 note,
                 lastError,
-                lastFeedAt.get());
+                lastFeedAt.get(),
+                simTicks);
     }
 }

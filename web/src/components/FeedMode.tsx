@@ -1,5 +1,6 @@
 import type { FeedStatus } from "../lib/types";
 import { marketName } from "../lib/wire";
+import { feedLabel } from "../lib/feedLabel";
 
 /**
  * 시뮬 모드 ↔ 실시세 모드(T8-05).
@@ -21,6 +22,7 @@ export function FeedMode({
 }) {
   const live = feed?.mode === "live";
   const canLive = feed?.available ?? false;
+  const label = feedLabel(feed);
 
   return (
     <div className="stack">
@@ -31,7 +33,7 @@ export function FeedMode({
           disabled={busy}
           onClick={() => onChange("sim")}
         >
-          시뮬 (가상 참가자)
+          시뮬 · 가상 참가자
         </button>
         <button
           type="button"
@@ -40,9 +42,13 @@ export function FeedMode({
           title={canLive ? undefined : feed?.note}
           onClick={() => onChange("live")}
         >
-          실시세 (바깥 시세)
+          실시세 · 바깥 시세
         </button>
       </div>
+
+      <p className={`now-driving${label.synthetic ? " synthetic" : ""}`}>
+        <b>지금 호가를 만드는 것</b> — {label.sub}
+      </p>
 
       {live ? (
         <p className="note warn-note">
@@ -56,9 +62,9 @@ export function FeedMode({
         </p>
       ) : (
         <p className="note">
-          가상 참가자가 KRX·NXT 양 시장에 주문을 낸다. 두 시장·SOR 배분·전략 비교를 볼 수 있는
-          것은 이 모드뿐이다. <b>모드를 바꾸면 장부가 바뀐다</b> — 예수금·보유가 그 장부의 값으로
-          다시 실리고 걸어 둔 미체결은 취소된다.
+          {label.long} 두 시장·SOR 배분·전략 비교를 볼 수 있는 것은 이 모드뿐이다.
+          <b> 모드를 바꾸면 장부가 바뀐다</b> — 예수금·보유가 그 장부의 값으로 다시 실리고
+          걸어 둔 미체결은 취소된다.
           {!canLive && ` 실시세로 바꿀 수 없다 — ${feed?.note ?? "채널계 상태를 읽지 못했다"}.`}
         </p>
       )}

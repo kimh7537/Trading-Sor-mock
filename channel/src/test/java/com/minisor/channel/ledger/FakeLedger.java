@@ -13,6 +13,8 @@ import com.minisor.channel.wire.DetailAck;
 import com.minisor.channel.wire.DetailReq;
 import com.minisor.channel.wire.OrderAck;
 import com.minisor.channel.wire.OrderReq;
+import com.minisor.channel.wire.TickAck;
+import com.minisor.channel.wire.TickSet;
 import com.minisor.channel.wire.WireCodec;
 import com.minisor.channel.wire.WireHeader;
 import java.io.DataInputStream;
@@ -100,6 +102,13 @@ public final class FakeLedger implements AutoCloseable {
     /** 마지막으로 받은 호가 스냅샷(T8-02). 받으면 그것을 호가창으로 삼아 답한다. */
     private volatile BookFeed lastFeed;
     private final AtomicInteger feeds = new AtomicInteger();
+
+    /** 가상 참가자 스위치의 지금 상태. 화면이 이 값을 그대로 보여 준다(점검). */
+    private volatile boolean ticksOn = true;
+
+    public boolean ticksOn() {
+        return ticksOn;
+    }
 
     /** 지금까지 받은 취소 요청의 주문번호 — 부르는 쪽이 정말 취소를 보냈는지 본다. */
     private final List<Long> canceledIds = new CopyOnWriteArrayList<>();
@@ -252,6 +261,9 @@ public final class FakeLedger implements AutoCloseable {
         if (type == WireCodec.typeCode(CancelReq.class)) {
             return cancel(WireCodec.decodeBody(CancelReq.class, body, 0, body.length));
         }
+        if (type == WireCodec.typeCode(TickSet.class)) {
+            return tick(WireCodec.decodeBody(TickSet.class, body, 0, body.length));
+        }
         if (type == WireCodec.typeCode(AccountOpen.class)) {
             return accountOpen(WireCodec.decodeBody(AccountOpen.class, body, 0, body.length));
         }
@@ -317,6 +329,18 @@ public final class FakeLedger implements AutoCloseable {
             }
         }
         return d;
+    }
+
+    /**
+     * 가상 참가자 스위치. <b>진짜 데몬처럼 "정말 틱이 나가는가"를 답한다</b>(점검) —
+     * 이 상대역은 틱을 낼 수 있으므로 시킨 대로 답한다.
+     */
+    private TickAck tick(TickSet req) {
+        ticksOn = req.on != 0;
+        TickAck ack = new TickAck();
+        ack.on = ticksOn ? 1 : 0;
+        ack.code = 0;
+        return ack;
     }
 
     /** 진짜 원장처럼 <b>보낸 값을 그대로 실은</b> 계좌 상태로 답한다(점검). */
