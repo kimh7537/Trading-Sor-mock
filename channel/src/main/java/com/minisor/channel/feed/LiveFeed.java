@@ -7,6 +7,8 @@ import com.minisor.channel.stream.StreamEvent;
 import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.BookAck;
 import com.minisor.channel.wire.BookFeed;
+import com.minisor.channel.wire.TickAck;
+import com.minisor.channel.wire.TickSet;
 import com.minisor.channel.wire.SymbolAck;
 import com.minisor.channel.wire.SymbolSet;
 import java.io.IOException;
@@ -319,12 +321,38 @@ public class LiveFeed {
         }
     }
 
+    /**
+     * 원장의 가상 참가자를 켜고 끈다 (점검).
+     *
+     * <p><b>실시세 모드에서는 꺼야 한다.</b> 원장이 틱을 건너뛰는 기준은 "스냅샷을
+     * 받은 시장"인데, 그 표시는 코어에 딸려 있어 종목을 바꾸면 지워진다. 장이 닫혀
+     * 새 스냅샷이 오지 않으면 다시 세워지지도 않아, 실시세 모드인데 호가창이 혼자
+     * 걸어간다. 이 스위치는 데몬이 들고 있어 코어를 갈아끼워도 살아남는다.
+     *
+     * <p>원장에 못 붙어도 모드 전환 자체는 막지 않는다 — 다음 전환이나 재시작에서
+     * 다시 맞춰진다. 못 붙은 것은 로그로 남긴다.
+     */
+    private void setTicks(boolean on) {
+        TickSet req = new TickSet();
+        req.on = on ? 1 : 0;
+        try {
+            TickAck ack = gateway.call(req, TickAck.class);
+            if (ack.code != 0) {
+                log.warn("가상 참가자 스위치를 원장이 거절했다: code={}", ack.code);
+            }
+        } catch (RuntimeException e) {
+            log.warn("가상 참가자 스위치를 보내지 못했다: {}", e.toString());
+        }
+    }
+
     /** 실시세를 밀어 넣는 쪽이 자기 이름과 함께 켠다("toss", "replay"). */
     public void enterLive(String source) {
         boolean wasSim = mode == Mode.SIM;
         this.source = source;
         this.mode = Mode.LIVE;
         this.lastError = null;
+        /* 바깥 시세가 호가창을 맡는다 — 가상 참가자를 멈춘다 */
+        setTicks(false);
         if (wasSim) {
             reseed(); /* 시뮬 장부 -> 실시세 장부 */
         }
@@ -351,6 +379,8 @@ public class LiveFeed {
             this.mode = Mode.SIM;
             reseed();
         }
+        /* 이제 가상 참가자가 호가창을 맡는다 */
+        setTicks(true);
         this.mode = Mode.SIM;
         if (wasLive) {
             try {

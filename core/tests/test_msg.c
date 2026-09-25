@@ -37,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 25);
+    assert(TABLE_N == 27);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -80,6 +80,8 @@ static void test_type_table(void)
     assert(MSG_SYMBOL_SET_LEN == 13);
     assert(MSG_SYMBOL_ACK_LEN == 17);
     assert(MSG_ACCOUNT_OPEN_LEN == 36);
+    assert(MSG_TICK_SET_LEN == 1);
+    assert(MSG_TICK_ACK_LEN == 5);
     assert(MSG_ACCOUNT_ACK_LEN == 56);
 
     /* 어떤 전문도 프레임 한도를 넘지 않는다. */
@@ -129,6 +131,9 @@ static void test_reply_pairs(void)
     /* 계좌 개설의 답은 그 계좌의 잔고다(T9-01). */
     assert(msg_reply_type(MSG_ACCOUNT_OPEN) == MSG_ACCOUNT_ACK);
     assert(msg_reply_type(MSG_ACCOUNT_ACK) == MSG_UNKNOWN);
+    /* 가상 참가자 스위치는 데몬이 답한다(점검). */
+    assert(msg_reply_type(MSG_TICK_SET) == MSG_TICK_ACK);
+    assert(msg_reply_type(MSG_TICK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_DETAIL_REQ) == MSG_DETAIL_ACK);
     assert(msg_reply_type(MSG_BALANCE_REQ) == MSG_BALANCE_ACK);
@@ -582,6 +587,15 @@ static void test_roundtrip_all(void)
                   in.kind = MSG_SYMBOL_US;
               });
 
+    ROUNDTRIP(msg_tick_set_t, msg_encode_tick_set, msg_decode_tick_set,
+              MSG_TICK_SET_LEN, { in.on = 1; });
+
+    ROUNDTRIP(msg_tick_ack_t, msg_encode_tick_ack, msg_decode_tick_ack,
+              MSG_TICK_ACK_LEN, {
+                  in.on = 0;
+                  in.code = INT32_MIN;
+              });
+
     ROUNDTRIP(msg_account_open_t, msg_encode_account_open,
               msg_decode_account_open, MSG_ACCOUNT_OPEN_LEN, {
                   snprintf(in.account, sizeof(in.account), "%s", "u00000000042");
@@ -739,6 +753,8 @@ static void test_decode_rejects_wrong_length(void)
     CHECK_LEN(msg_decode_account_open, msg_account_open_t,
               MSG_ACCOUNT_OPEN_LEN);
     CHECK_LEN(msg_decode_account_ack, msg_account_ack_t, MSG_ACCOUNT_ACK_LEN);
+    CHECK_LEN(msg_decode_tick_set, msg_tick_set_t, MSG_TICK_SET_LEN);
+    CHECK_LEN(msg_decode_tick_ack, msg_tick_ack_t, MSG_TICK_ACK_LEN);
 
 #undef CHECK_LEN
 }

@@ -65,6 +65,8 @@ msg_type_t msg_reply_type(uint8_t req_type)
         return MSG_SYMBOL_ACK;
     case MSG_ACCOUNT_OPEN:
         return MSG_ACCOUNT_ACK;
+    case MSG_TICK_SET:
+        return MSG_TICK_ACK;
     case MSG_DETAIL_REQ:
         return MSG_DETAIL_ACK;
     case MSG_BALANCE_REQ:
@@ -724,6 +726,54 @@ int msg_decode_symbol_set(const uint8_t *buf, size_t len, msg_symbol_set_t *out)
     out->ref_price = wire_get_i32(p);
     p += 4;
     out->kind = *p++;
+    return (int)(p - buf);
+}
+
+int msg_encode_tick_set(const msg_tick_set_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_TICK_SET_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    buf[0] = m->on;
+    return MSG_TICK_SET_LEN;
+}
+
+int msg_decode_tick_set(const uint8_t *buf, size_t len, msg_tick_set_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_TICK_SET_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    memset(out, 0, sizeof(*out));
+    out->on = buf[0];
+    return MSG_TICK_SET_LEN;
+}
+
+int msg_encode_tick_ack(const msg_tick_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_TICK_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    uint8_t *p = buf;
+    *p++ = m->on;
+    wire_put_i32(p, m->code);
+    p += 4;
+    return (int)(p - buf);
+}
+
+int msg_decode_tick_ack(const uint8_t *buf, size_t len, msg_tick_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_TICK_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    memset(out, 0, sizeof(*out));
+    const uint8_t *p = buf;
+    out->on = *p++;
+    out->code = wire_get_i32(p);
+    p += 4;
     return (int)(p - buf);
 }
 

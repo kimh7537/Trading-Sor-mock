@@ -219,6 +219,20 @@
  * 이미 가입한 사람이 다시 로그인하면 채널계가 이 전문으로 계좌를 되살린다.
  * 없는 계좌를 만들 때만 `cash`를 입금하므로 **다시 불러도 돈이 불어나지 않는다.**
  */
+/*
+ * 가상 참가자 스위치(점검).
+ *
+ * **이것은 데이터가 아니라 모드다.** 원장은 "스냅샷을 받은 시장"의 틱을 건너뛰는데
+ * (`fed[]`), 그 표시는 **코어에 딸려 있다.** 종목을 바꾸면 코어를 통째로 새로 만들어
+ * 표시가 전부 지워지고, 장이 닫혀 새 스냅샷이 오지 않으면 다시 세워지지 않는다 —
+ * 그 순간 실시세 모드인데도 가상 참가자가 다시 뛴다. 실제로 그렇게 됐다.
+ *
+ * 그래서 이 스위치는 **데몬이 들고 있는다.** 코어를 몇 번 갈아끼우든 살아남는다.
+ * 실시세 모드에서 꺼 두면 장이 닫힌 밤에 호가창이 마지막 실호가에 그대로 선다.
+ */
+#define MSG_TICK_SET_LEN 1
+#define MSG_TICK_ACK_LEN (1 + 4)
+
 #define MSG_ACCOUNT_OPEN_LEN (MSG_ACCOUNT_LEN + 8 + 8 + 8)
 #define MSG_ACCOUNT_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8 + 8 + 8 + 8)
 
@@ -252,7 +266,9 @@
     X(MSG_SYMBOL_SET, 22, MSG_SYMBOL_SET_LEN, "종목 전환 요청")           \
     X(MSG_SYMBOL_ACK, 23, MSG_SYMBOL_ACK_LEN, "종목 전환 응답")           \
     X(MSG_ACCOUNT_OPEN, 24, MSG_ACCOUNT_OPEN_LEN, "계좌 개설 요청")       \
-    X(MSG_ACCOUNT_ACK, 25, MSG_ACCOUNT_ACK_LEN, "계좌 개설 응답")
+    X(MSG_ACCOUNT_ACK, 25, MSG_ACCOUNT_ACK_LEN, "계좌 개설 응답")         \
+    X(MSG_TICK_SET, 26, MSG_TICK_SET_LEN, "가상 참가자 스위치")           \
+    X(MSG_TICK_ACK, 27, MSG_TICK_ACK_LEN, "가상 참가자 스위치 응답")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -467,6 +483,15 @@ typedef struct {
 } msg_symbol_ack_t;
 
 typedef struct {
+    uint8_t on; /* 0이면 가상 참가자를 멈춘다(실시세 모드) */
+} msg_tick_set_t;
+
+typedef struct {
+    uint8_t on;   /* 지금 상태 */
+    int32_t code; /* 0이면 반영됐다 */
+} msg_tick_ack_t;
+
+typedef struct {
     char    account[MSG_ACCOUNT_LEN + 1];
     int64_t cash; /* 새로 열 때만 입금한다. 이미 있으면 무시 */
 
@@ -529,6 +554,10 @@ int msg_decode_symbol_ack(const uint8_t *buf, size_t len, msg_symbol_ack_t *out)
 int msg_encode_account_open(const msg_account_open_t *m, uint8_t *buf, size_t cap);
 int msg_decode_account_open(const uint8_t *buf, size_t len,
                             msg_account_open_t *out);
+int msg_encode_tick_set(const msg_tick_set_t *m, uint8_t *buf, size_t cap);
+int msg_decode_tick_set(const uint8_t *buf, size_t len, msg_tick_set_t *out);
+int msg_encode_tick_ack(const msg_tick_ack_t *m, uint8_t *buf, size_t cap);
+int msg_decode_tick_ack(const uint8_t *buf, size_t len, msg_tick_ack_t *out);
 int msg_encode_account_ack(const msg_account_ack_t *m, uint8_t *buf, size_t cap);
 int msg_decode_account_ack(const uint8_t *buf, size_t len,
                            msg_account_ack_t *out);

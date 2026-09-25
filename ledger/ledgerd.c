@@ -73,6 +73,14 @@ typedef struct {
 
     opened_account_t opened[LEDGERD_ACCOUNT_MAX];
     int32_t          opened_n;
+
+    /*
+     * 가상 참가자를 돌릴까(점검). 실시세 모드가 이것을 끈다.
+     *
+     * **코어가 아니라 데몬이 들고 있다.** 종목을 바꾸면 코어를 통째로 새로 만드는데,
+     * 코어에 두면 그때마다 지워져 장이 닫힌 밤에도 호가창이 혼자 걸어간다.
+     */
+    bool ticks_on;
 } live_ctx_t;
 
 /*
@@ -99,10 +107,22 @@ static int64_t seed_cash(const live_ctx_t *lc, tick_table_t table)
     return (table == TICK_TABLE_US) ? lc->us_cash : lc->cfg.cash;
 }
 
-/* 기다리다 심심하면 호가창을 한 틱 움직인다(T8-01). */
+/*
+ * 기다리다 심심하면 호가창을 한 틱 움직인다(T8-01).
+ *
+ * **스위치가 꺼져 있으면 한 틱도 내지 않는다**(점검). 실시세 모드가 그것을 끈다.
+ *
+ * 예전에는 "스냅샷을 받은 시장"만 건너뛰었는데(`fed[]`), 그 표시는 **코어에 딸려
+ * 있어** 종목을 바꿔 코어를 새로 만들면 지워졌다. 장이 닫혀 새 스냅샷이 오지 않으면
+ * 다시 세워지지도 않아, 실시세 모드인데 호가창이 혼자 걸어갔다. 스위치를 데몬이
+ * 들고 있으면 코어를 몇 번 갈아끼우든 살아남는다.
+ */
 static void on_idle(void *ctx)
 {
     live_ctx_t *lc = ctx;
+    if (!lc->ticks_on) {
+        return;
+    }
     (void)ledger_core_tick(lc->core, lc->per_tick);
 }
 
@@ -240,6 +260,39 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
         return n;
     }
 
+    /* 가상 참가자 스위치. 코어가 아니라 여기서 답한다 — 코어를 갈아끼워도 남는다 */
+    if (hdr->type == MSG_TICK_SET) {
+        msg_tick_set_t req;
+        if (msg_decode_tick_set(body, hdr->body_len, &req) < 0) {
+            return -1;
+        }
+        bool want = req.on != 0;
+        if (want != lc->ticks_on) {
+            printf("가상 참가자: %s\n", want ? "켠다" : "끈다 (실시세 모드)");
+            fflush(stdout);
+        }
+        lc->ticks_on = want;
+
+        msg_tick_ack_t ack;
+        memset(&ack, 0, sizeof(ack));
+        ack.on = lc->ticks_on ? 1 : 0;
+        ack.code = ERR_OK;
+
+        wire_header_t h;
+        memset(&h, 0, sizeof(h));
+        h.type = MSG_TICK_ACK;
+        h.body_len = MSG_TICK_ACK_LEN;
+        h.seq = hdr->seq;
+        h.ts = hdr->ts;
+
+        int n = wire_encode_header(&h, out, out_cap);
+        if (n < 0) {
+            return -1;
+        }
+        int m = msg_encode_tick_ack(&ack, out + n, out_cap - (size_t)n);
+        return (m < 0) ? -1 : n + m;
+    }
+
     return ledger_core_handle(hdr, body, out, out_cap, lc->core);
 }
 
@@ -339,7 +392,8 @@ int main(int argc, char **argv)
     live_ctx_t live = {.core = core,
                        .cfg = cfg_buf,
                        .per_tick = 0,
-                       .us_cash = 10000000};
+                       .us_cash = 10000000,
+                       .ticks_on = true};
     snprintf(live.symbol, sizeof(live.symbol), "%s", cfg_buf.symbol);
     live.cfg.symbol = live.symbol;
     if (live_rate > 0) {

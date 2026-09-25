@@ -55,7 +55,9 @@ class WireLayoutTest {
                     Map.entry(SymbolSet.class, "MSG_SYMBOL_SET_LEN"),
                     Map.entry(SymbolAck.class, "MSG_SYMBOL_ACK_LEN"),
                     Map.entry(AccountOpen.class, "MSG_ACCOUNT_OPEN_LEN"),
-                    Map.entry(AccountAck.class, "MSG_ACCOUNT_ACK_LEN"));
+                    Map.entry(AccountAck.class, "MSG_ACCOUNT_ACK_LEN"),
+                    Map.entry(TickSet.class, "MSG_TICK_SET_LEN"),
+                    Map.entry(TickAck.class, "MSG_TICK_ACK_LEN"));
 
     @Test
     void javaLayoutMatchesCHeader() throws IOException {
