@@ -732,10 +732,19 @@ int ledger_core_handle(const wire_header_t *hdr, const uint8_t *body,
              * 메모리에만 있으므로 다시 뜨면 보유가 사라지고, 로그인마다 여기서
              * 되살린다. 0이면 "보유 없음"을 그대로 반영한다.
              */
-            if (req.pos_qty > 0 || req.pos_cost > 0) {
-                (void)ledger_core_seed_position(c, req.account, req.pos_qty,
-                                                req.pos_cost, 0);
-            }
+            /*
+             * **0도 그대로 반영한다**(점검에서 고침). 예전에는 `pos_qty > 0`일
+             * 때만 실었는데, 그러면 보유 7주짜리 장부에서 보유 0짜리 장부로
+             * 넘어갈 때 7주가 그대로 남았다 — 없는 주식이 팔렸다.
+             */
+            (void)ledger_core_seed_position(c, req.account, req.pos_qty,
+                                            req.pos_cost, 0);
+            /*
+             * 예수금도 **덮어쓴다.** 이미 있는 계좌는 개설이 ERR_DUPLICATE라
+             * 입금이 일어나지 않아, 틀린 장부의 돈이 그대로 남아 있었다.
+             */
+            (void)ledger_core_set_cash(c, req.account, req.cash);
+
             ack.code = ledger_core_balance(c, req.account, &ack.cash,
                                            &ack.reserved);
             int64_t held = 0, cost = 0, held_res = 0, realized = 0;
@@ -1318,6 +1327,18 @@ int ledger_core_seed_position(ledger_core_t *c, const char *account,
         return ERR_NOT_FOUND;
     }
     return acct_seed_position(&c->store, idx, qty, cost, realized);
+}
+
+int ledger_core_set_cash(ledger_core_t *c, const char *account, int64_t cash)
+{
+    if (c == NULL || account == NULL) {
+        return ERR_NULL_PTR;
+    }
+    int idx = acct_find(&c->store, account);
+    if (idx < 0) {
+        return ERR_NOT_FOUND;
+    }
+    return acct_set_cash(&c->store, idx, cash);
 }
 
 int ledger_core_position(ledger_core_t *c, const char *account,

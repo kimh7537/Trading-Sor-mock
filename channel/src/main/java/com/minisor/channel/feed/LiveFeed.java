@@ -52,6 +52,10 @@ public class LiveFeed {
             String mode,
             String source,
             boolean available,
+            /**
+             * 화면이 <b>보는</b> 시장. 스냅샷은 두 시장에 모두 심으므로(통합 시세)
+             * "심는 곳"이 아니라 "실시세 모드에서 호가창으로 보여 줄 한 시장"이다.
+             */
             int market,
             String symbol,
             String symbolName,

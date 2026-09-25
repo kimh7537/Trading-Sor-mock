@@ -159,15 +159,31 @@ public class SymbolService {
      * <p>국내 쪽은 실시세 설정이 없으면 빈 목록이다. 그때도 미국 종목은 고를 수 있다 —
      * 미국은 애초에 시세를 받아 오지 않기 때문이다.
      */
-    public List<TossStocks.Stock> search(String q) throws IOException, InterruptedException {
+    /**
+     * 찾은 종목과, 국내 목록을 못 받았다면 그 까닭.
+     *
+     * <p><b>국내가 실패해도 미국은 돌려준다</b>(점검에서 고침). 미국은 내장 목록이라
+     * 시세 제공자와 상관이 없는데, 예전에는 국내 조회가 던지면 그것까지 함께 사라져
+     * "AAPL"이 안 나왔다. 그렇다고 조용히 삼키지는 않는다 — 까닭을 같이 올려 보내
+     * 화면이 "국내는 왜 비었는지"를 말할 수 있게 한다.
+     */
+    public record Hits(List<TossStocks.Stock> stocks, String note) {}
+
+    public Hits search(String q) throws IOException, InterruptedException {
         List<TossStocks.Stock> out = new java.util.ArrayList<>();
         for (UsStocks.Stock s : us.search(q)) {
             out.add(new TossStocks.Stock(s.symbol(), s.name(), "US"));
         }
+        String note = null;
         if (stocks.usable()) {
-            out.addAll(stocks.search(q));
+            try {
+                out.addAll(stocks.search(q));
+            } catch (IOException | RuntimeException e) {
+                note = "국내 목록을 받지 못했다: " + e.getMessage();
+                log.warn("{}", note);
+            }
         }
-        return out;
+        return new Hits(out, note);
     }
 
     /**

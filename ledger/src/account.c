@@ -358,6 +358,40 @@ int acct_snapshot(account_store_t *store, int32_t index, int64_t *out_cash,
     return ERR_OK;
 }
 
+int acct_set_cash(account_store_t *store, int32_t index, int64_t cash)
+{
+    if (cash < 0) {
+        return ERR_INVALID_QTY;
+    }
+
+    account_t *a = acct_at(store, index);
+    if (a == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    int rc = acct_lock(store, index, NULL);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    if (a->in_use == 0) {
+        acct_unlock(store, index);
+        return ERR_NOT_FOUND;
+    }
+
+    /* 묶인 돈보다 적게 맞추면 reserved <= cash 가 깨진다. 아무것도 바꾸지 않는다 */
+    if (cash < a->reserved) {
+        acct_unlock(store, index);
+        return ERR_INVALID_QTY;
+    }
+
+    begin_write(a);
+    a->cash = cash;
+    end_write(a);
+
+    acct_unlock(store, index);
+    return ERR_OK;
+}
+
 int64_t acct_available(account_store_t *store, int32_t index)
 {
     int64_t cash = 0;

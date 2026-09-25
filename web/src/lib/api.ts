@@ -90,10 +90,11 @@ export async function searchStocks(
 ): Promise<{ stocks: StockHit[]; error: string | null }> {
   const res = await fetch(`${BASE}/api/stocks?q=${encodeURIComponent(q)}`);
   const body = (await res.json().catch(() => null)) as
-    | { stocks?: StockHit[]; error?: string }
+    | { stocks?: StockHit[]; error?: string; note?: string }
     | null;
   if (!res.ok) return { stocks: [], error: body?.error ?? "종목을 찾지 못했다" };
-  return { stocks: body?.stocks ?? [], error: null };
+  /* 국내 목록만 못 받았을 때도 까닭이 온다 — 미국 결과는 그대로 쓰고 이유는 보여 준다 */
+  return { stocks: body?.stocks ?? [], error: body?.note ?? null };
 }
 
 /** 종목을 바꾼다. **원장이 새로 열려 미체결 주문과 잔고가 초기화된다.** */

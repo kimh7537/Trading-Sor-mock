@@ -1,5 +1,7 @@
 package com.minisor.channel.ledger;
 
+import com.minisor.channel.wire.AccountAck;
+import com.minisor.channel.wire.AccountOpen;
 import com.minisor.channel.wire.BalanceAck;
 import com.minisor.channel.wire.BalanceReq;
 import com.minisor.channel.wire.BookAck;
@@ -98,6 +100,20 @@ public final class FakeLedger implements AutoCloseable {
     /** 마지막으로 받은 호가 스냅샷(T8-02). 받으면 그것을 호가창으로 삼아 답한다. */
     private volatile BookFeed lastFeed;
     private final AtomicInteger feeds = new AtomicInteger();
+
+    /** 지금까지 받은 취소 요청의 주문번호 — 부르는 쪽이 정말 취소를 보냈는지 본다. */
+    private final List<Long> canceledIds = new CopyOnWriteArrayList<>();
+
+    public List<Long> canceledIds() {
+        return List.copyOf(canceledIds);
+    }
+
+    /** 마지막으로 받은 계좌 싣기 요청(T9-01, 점검). */
+    private volatile AccountOpen lastAccountOpen;
+
+    public AccountOpen lastAccountOpen() {
+        return lastAccountOpen;
+    }
 
     /** 지금까지 받은 스냅샷 주입 수. */
     public int feeds() {
@@ -236,6 +252,9 @@ public final class FakeLedger implements AutoCloseable {
         if (type == WireCodec.typeCode(CancelReq.class)) {
             return cancel(WireCodec.decodeBody(CancelReq.class, body, 0, body.length));
         }
+        if (type == WireCodec.typeCode(AccountOpen.class)) {
+            return accountOpen(WireCodec.decodeBody(AccountOpen.class, body, 0, body.length));
+        }
         if (type == WireCodec.typeCode(BalanceReq.class)) {
             return balance(WireCodec.decodeBody(BalanceReq.class, body, 0, body.length));
         }
@@ -300,7 +319,21 @@ public final class FakeLedger implements AutoCloseable {
         return d;
     }
 
+    /** 진짜 원장처럼 <b>보낸 값을 그대로 실은</b> 계좌 상태로 답한다(점검). */
+    private AccountAck accountOpen(AccountOpen req) {
+        lastAccountOpen = req;
+        AccountAck ack = new AccountAck();
+        ack.account = req.account;
+        ack.code = 0;
+        ack.cash = req.cash;
+        ack.reserved = 0;
+        ack.posQty = req.posQty;
+        ack.posCost = req.posCost;
+        return ack;
+    }
+
     private CancelAck cancel(CancelReq req) {
+        canceledIds.add(req.orderId);
         CancelAck ack = new CancelAck();
         ack.orderId = req.orderId;
         ack.clOrdId = req.clOrdId;

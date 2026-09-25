@@ -1914,7 +1914,7 @@ static void test_account_open_is_idempotent(void)
     assert(strcmp(ack.account, "u00000000007") == 0);
     assert(ack.cash == 5000000 && ack.reserved == 0);
 
-    /* 두 번째 개설 — 열린 계좌를 그대로 답하고 입금은 하지 않는다 */
+    /* 두 번째 개설 — 같은 값을 다시 실으면 같은 값이다(쌓이지 않는다) */
     h.seq = 12;
     n = ledger_core_handle(&h, body, out, sizeof(out), c);
     assert(n == (int)(WIRE_HEADER_LEN + MSG_ACCOUNT_ACK_LEN));
@@ -1922,6 +1922,7 @@ static void test_account_open_is_idempotent(void)
                                   &ack) == (int)MSG_ACCOUNT_ACK_LEN);
     assert(ack.code == ERR_OK);
     assert(ack.cash == 5000000); /* 1000만 원이 되지 않는다 */
+    assert(ack.pos_qty == 0 && ack.pos_cost == 0);
 
     /* 길이가 규격과 다른 바디는 접속을 끊는다 */
     h.body_len = MSG_ACCOUNT_OPEN_LEN - 1;
@@ -2124,6 +2125,82 @@ static void test_resting_sell_reserves_shares(void)
     ledger_core_destroy(c);
 }
 
+/*
+ * **계좌 싣기는 "개설"이 아니라 "이 장부의 값으로 맞추기"다**(점검에서 고침).
+ *
+ * 시뮬 장부에서 7주를 산 사람이 실시세 장부로 넘어가면 그 장부의 보유는 0이다.
+ * 예전에는 보유가 0이면 아예 싣지 않았고, 이미 있는 계좌는 개설이 ERR_DUPLICATE라
+ * 예수금도 덮어쓰지 않았다 — 실시세 장부에서 **없는 주식이 팔렸다.**
+ */
+static void test_account_open_sets_that_books_values(void)
+{
+    ledger_core_t *c = flat_core();
+
+    /* 시뮬 장부: 7주를 들고 있고 돈은 좀 썼다 */
+    assert(ledger_core_seed_position(c, ACCT, 7, 70000LL * 7, 0) == ERR_OK);
+
+    msg_account_open_t req;
+    memset(&req, 0, sizeof(req));
+    snprintf(req.account, sizeof(req.account), "%s", ACCT);
+    req.cash = 12345678;
+    req.pos_qty = 0;
+    req.pos_cost = 0;
+
+    uint8_t body[MSG_ACCOUNT_OPEN_LEN];
+    assert(msg_encode_account_open(&req, body, sizeof(body)) ==
+           (int)MSG_ACCOUNT_OPEN_LEN);
+
+    wire_header_t h;
+    memset(&h, 0, sizeof(h));
+    h.version = WIRE_VERSION;
+    h.type = MSG_ACCOUNT_OPEN;
+    h.body_len = MSG_ACCOUNT_OPEN_LEN;
+    h.seq = 21;
+
+    uint8_t out[WIRE_HEADER_LEN + MSG_ACCOUNT_ACK_LEN];
+    int     n = ledger_core_handle(&h, body, out, sizeof(out), c);
+    assert(n == (int)(WIRE_HEADER_LEN + MSG_ACCOUNT_ACK_LEN));
+
+    msg_account_ack_t ack;
+    assert(msg_decode_account_ack(out + WIRE_HEADER_LEN, MSG_ACCOUNT_ACK_LEN,
+                                  &ack) == (int)MSG_ACCOUNT_ACK_LEN);
+    assert(ack.code == ERR_OK);
+    assert(ack.pos_qty == 0 && ack.pos_cost == 0); /* 7주가 남지 않는다 */
+    assert(ack.cash == 12345678);                  /* 예수금도 그 장부의 것이다 */
+
+    /* 그러므로 이 장부에서는 한 주도 팔 수 없다 */
+    msg_order_ack_t oack;
+    assert(send_order(c, SIDE_SELL, MARKET_KRX, 70000, 1, 1, &oack) ==
+           ERR_INVALID_QTY);
+
+    ledger_core_destroy(c);
+}
+
+/* 묶인 돈보다 적게 맞추려 하면 아무것도 바꾸지 않는다 — reserved <= cash 가 깨진다. */
+static void test_set_cash_refuses_below_reserved(void)
+{
+    ledger_core_t *c = flat_core();
+
+    msg_order_ack_t ack;
+    assert(send_order(c, SIDE_BUY, MARKET_KRX, 60000, 10, 1, &ack) == ERR_OK);
+
+    int64_t cash = 0, reserved = 0;
+    assert(ledger_core_balance(c, ACCT, &cash, &reserved) == ERR_OK);
+    assert(reserved > 0);
+
+    assert(ledger_core_set_cash(c, ACCT, reserved - 1) == ERR_INVALID_QTY);
+
+    int64_t after_cash = 0, after_res = 0;
+    assert(ledger_core_balance(c, ACCT, &after_cash, &after_res) == ERR_OK);
+    assert(after_cash == cash && after_res == reserved);
+
+    assert(ledger_core_set_cash(c, ACCT, reserved) == ERR_OK);
+    assert(ledger_core_balance(c, ACCT, &after_cash, &after_res) == ERR_OK);
+    assert(after_cash == reserved);
+
+    ledger_core_destroy(c);
+}
+
 int main(void)
 {
     STEP(test_cannot_sell_what_you_do_not_own);
@@ -2131,6 +2208,8 @@ int main(void)
     STEP(test_resting_sell_reserves_shares);
     STEP(test_us_symbol_takes_cent_prices);
     STEP(test_account_open_is_idempotent);
+    STEP(test_account_open_sets_that_books_values);
+    STEP(test_set_cash_refuses_below_reserved);
     STEP(test_opened_account_can_trade);
     STEP(test_buy_takes_liquidity);
     STEP(test_sell_takes_liquidity);

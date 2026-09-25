@@ -230,6 +230,13 @@ tick_table_t ledger_core_tick_table(const ledger_core_t *core);
 int ledger_core_seed_position(ledger_core_t *core, const char *account,
                               int64_t qty, int64_t cost, int64_t realized);
 
+/*
+ * 예수금을 그 값으로 맞춘다(점검). 입금이 아니라 덮어쓰기다 — 장부나 종목이
+ * 바뀌면 원장이 든 값이 통째로 틀린 장부의 것이 되기 때문이다.
+ * 묶인 돈보다 적게는 못 맞춘다(미체결을 먼저 정리해야 한다).
+ */
+int ledger_core_set_cash(ledger_core_t *core, const char *account, int64_t cash);
+
 /* 보유 수량·원가 합·묶인 수량·실현 손익. 없는 계좌면 ERR_NOT_FOUND. */
 int ledger_core_position(ledger_core_t *core, const char *account,
                          int64_t *out_qty, int64_t *out_cost,

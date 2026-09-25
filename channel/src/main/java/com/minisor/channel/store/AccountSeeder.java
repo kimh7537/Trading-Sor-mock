@@ -1,12 +1,16 @@
 package com.minisor.channel.store;
 
 import com.minisor.channel.api.LedgerGateway;
+import com.minisor.channel.api.OrderRegistry;
+import com.minisor.channel.api.OrderView;
 import com.minisor.channel.auth.UserStore;
 import com.minisor.channel.feed.LiveFeed;
 import com.minisor.channel.feed.SymbolState;
 import com.minisor.channel.ledger.LedgerException;
 import com.minisor.channel.wire.AccountAck;
 import com.minisor.channel.wire.AccountOpen;
+import com.minisor.channel.wire.CancelAck;
+import com.minisor.channel.wire.CancelReq;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +42,7 @@ public class AccountSeeder {
     private final SymbolState symbols;
     private final LiveFeed live;
     private final LedgerGateway gateway;
+    private final OrderRegistry registry;
     private final long seedKr;
     private final long seedUs;
 
@@ -51,6 +56,7 @@ public class AccountSeeder {
              */
             @org.springframework.context.annotation.Lazy LiveFeed live,
             LedgerGateway gateway,
+            OrderRegistry registry,
             @Value("${minisor.auth.signup-cash:100000000}") long seedKr,
             @Value("${minisor.auth.signup-cash-us:10000000}") long seedUs) {
         this.portfolio = portfolio;
@@ -58,6 +64,7 @@ public class AccountSeeder {
         this.symbols = symbols;
         this.live = live;
         this.gateway = gateway;
+        this.registry = registry;
         this.seedKr = seedKr;
         this.seedUs = seedUs;
     }
@@ -73,6 +80,8 @@ public class AccountSeeder {
      * @return 원장이 답한 계좌 상태. 못 붙으면 null
      */
     public AccountAck seed(String account) {
+        cancelOpenOrders(account);
+
         SymbolState.Current now = symbols.current();
         Portfolio.Snapshot s =
                 portfolio.of(account, now.code(), now.kind(), live.book(), seedCash());
@@ -92,6 +101,32 @@ public class AccountSeeder {
         } catch (LedgerException e) {
             log.warn("계좌 {} 를 싣는 중 원장에 못 붙었다: {}", account, e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 그 계좌의 살아 있는 주문을 전부 취소한다.
+     *
+     * <p><b>미체결은 장부를 넘어가지 않는다.</b> 시세 모드나 종목이 바뀌면 그 주문이
+     * 걸려 있던 시장은 더 이상 같은 시장이 아니다 — 시뮬에서 건 주문이 실시세 호가에
+     * 체결되면 지어낸 판단이 실제 성적으로 넘어온다. 서버가 꺼지면 미체결이 사라지는
+     * 것과 같은 규칙이다.
+     *
+     * <p>예수금을 덮어쓰기 전에 해야 한다 — 묶인 돈이 남아 있으면 원장이
+     * {@code reserved <= cash}를 지키려고 덮어쓰기를 거절한다.
+     */
+    private void cancelOpenOrders(String account) {
+        for (OrderView v : registry.open(account)) {
+            CancelReq req = new CancelReq();
+            req.account = account;
+            req.orderId = v.orderId();
+            req.clOrdId = v.clOrdId();
+            try {
+                gateway.call(req, CancelAck.class);
+            } catch (LedgerException e) {
+                /* 종목이 바뀌면 원장이 새로 열려 그 주문 자체가 없다 — 그것도 정리된 것이다 */
+                log.debug("미체결 {} 를 정리하지 못했다: {}", req.orderId, e.getMessage());
+            }
         }
     }
 

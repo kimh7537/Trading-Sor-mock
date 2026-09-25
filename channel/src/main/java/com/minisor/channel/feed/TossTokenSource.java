@@ -167,6 +167,20 @@ public class TossTokenSource {
     }
 
     /** 얼마나 기다렸다 다시 부를지를 들고 있는 예외. */
+    /**
+     * 토큰이 더는 통하지 않는다 (401/403). <b>부른 쪽이 한 번은 다시 시도한다.</b>
+     *
+     * <p>이 client는 토큰을 하나만 들 수 있어, 실시세 소켓이 끊겼다 다시 붙으며 새로 받으면
+     * 그 전 토큰이 그 자리에서 무효가 된다("token-revoked"). 캐시를 들고 있던 REST 쪽은
+     * 그것을 모르고 죽은 토큰으로 한 번 부딪힌다 — 실제로 종목 검색이 그렇게 401을 냈고,
+     * 다시 누르면 됐다. 다시 누르는 일을 이쪽에서 한다.
+     */
+    public static final class TokenStale extends IOException {
+        public TokenStale(String message) {
+            super(message);
+        }
+    }
+
     public static final class FeedBackoff extends IOException {
         private final long waitMs;
 

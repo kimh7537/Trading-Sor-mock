@@ -56,8 +56,12 @@ public class SymbolController {
             return ResponseEntity.badRequest().body(Map.of("error", "검색어가 너무 길다"));
         }
         try {
-            List<TossStocks.Stock> hits = service.search(q);
-            return ResponseEntity.ok(Map.of("stocks", hits));
+            SymbolService.Hits hits = service.search(q);
+            /* 국내를 못 받았으면 까닭을 같이 보낸다 — 빈 목록만 보여 주면 이유를 알 수 없다 */
+            return ResponseEntity.ok(
+                    hits.note() == null
+                            ? Map.of("stocks", hits.stocks())
+                            : Map.of("stocks", hits.stocks(), "note", hits.note()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();

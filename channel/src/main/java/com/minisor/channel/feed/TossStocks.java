@@ -182,6 +182,13 @@ public class TossStocks {
             }
             try {
                 return getOnce(path);
+            } catch (TossTokenSource.TokenStale stale) {
+                /* 죽은 토큰은 한 번만 다시 받아 본다. 두 번 연속이면 진짜 권한 문제다 */
+                if (attempt >= 1) {
+                    throw stale;
+                }
+                wait = 0;
+                log.info("종목 조회 토큰이 죽었다 — 새로 받아 다시 부른다");
             } catch (TossTokenSource.FeedBackoff b) {
                 if (attempt >= 2) {
                     throw b;
@@ -210,6 +217,10 @@ public class TossStocks {
         if (res.statusCode() / 100 != 2) {
             /* 토큰이 죽었을 수 있다. 다음 호출이 새로 받게 한다 */
             tokens.invalidate();
+            if (res.statusCode() == 401 || res.statusCode() == 403) {
+                throw new TossTokenSource.TokenStale(
+                        "종목 조회 실패 " + res.statusCode() + ": " + body);
+            }
             throw new IOException("종목 조회 실패 " + res.statusCode() + ": " + body);
         }
         return JSON.readTree(body);

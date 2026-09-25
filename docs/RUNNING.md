@@ -176,6 +176,12 @@ CLion을 Windows에 설치하고, **컴파일은 WSL의 gcc/cmake로** 하게 �
 3. 터미널: `web/`에서 `npm run dev`
 4. 브라우저: `http://localhost:5173`
 
+> **원장만 따로 다시 띄우지 않는다.** 원장은 메모리만 쓰므로 다시 뜨면 호가창이 설정의
+> 기본 가격대로 열리는데, 채널계는 **종목이 바뀔 때만** `MSG_SYMBOL_SET`을 보내므로 그
+> 어긋남을 스스로 알아채지 못한다(종목을 한 번 바꾸면 맞춰진다). 원장을 다시 띄웠으면
+> 채널계도 같이 다시 띄운다. 계좌의 예수금·보유는 로그인·모드 전환·종목 전환 때마다
+> 채널계가 기록에서 다시 실어 주므로 그대로 돌아온다.
+
 ---
 
 ## 3. IDE 없이 명령어로 실행하기
@@ -477,7 +483,7 @@ npm run check                # 예상 체결·호가 단위 계산 자체 점검
 | 종류 | 개수 | 어디 | 실행 | 걸리는 시간(점검 PC) |
 |---|---:|---|---|---|
 | C 단위·통합 테스트 | **58** | 각 모듈 `tests/test_*.c` | `ctest` | 빌드 포함 수 분, ASan이 가장 느리다 |
-| Java 테스트 | **88** (16개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
+| Java 테스트 | **108** (20개 클래스) | `channel/src/test/java` | `mvnw test` | 약 1분 (Maven 시작 포함) |
 | 화면 | 자체 점검 스크립트 1개 (13경우) | `web/scripts/estimate.check.ts` | `npm run build`, `npm run lint`, `npm run check` | 수 초 |
 
 **커밋 전 규칙**: C는 **Debug·Release·ASan 세 빌드에서 58개가 모두 통과**해야 한다. Release는 `assert`가 꺼지는
@@ -621,7 +627,7 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 
 > 벤치마크 실행 파일 4개(`bench_match` 등)는 오래 걸려 ctest에 넣지 않았다. 5장에서 따로 돌린다.
 
-### 4.4 Java 테스트 74개
+### 4.4 Java 테스트 108개
 
 | 클래스 | 개수 | 확인하는 것 |
 |---|---:|---|
@@ -632,13 +638,19 @@ ASan이 잡은 경우 — 일반 빌드에서는 통과하는 버그를 여기�
 | `ledger.LedgerConnectionPoolTest` | 9 | 접속 재사용, 타임아웃 시 버리기, 원장 죽음, 풀 고갈, 동시 요청이 응답을 바꿔 받지 않음, **동시 빌리기 200판**, 대기자 깨우기 |
 | `api.OrderApiTest` | 14 | 상태 코드 200/400/422/202, SOR 시장값 255, 호가 API, 주문·체결 방송, 원장 끊김·회복 방송, **주문 목록·상세, 취소 200/409/404, 잔고, SOR 체결이 실제 시장으로 방송, 조회 실패도 끊김 방송** |
 | `api.LedgerPollerTest` | 1 | 원장을 다시 읽어 **바뀐 것만** 방송: 첫 바퀴 호가·잔고, 변화 없으면 없음, 나중 체결의 가격(금액 차이 / 수량 차이), 끝난 주문은 다시 묻지 않음 |
-| `api.OrderRegistryTest` | 2 | 주문 목록 상한 500건, 최근 순서 |
+| `api.OrderRegistryTest` | 3 | 주문 목록 상한 500건, 최근 순서, **계좌마다 서랍이 따로다** |
 | `stream.StreamTest` | 4 | 구독·방송, 원장 끊김 전파, 나간 구독자 정리, 많은 이벤트 |
 | `feed.SnapshotTest` | 4 | 바깥 시세 읽기: **문자열 decimal → 정수**, 시각 `null` 대체, 못 쓰는 단 버리기, 10단 넘으면 자르기 |
 | `feed.LiveFeedTest` | 4 | 스냅샷이 `MSG_BOOK_FEED`로 원장까지, 심은 호가창 즉시 방송, **설정 없으면 실시세로 못 바꿈(409)**, 모드 전환 |
 | `feed.TossTokenSourceTest` | 6 | client credentials 폼, 토큰 캐시(재발급하면 이전 토큰이 죽으므로), **429의 `Retry-After`**, 403 본문 전달, **gzip 본문 해독**, 만료 전 재발급 |
 | `feed.FeedReplayTest` | 4 | 녹화 파일 왕복, 반쪽 줄 건너뛰기, **같은 파일 같은 결과**, 배속은 간격만 바꿈 |
 | `feed.TossCandlesTest` | 5 | 캔들 조회: **최신순 → 오래된 순으로 뒤집기**, 문자열 decimal → 정수, 못 읽는 봉 버리기, 캐시, 실패 본문 전달 |
+| `feed.TossStocksTest` | 7 | 종목 목록 조회·캐시·검색, 429 재시도, **죽은 토큰이면 새로 받아 한 번 더** |
+| `feed.SimCandlesTest` | 7 | 시뮬 1분봉: 진행 중인 봉 고쳐 쓰기, 1분마다 굳기, 거래량 누적, 종목 바뀌면 비우기 |
+| `auth.UserStoreTest` | 6 | PBKDF2 저장·대조, 중복 가입 거절, 계좌번호 발급, `users.json` 한 번 이전 |
+| `auth.AuthApiTest` | 3 | 가입·로그인·로그아웃, 로그인 안 하면 401 |
+| `store.PortfolioTest` | 8 | 체결을 되짚은 보유·평균 단가·실현 손익, **다 팔면 원가 0**, 통화 분리, **장부 분리** |
+| `store.AccountSeederTest` | 2 | **장부를 바꾸기 전에 미체결을 취소한다**, 보유 0도 0으로 실어 보낸다 |
 
 결과는 콘솔과 `channel/target/surefire-reports/*.txt`에 남는다:
 ```

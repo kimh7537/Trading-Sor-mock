@@ -188,6 +188,17 @@ int acct_release(account_store_t *store, int32_t index, int64_t amount);
  */
 int acct_settle(account_store_t *store, int32_t index, int64_t amount);
 
+/*
+ * 예수금을 그 값으로 맞춘다(점검).
+ *
+ * 입금·출금이 아니라 **덮어쓰기**다. 기록의 주인은 채널계이고, 장부(시뮬/실시세)나
+ * 종목이 바뀌면 원장이 들고 있는 값이 통째로 틀린 장부의 것이 되기 때문이다.
+ *
+ * **묶인 돈보다 적게는 못 맞춘다** — 불변조건 `reserved <= cash`를 깨기 때문이다.
+ * 부르는 쪽이 미체결을 먼저 정리해야 한다.
+ */
+int acct_set_cash(account_store_t *store, int32_t index, int64_t cash);
+
 /* 주문에 쓸 수 있는 돈. 없는 계좌면 0. */
 int64_t acct_available(account_store_t *store, int32_t index);
 

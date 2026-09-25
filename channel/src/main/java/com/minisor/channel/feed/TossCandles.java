@@ -73,6 +73,20 @@ public class TossCandles {
      */
     public Chart fetch(String symbol, String interval, int count)
             throws IOException, InterruptedException {
+        try {
+            return fetchOnce(symbol, interval, count);
+        } catch (TossTokenSource.TokenStale stale) {
+            /*
+             * 실시세 소켓이 다시 붙으며 토큰을 새로 받으면 들고 있던 것이 그 자리에서
+             * 무효가 된다. 한 번만 다시 받아 부른다 — 두 번 연속이면 진짜 권한 문제다.
+             */
+            log.info("캔들 조회 토큰이 죽었다 — 새로 받아 다시 부른다");
+            return fetchOnce(symbol, interval, count);
+        }
+    }
+
+    private Chart fetchOnce(String symbol, String interval, int count)
+            throws IOException, InterruptedException {
         String key = symbol + ":" + interval + ":" + count;
         Cached c = cache.get(key);
         long now = System.currentTimeMillis();
@@ -107,6 +121,10 @@ public class TossCandles {
         if (res.statusCode() / 100 != 2) {
             /* 토큰이 죽었을 수 있다. 다음 호출이 새로 받게 한다 */
             tokens.invalidate();
+            if (res.statusCode() == 401 || res.statusCode() == 403) {
+                throw new TossTokenSource.TokenStale(
+                        "캔들 조회 실패 " + res.statusCode() + ": " + body);
+            }
             throw new IOException("캔들 조회 실패 " + res.statusCode() + ": " + body);
         }
 
