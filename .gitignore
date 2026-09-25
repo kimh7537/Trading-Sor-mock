@@ -31,3 +31,4 @@ users.json.tmp
 minisor.db
 minisor.db-wal
 minisor.db-shm
+minisor.db.bak
