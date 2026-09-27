@@ -17,10 +17,11 @@ import { FeedMode } from "./components/FeedMode";
 import { ChartPanel } from "./components/ChartPanel";
 import { LoginPanel } from "./components/LoginPanel";
 import { AccountPanel } from "./components/AccountPanel";
+import { FlowMonitor } from "./components/FlowMonitor";
 import { fetchMe, logout, type Me } from "./lib/api";
 import { feedLabel } from "./lib/feedLabel";
 
-type View = "trade" | "account" | "strategies" | "ops";
+type View = "trade" | "account" | "flow" | "strategies" | "ops";
 
 /** 좁은 화면에서 한 번에 하나씩 보는 칸. 넓은 화면에서는 전부 나란히 놓인다 */
 type Pane = "book" | "chart" | "ticket" | "activity" | "mode";
@@ -36,6 +37,7 @@ const PANES: { id: Pane; label: string }[] = [
 const VIEWS: { id: View; label: string }[] = [
   { id: "trade", label: "거래" },
   { id: "account", label: "내 계좌" },
+  { id: "flow", label: "통신 흐름" },
   { id: "strategies", label: "전략 비교" },
   { id: "ops", label: "관제" },
 ];
@@ -247,6 +249,22 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
               sub="Phase 2 측정 · 시드 20260916 한 장면 (bench/results/strategies-2026-09-16.md)"
             >
               <Strategies />
+            </Panel>
+          </div>
+        )}
+
+        {view === "flow" && (
+          /* 전문 내역 표가 넓어야 읽힌다 — 여기만 다른 탭보다 넓게 둔다 */
+          <div style={{ maxWidth: 1240 }}>
+            <Panel
+              title="통신 흐름"
+              sub="방금 낸 주문이 지나간 층과 오간 전문 — 전부 실제로 잰 값이다"
+            >
+              <FlowMonitor
+                flow={t.lastFlow}
+                ledgerDown={t.ledgerDown}
+                wsState={t.ws.state === "open" ? "실시간" : t.ws.state === "connecting" ? "연결 중" : "재연결 중"}
+              />
             </Panel>
           </div>
         )}

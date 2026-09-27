@@ -23,6 +23,7 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(auth)
                 .addPathPatterns("/api/orders/**", "/api/balance", "/api/portfolio",
-                        "/api/history");
+                        /* 통신 내역에는 주문 전문이 들어 있고 거기 계좌번호가 있다(점검) */
+                        "/api/history", "/api/wire");
     }
 }

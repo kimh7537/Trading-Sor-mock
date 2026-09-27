@@ -112,6 +112,77 @@ public final class WireCodec {
         return m.type();
     }
 
+    /**
+     * 전문 하나의 **필드를 선언 순서대로** 읽어 낸다 (점검).
+     *
+     * <p>통신 모니터가 "무엇이 오갔나"에 더해 <b>"무슨 값이 실려 있었나"</b>를 보여 줄
+     * 재료다. 배치를 만든 것과 같은 선언을 그대로 되짚으므로 화면이 필드 이름을 따로
+     * 적어 둘 필요가 없다 — 전문이 바뀌면 화면도 같이 바뀐다.
+     *
+     * <p>배열 필드는 값을 쉼표로 이어 한 줄로 적는다. 시장별 다리처럼 칸이 둘뿐이라
+     * 줄여 봐야 읽기만 나빠진다.
+     */
+    public static List<FieldView> fields(Object msg) {
+        List<FieldView> out = new ArrayList<>();
+        int off = 0;
+        for (Slot s : layoutOf(msg.getClass())) {
+            Object v;
+            try {
+                v = s.field().get(msg);
+            } catch (IllegalAccessException e) {
+                throw new WireException("필드를 읽지 못했다: " + s.field().getName() + " (" + e + ")");
+            }
+            out.add(
+                    new FieldView(
+                            s.field().getName(),
+                            s.spec().type().name(),
+                            off,
+                            s.size(),
+                            render(v)));
+            off += s.size();
+        }
+        return out;
+    }
+
+    /** 값을 글자로. 배열은 쉼표로 잇고, 문자열은 그대로 둔다(널 채움은 이미 잘려 있다). */
+    private static String render(Object v) {
+        if (v == null) {
+            return "";
+        }
+        if (v instanceof int[] a) {
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < a.length; i++) {
+                b.append(i == 0 ? "" : ", ").append(a[i]);
+            }
+            return b.toString();
+        }
+        if (v instanceof long[] a) {
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < a.length; i++) {
+                b.append(i == 0 ? "" : ", ").append(a[i]);
+            }
+            return b.toString();
+        }
+        return String.valueOf(v);
+    }
+
+    /**
+     * 전문 필드 하나를 화면이 읽을 모양으로.
+     *
+     * @param offset 바디 안에서의 시작 위치(바이트). 헤더는 세지 않는다
+     * @param size 이 필드가 차지하는 바이트 수. 고정 길이다
+     */
+    public record FieldView(String name, String type, int offset, int size, String value) {}
+
+    /** 사람이 읽는 전문 이름. 모니터링 화면이 "무엇이 오갔나"를 적을 때 쓴다(점검). */
+    public static String typeName(Class<?> cls) {
+        WireMessage m = cls.getAnnotation(WireMessage.class);
+        if (m == null) {
+            throw new WireException("@WireMessage가 없다: " + cls.getName());
+        }
+        return m.name();
+    }
+
     /** 바디만 만든다. 헤더는 호출부가 붙인다 — seq와 ts는 세션의 상태다. */
     public static byte[] encodeBody(Object msg) {
         List<Slot> slots = layoutOf(msg.getClass());

@@ -1,4 +1,13 @@
-import type { Balance, Book, CandleChart, CancelResult, FeedStatus, OrderView } from "./types";
+import type {
+  Balance,
+  Book,
+  CandleChart,
+  CancelResult,
+  FeedStatus,
+  OrderView,
+  WireHop,
+  WireLog,
+} from "./types";
 import { marketName } from "./wire";
 
 // 기본은 같은 출처. 개발 서버가 /api를 채널계로 넘긴다(vite.config.ts).
@@ -137,6 +146,13 @@ export interface OrderResponse {
   status: number;    // wire.ts — STATUS_*
   filledQty: number;
   avgPrice: number;  // 체결이 있으면 평균 체결가, 없으면 주문 가격
+  /** 채널계가 잰 원장 왕복. 원장에 닿지 못했으면 없다 */
+  ledger?: WireHop | null;
+  /**
+   * **화면이 직접 잰** HTTP 왕복(ms). 채널계가 알려 준 값이 아니라 이쪽에서 잰 것이라
+   * 네트워크와 브라우저 몫이 들어 있다 — `ledger.micros`가 그 안에 포함된다.
+   */
+  httpMs?: number;
 }
 
 const rejected = (req: OrderRequest, reason: number, message: string): OrderResponse => ({
@@ -152,6 +168,8 @@ const rejected = (req: OrderRequest, reason: number, message: string): OrderResp
 
 export async function submitOrder(req: OrderRequest): Promise<OrderResponse> {
   let res: Response;
+  /* 화면 -> 채널계 구간은 여기서만 잴 수 있다. 채널계는 자기가 언제 불렸는지 모른다 */
+  const t0 = performance.now();
   try {
     res = await fetch(`${BASE}/api/orders`, {
       method: "POST",
@@ -161,6 +179,7 @@ export async function submitOrder(req: OrderRequest): Promise<OrderResponse> {
   } catch {
     return rejected(req, -16, "채널계에 붙지 못했다");
   }
+  const httpMs = performance.now() - t0;
 
   // 400은 본문이 스프링 기본 오류라 형태가 다르다.
   if (res.status === 400) {
@@ -172,7 +191,19 @@ export async function submitOrder(req: OrderRequest): Promise<OrderResponse> {
   if (body?.outcome !== "ACCEPTED" && body?.outcome !== "REJECTED" && body?.outcome !== "IN_DOUBT") {
     return rejected(req, 0, `채널계 오류 (HTTP ${res.status})`);
   }
-  return body as OrderResponse;
+  return { ...(body as OrderResponse), httpMs };
+}
+
+/**
+ * 채널계가 원장과 주고받은 전문 내역(점검).
+ *
+ * `after`에 마지막으로 받은 번호를 주면 **그 뒤에 적힌 것만** 온다. 매번 전부 받으면
+ * 몇 분 켜 두는 것만으로 응답이 수백 킬로바이트가 된다.
+ */
+export async function fetchWire(after: number): Promise<WireLog> {
+  const res = await fetch(`${BASE}/api/wire?after=${after}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`전문 내역 조회 실패 ${res.status}`);
+  return (await res.json()) as WireLog;
 }
 
 /** 원장 안의 실제 호가창. 원장이 없으면 예외. */

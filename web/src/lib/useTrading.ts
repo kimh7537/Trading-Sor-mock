@@ -49,9 +49,28 @@ export interface Trading {
   fills: Fill[];
   events: number;
   lastSync: string | null;
+  /** 마지막으로 낸 주문 한 건이 각 계층을 지나며 남긴 실측값(점검). 없으면 아직 안 냈다 */
+  lastFlow: OrderFlow | null;
   submit: (o: NewOrder) => Promise<OrderResponse>;
   cancel: (orderId: number) => Promise<{ ok: boolean; message: string }>;
   refresh: () => void;
+}
+
+/**
+ * 주문 한 건이 계층을 지나며 남긴 것(점검).
+ *
+ * **여기 있는 숫자는 전부 잰 것이거나 서버가 돌려준 것이다.** 화면이 보태거나 어림한
+ * 값은 없다. 없는 것(원장 내부 단계별 시간 등)은 아예 담지 않는다.
+ */
+export interface OrderFlow {
+  at: string;
+  /** 낸 주문 그대로 */
+  req: NewOrder & { symbol: string; clOrdId: number };
+  res: OrderResponse;
+  /** 원장이 알려 준 이 주문의 모양 — 시장별 다리가 여기 있다. 못 읽었으면 null */
+  view: OrderView | null;
+  /** 주문 뒤 이 주문의 상세를 다시 읽는 데 걸린 시간(ms). 화면이 쟀다 */
+  detailMs: number | null;
 }
 
 const byNewest = (a: OrderView, b: OrderView) => b.orderId - a.orderId;
@@ -74,6 +93,7 @@ export function useTrading(): Trading {
   const [events, setEvents] = useState(0);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [feed, setFeed] = useState<FeedStatus | null>(null);
+  const [lastFlow, setLastFlow] = useState<OrderFlow | null>(null);
   const [ticks, setTicks] = useState<Tick[]>([]);
   const lastClOrdId = useRef(0);
   const fillSeq = useRef(0);
@@ -310,16 +330,19 @@ export function useTrading(): Trading {
       // 같은 밀리초에 두 번 눌러도 번호가 겹치지 않게
       const now = Date.now() % 1_000_000_000;
       lastClOrdId.current = Math.max(now, lastClOrdId.current + 1);
-      const res = await submitOrder({
-        ...o,
-        symbol: symbol.code,
-        clOrdId: lastClOrdId.current,
-      });
+      const sent = { ...o, symbol: symbol.code, clOrdId: lastClOrdId.current };
+      const res = await submitOrder(sent);
+      let view: OrderView | null = null;
+      let detailMs: number | null = null;
       if (res.outcome === "ACCEPTED") {
-        const v = await fetchOrder(res.orderId).catch(() => null);
-        if (v) upsertOrder(v);
+        /* 상세를 다시 읽는 구간도 전문 한 왕복이다 — 그것도 잰다 */
+        const t0 = performance.now();
+        view = await fetchOrder(res.orderId).catch(() => null);
+        detailMs = performance.now() - t0;
+        if (view) upsertOrder(view);
         void fetchBalance().then(setBalance).catch(() => undefined);
       }
+      setLastFlow({ at: time(), req: sent, res, view, detailMs });
       return res;
     },
     [symbol.code, upsertOrder],
@@ -357,6 +380,7 @@ export function useTrading(): Trading {
     fills,
     events,
     lastSync,
+    lastFlow,
     submit,
     cancel,
     refresh,

@@ -25,9 +25,13 @@ public class LedgerGateway {
     /** 전문에 실을 논리 시각. 시스템 시각을 읽지 않는다(CLAUDE.md). */
     private final AtomicLong logicalClock = new AtomicLong(1);
 
-    public LedgerGateway(LedgerConnectionPool pool, StreamHub hub) {
+    /** 오간 전문을 적어 두는 곳(점검). 화면의 통신 모니터가 이것을 읽는다 */
+    private final WireTap tap;
+
+    public LedgerGateway(LedgerConnectionPool pool, StreamHub hub, WireTap tap) {
         this.pool = pool;
         this.hub = hub;
+        this.tap = tap;
     }
 
     /** 원장이 답하지 않거나 붙지 못하면 {@link LedgerException}. */
@@ -39,11 +43,22 @@ public class LedgerGateway {
             hub.ledgerReachable(false, e.getMessage());
             throw e;
         }
+        /*
+         * **여기가 모든 전문이 지나는 한 지점이다**(점검). 호가·잔고·상세·취소·종목 전환·
+         * 가상 참가자 스위치·호가 스냅샷이 전부 이 길로 나간다. 그래서 여기서 적으면
+         * 부르는 곳을 하나하나 고칠 필요가 없다.
+         */
+        long seq = logicalClock.getAndIncrement();
+        long t0 = System.nanoTime();
         try {
-            T res = c.call(request, responseType, logicalClock.getAndIncrement());
+            T res = c.call(request, responseType, seq);
+            tap.record(
+                    request, res, seq, System.nanoTime() - t0, c.lastSentFrame(), c.lastGotFrame());
             hub.ledgerReachable(true, null);
             return res;
         } catch (LedgerException e) {
+            /* 보냈는데 못 받았다. 그것도 기록이다 — 조용히 사라지면 화면이 알 길이 없다 */
+            tap.record(request, null, seq, System.nanoTime() - t0, c.lastSentFrame(), null);
             hub.ledgerReachable(false, e.getMessage());
             throw e;
         } finally {

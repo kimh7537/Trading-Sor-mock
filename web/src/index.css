@@ -772,6 +772,256 @@ kbd {
 .dnode-sum .dsum dd { font-size: 13px; }
 .dnote { margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-dim); }
 
+/* ───────── 통신 흐름 모니터 (점검) ─────────
+ *
+ * 계층을 **세로로** 쌓고 층과 층 사이에 무엇을 타고 갔는지·얼마나 걸렸는지를 적는다.
+ * 가로로 벌리지 않는 이유는 층이 다섯이라 좁은 화면에서 바로 무너지기 때문이다.
+ * 지나지 않는 층(FEP)은 흐리게 + 점선 — 색만으로 말하지 않고 글자로도 "지나지 않음"을 적는다.
+ */
+.flow { display: grid; gap: var(--s-4); min-width: 0; }
+
+.flow-stack { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; min-width: 0; }
+
+.flow-node {
+  display: grid;
+  gap: 6px;
+  padding: 10px var(--s-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  min-width: 0;
+}
+.flow-node.inner {
+  margin-left: var(--s-4);
+  background: var(--bg);
+  border-style: dashed;
+}
+.flow-node.skipped { opacity: 0.55; border-style: dashed; }
+.flow-node-head { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.flow-node-head .grow { flex: 1; }
+.flow-node-head b { font-size: 13px; }
+.flow-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.flow-detail { margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-faint); }
+
+.flow-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 6px var(--s-3);
+  margin: 0;
+  min-width: 0;
+}
+.flow-metrics > div { display: grid; gap: 1px; min-width: 0; }
+.flow-metrics dt { font-size: 10px; color: var(--text-faint); }
+.flow-metrics dd { margin: 0; font-size: 12px; font-weight: 600; color: var(--text); }
+
+/* 층 사이. 왼쪽에 선 하나를 두고 그 옆에 무엇이 오갔는지 적는다 */
+.flow-edge {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px var(--s-3);
+  margin-left: var(--s-4);
+  padding: 8px 0 8px var(--s-4);
+  border-left: 1px dashed var(--line-strong);
+  min-width: 0;
+}
+.flow-edge.lit { border-left-style: solid; }
+.flow-edge.inner { margin-left: calc(var(--s-4) * 2); }
+.flow-edge-label { font-size: 11px; font-weight: 600; color: var(--text-dim); }
+.flow-edge-time { font-size: 12px; font-weight: 700; color: var(--text); }
+.flow-edge.lit .flow-edge-time { color: var(--ok); }
+.flow-edge-note {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.flow-legs { display: grid; gap: 4px; }
+.flow-leg {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.flow-wire, .flow-limits {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  min-width: 0;
+}
+.flow-wire h3, .flow-limits h3 { margin: 0; font-size: 12px; color: var(--text-dim); }
+.flow-wire table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.flow-wire th, .flow-wire td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+}
+.flow-wire th { color: var(--text-faint); font-weight: 500; }
+.flow-wire .r { text-align: right; }
+.flow-limits ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.flow-limits li { font-size: 11px; line-height: 1.6; color: var(--text-dim); }
+.flow-limits code { font-size: 10px; color: var(--text-faint); }
+
+.flow-section { display: grid; gap: var(--s-3); min-width: 0; }
+.flow-section > h3 { margin: 0; font-size: 13px; color: var(--text); }
+.flow-section > h3 .muted { font-weight: 400; margin-left: 6px; }
+
+/* ───────── 계층 구조도 (SVG) ───────── */
+
+.arch { margin: 0; display: grid; gap: var(--s-2); min-width: 0; }
+.arch svg { width: 100%; height: auto; display: block; }
+
+.arch-box { fill: var(--bg-panel); stroke: var(--line); stroke-width: 1; }
+.arch-box.lit { stroke: var(--line-strong); }
+.arch-box.inner { fill: var(--bg); stroke-dasharray: 3 2; }
+.arch-title { fill: var(--text); font-size: 12px; font-weight: 700; }
+.arch-sub { fill: var(--text-faint); font-size: 9.5px; }
+
+/* 원장 프로세스 테두리 — "이 안은 한 프로세스"를 눈으로 보이게 */
+.arch-proc { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 6 3; }
+.arch-proc.lit { stroke: var(--sor); }
+.arch-proc.bad { stroke: var(--danger); }
+.arch-proc-tag { fill: var(--text-faint); font-size: 9px; }
+
+.arch-arrow line { stroke: var(--line-strong); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.arch-arrow polygon { fill: var(--line-strong); }
+.arch-arrow.lit line { stroke: var(--ok); stroke-dasharray: none; stroke-width: 1.6; }
+.arch-arrow.lit polygon { fill: var(--ok); }
+
+.arch-edge { fill: var(--text-dim); font-size: 10px; font-weight: 600; }
+.arch-edge.lit { fill: var(--text); }
+.arch-edge.strong { font-size: 11px; }
+.arch-edge-note { fill: var(--text-faint); font-size: 9px; }
+
+/* 지나지 않는 홉 — 흐리게 + 점선 + 글자까지 셋으로 말한다 */
+.arch-skip { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
+.arch-skip-text { fill: var(--text-faint); font-size: 9.5px; }
+
+.arch-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--s-4);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.arch-legend .bad { color: var(--danger); }
+
+/* ───────── 전문 내역 ───────── */
+
+.wirelog { display: grid; gap: var(--s-2); min-width: 0; }
+.wirelog-filter { display: flex; flex-wrap: wrap; gap: 4px; }
+.wirelog-filter button {
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.wirelog-filter button[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--bg-raised);
+}
+.wirelog-filter .num { color: var(--text-faint); margin-left: 3px; }
+
+/* 표만 가로로 밀리게 둔다 — 페이지 전체가 가로 스크롤 되면 안 된다 */
+/*
+ * 표만 스크롤한다 — 300줄이 페이지를 통째로 늘리면 아래 설명까지 내려가 안 보인다.
+ * 가로도 여기서만 밀린다. 페이지 전체가 가로로 스크롤되면 안 된다.
+ */
+.wirelog-scroll {
+  overflow: auto;
+  max-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.wirelog table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 520px; }
+.wirelog th, .wirelog td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+.wirelog th { color: var(--text-faint); font-weight: 500; background: var(--bg); position: sticky; top: 0; }
+.wirelog .r { text-align: right; }
+.wirelog-row.open { background: var(--bg-raised); }
+.wirelog-row.bad td { color: var(--danger); }
+.wirelog-open {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 0;
+  font-size: 11px;
+}
+.wirelog-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.wirelog-detail > td { background: var(--bg); white-space: normal; }
+.wirelog-bodies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+}
+
+.fieldtable { display: grid; gap: 4px; min-width: 0; }
+.fieldtable h4 { margin: 0; font-size: 11px; color: var(--text-dim); }
+.fieldtable h4 .muted { font-weight: 400; }
+.fieldtable table { min-width: 0; font-size: 10.5px; }
+.fieldtable td, .fieldtable th { padding: 3px 6px; }
+.fieldtable .val { color: var(--text); font-weight: 600; white-space: normal; word-break: break-all; }
+
+/* 헤더 값 — 바디 앞에 붙는 다섯 칸 */
+.hdr {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+  gap: 3px var(--s-2);
+  margin: 0;
+  padding: 5px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+}
+.hdr > div { display: grid; gap: 0; min-width: 0; }
+.hdr dt { font-size: 9px; color: var(--text-faint); }
+.hdr dd { margin: 0; font-size: 11px; font-weight: 600; color: var(--text-dim); }
+
+/* 선에 흐른 바이트 그대로 */
+.hexdump { display: grid; gap: 3px; min-width: 0; }
+.hexdump h5 { margin: 0; font-size: 10px; color: var(--text-faint); font-weight: 600; }
+.hexdump h5 .muted { font-weight: 400; }
+.hexdump pre {
+  margin: 0;
+  padding: 6px;
+  overflow-x: auto;
+  font-family: var(--font-num, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 1.6;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+}
+.hexdump .off { color: var(--text-faint); margin-right: 8px; }
+.hexdump .hb { color: var(--text); margin-right: 4px; }
+/* 헤더 몫은 흐리게 — 어디까지가 머리인지 눈으로 갈린다 */
+.hexdump .hb.head { color: var(--text-faint); }
+
 /*
  * 넓은 화면에서는 **왼쪽에서 오른쪽으로** 눕힌다 — 논리 주문 → 시장별 → 최종 결과.
  * 세로로 쌓으면 주문 내역 칸(190px 남짓)보다 훨씬 길어져 스크롤만 하게 된다.
@@ -899,6 +1149,11 @@ kbd {
   .leg { grid-template-columns: 40px repeat(2, minmax(0, 1fr)); }
   /* 좁은 화면에서는 KRX·NXT를 좌우로 벌리지 않고 위아래로 쌓는다 */
   .dlegs.branched { grid-template-columns: minmax(0, 1fr); }
+  /* 좁은 화면: 흐름도의 들여쓰기를 줄여 글자 폭을 남긴다 */
+  .flow-node.inner { margin-left: var(--s-2); }
+  .flow-edge { margin-left: var(--s-2); padding-left: var(--s-3); }
+  .flow-edge.inner { margin-left: var(--s-3); }
+  .flow-leg { grid-template-columns: 40px minmax(0, 1fr) auto; }
   .dissect { padding: var(--s-2); }
   .dsum, .dleg-nums { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
 }

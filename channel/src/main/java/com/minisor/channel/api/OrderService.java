@@ -69,6 +69,9 @@ public class OrderService {
     /** 지금 시세 모드. 시뮬 체결과 실시세 체결을 다른 장부에 적는다(점검). */
     private final com.minisor.channel.feed.LiveFeed live;
 
+    /** 오간 전문을 적어 두는 곳(점검). 주문은 게이트웨이를 거치지 않아 여기서 따로 적는다 */
+    private final WireTap tap;
+
     /**
      * 전문에 실을 논리 시각. <b>시스템 시각을 읽지 않는다</b>(CLAUDE.md).
      * 채널계는 시각의 의미를 알 필요가 없고, 늘어나기만 하면 된다.
@@ -82,7 +85,8 @@ public class OrderService {
             StreamHub hub,
             com.minisor.channel.store.FillStore fills,
             com.minisor.channel.feed.SymbolState symbols,
-            com.minisor.channel.feed.LiveFeed live) {
+            com.minisor.channel.feed.LiveFeed live,
+            WireTap tap) {
         this.pool = pool;
         this.gateway = gateway;
         this.registry = registry;
@@ -90,6 +94,7 @@ public class OrderService {
         this.fills = fills;
         this.symbols = symbols;
         this.live = live;
+        this.tap = tap;
     }
 
     public OrderResponseDto submit(String account, OrderRequestDto req) {
@@ -223,23 +228,34 @@ public class OrderService {
             throw e;
         }
 
+        /*
+         * **보내고 받는 데 실제로 걸린 시간을 잰다**(점검). 화면의 통신 모니터가
+         * 구조도 위에 얹을 값이다. 원장 안에서 검증·SOR·매칭이 갈라 쓴 몫은 나누지
+         * 않는다 — 매칭 엔진이 시스템 시각을 읽는 것은 결정성 규칙이 금지한다.
+         */
+        long seq = logicalClock.getAndIncrement();
+        long t0 = System.nanoTime();
         try {
-            OrderAck ack = c.call(m, OrderAck.class, logicalClock.getAndIncrement());
+            OrderAck ack = c.call(m, OrderAck.class, seq);
+            long took = System.nanoTime() - t0;
+            WireHop hop = WireHop.of(OrderReq.class, OrderAck.class, seq, took);
+            tap.record(m, ack, seq, took, c.lastSentFrame(), c.lastGotFrame());
             pool.release(c);
             hub.ledgerReachable(true, null);
 
             if (ack.reason != 0) {
                 return OrderResponseDto.rejected(
-                        ack.clOrdId, ack.reason, "원장이 거절했다");
+                        ack.clOrdId, ack.reason, "원장이 거절했다", hop);
             }
             return OrderResponseDto.accepted(
-                    ack.clOrdId, ack.orderId, ack.status, ack.filledQty, ack.price);
+                    ack.clOrdId, ack.orderId, ack.status, ack.filledQty, ack.price, hop);
 
         } catch (LedgerException e) {
             /*
              * **보낸 뒤에 실패했다.** 닿았는지 모른다. 접속은 버리고
              * 모른다고 답한다.
              */
+            tap.record(m, null, seq, System.nanoTime() - t0, c.lastSentFrame(), null);
             pool.release(c);
             hub.ledgerReachable(false, e.getMessage());
             return OrderResponseDto.inDoubt(

@@ -60,6 +60,25 @@ public final class LedgerConnection implements AutoCloseable {
      * 원장이 처리했는지 안 했는지 모르는 상태이고, 같은 접속을 계속 쓰면
      * <b>응답이 한 칸씩 밀려</b> 다음 요청이 앞 요청의 답을 받는다.
      */
+    /**
+     * 마지막으로 **실제 소켓에 쓰고 읽은 프레임**(헤더 + 바디) (점검).
+     *
+     * <p>화면의 통신 모니터가 전문 안의 내용을 바이트 그대로 보여 주는 재료다. 다시
+     * 만들어 내지 않고 <b>오간 것을 그대로</b> 들고 있는다 — 헤더의 순번은 이 접속이
+     * 자기 카운터로 붙이므로 바깥에서 되살릴 수 없다.
+     */
+    private byte[] lastSent = new byte[0];
+
+    private byte[] lastGot = new byte[0];
+
+    public byte[] lastSentFrame() {
+        return lastSent;
+    }
+
+    public byte[] lastGotFrame() {
+        return lastGot;
+    }
+
     public <T> T call(Object request, Class<T> responseType, long ts) {
         if (isBroken()) {
             throw new LedgerException("이미 버려진 접속이다");
@@ -83,6 +102,8 @@ public final class LedgerConnection implements AutoCloseable {
             System.arraycopy(body, 0, frame, WireHeader.LENGTH, body.length);
             out.write(frame);
             out.flush();
+            lastSent = frame;
+            lastGot = new byte[0]; /* 아직 못 받았다 */
 
             byte[] hbuf = new byte[WireHeader.LENGTH];
             in.readFully(hbuf);
@@ -92,6 +113,10 @@ public final class LedgerConnection implements AutoCloseable {
             if (rh.bodyLen() > 0) {
                 in.readFully(rbody);
             }
+            byte[] rframe = new byte[WireHeader.LENGTH + rh.bodyLen()];
+            System.arraycopy(hbuf, 0, rframe, 0, WireHeader.LENGTH);
+            System.arraycopy(rbody, 0, rframe, WireHeader.LENGTH, rh.bodyLen());
+            lastGot = rframe;
 
             int want = WireCodec.typeCode(responseType);
             if (rh.type() != want) {

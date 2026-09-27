@@ -26,6 +26,74 @@ export interface Fill {
   orderId: number;
 }
 
+/**
+ * 채널계 ↔ 원장 **전문 한 왕복**에 실제로 오간 것(점검).
+ *
+ * 길이는 규격에서 나온 고정 길이고, `micros`는 채널계가 잰 벽시계 시간이다.
+ * **원장 안에서 검증·SOR·매칭이 각각 얼마나 걸렸는지는 없다** — 재지 않는다.
+ * 매칭 엔진이 시스템 시각을 읽으면 같은 입력이 같은 출력을 내지 않게 된다.
+ */
+export interface WireHop {
+  sent: string;
+  sentType: number;
+  sentBytes: number;
+  got: string;
+  gotType: number;
+  gotBytes: number;
+  seq: number;
+  micros: number;
+}
+
+/** 전문 필드 하나. `offset`은 바디 안 시작 위치(바이트), `size`는 고정 길이다 */
+export interface WireFieldView {
+  name: string;
+  type: string;
+  offset: number;
+  size: number;
+  value: string;
+}
+
+/**
+ * 채널계 ↔ 원장을 오간 전문 한 왕복 전체(점검).
+ *
+ * `ok`가 거짓이면 **보냈는데 답을 못 받았다** — 받은 쪽 칸이 비어 있다.
+ */
+export interface WireHeaderView {
+  version: number;
+  type: number;
+  bodyLen: number;
+  seq: number;
+  ts: number;
+}
+
+export interface WireFrame {
+  id: number;
+  at: string;
+  sent: string;
+  sentType: number;
+  sentBytes: number;
+  sentFields: WireFieldView[];
+  got: string;
+  gotType: number;
+  gotBytes: number;
+  gotFields: WireFieldView[];
+  seq: number;
+  micros: number;
+  ok: boolean;
+  /** 실제로 오간 바이트 그대로(헤더 + 바디)를 16진수로. 빈 문자열이면 없다 */
+  sentHex: string;
+  gotHex: string;
+  /** 바디 앞에 붙은 머리를 푼 것 */
+  sentHeader: WireHeaderView | null;
+  gotHeader: WireHeaderView | null;
+}
+
+export interface WireLog {
+  total: number;
+  capacity: number;
+  frames: WireFrame[];
+}
+
 /** 시장 하나로 나간 몫 — "논리 → 물리"의 물리 쪽 */
 export interface LegView {
   market: number;

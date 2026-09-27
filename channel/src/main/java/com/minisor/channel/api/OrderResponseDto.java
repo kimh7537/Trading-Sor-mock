@@ -18,7 +18,12 @@ public record OrderResponseDto(
         String message,
         int status,
         int filledQty,
-        int avgPrice) {
+        int avgPrice,
+        /**
+         * 이 주문이 원장까지 갔다 온 <b>전문 한 왕복</b>의 실제 값(점검). 화면의 통신
+         * 모니터가 쓴다. 원장에 닿지 못했으면 {@code null}이다 — 그때는 오간 것이 없다.
+         */
+        WireHop ledger) {
 
     public enum Outcome {
         /** 원장이 접수했다. */
@@ -34,16 +39,21 @@ public record OrderResponseDto(
     }
 
     static OrderResponseDto accepted(
-            long clOrdId, long orderId, int status, int filledQty, int avgPrice) {
+            long clOrdId, long orderId, int status, int filledQty, int avgPrice, WireHop hop) {
         return new OrderResponseDto(
-                Outcome.ACCEPTED, clOrdId, orderId, 0, "접수", status, filledQty, avgPrice);
+                Outcome.ACCEPTED, clOrdId, orderId, 0, "접수", status, filledQty, avgPrice, hop);
+    }
+
+    static OrderResponseDto rejected(long clOrdId, int reason, String message, WireHop hop) {
+        return new OrderResponseDto(
+                Outcome.REJECTED, clOrdId, 0, reason, message, 0, 0, 0, hop);
     }
 
     static OrderResponseDto rejected(long clOrdId, int reason, String message) {
-        return new OrderResponseDto(Outcome.REJECTED, clOrdId, 0, reason, message, 0, 0, 0);
+        return rejected(clOrdId, reason, message, null);
     }
 
     static OrderResponseDto inDoubt(long clOrdId, String message) {
-        return new OrderResponseDto(Outcome.IN_DOUBT, clOrdId, 0, 0, message, 0, 0, 0);
+        return new OrderResponseDto(Outcome.IN_DOUBT, clOrdId, 0, 0, message, 0, 0, 0, null);
     }
 }

@@ -3,6 +3,10 @@ package com.minisor.channel.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.minisor.channel.ledger.FakeLedger;
+import com.minisor.channel.wire.OrderAck;
+import com.minisor.channel.wire.OrderReq;
+import com.minisor.channel.wire.WireCodec;
+import com.minisor.channel.wire.WireHeader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +26,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * T4-04 완료 조건을 그대로 옮긴다.
@@ -118,6 +124,8 @@ class OrderApiTest {
         return client.send(r, HttpResponse.BodyHandlers.ofString());
     }
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
     @LocalServerPort private int port;
 
     @Autowired private OrderService service; // 컨텍스트가 떴는지 확인용
@@ -193,6 +201,115 @@ class OrderApiTest {
     void autoMarketIsAccepted() throws Exception {
         HttpResponse<String> res = post(order(19).replace("\"market\":0", "\"market\":255"));
         assertThat(res.statusCode()).isEqualTo(200);
+    }
+
+    /**
+     * 점검 — 주문 응답이 <b>원장까지 갔다 온 전문 한 왕복</b>을 싣는다.
+     *
+     * <p>화면의 통신 모니터가 구조도 위에 얹을 값이다. 이름·종별·길이는 규격에서 나오고
+     * 왕복 시간은 채널계가 잰다 — <b>지어낸 값이 하나도 없어야 한다.</b>
+     */
+    @Test
+    void responseCarriesTheWireRoundTrip() throws Exception {
+        HttpResponse<String> res = post(order(191));
+        assertThat(res.statusCode()).isEqualTo(200);
+
+        JsonNode hop = JSON.readTree(res.body()).path("ledger");
+        assertThat(hop.isMissingNode()).isFalse();
+        assertThat(hop.path("sent").asString()).isEqualTo("ORDERREQ");
+        assertThat(hop.path("got").asString()).isEqualTo("ORDERACK");
+        /* 종별 코드는 C 헤더와 같아야 한다 — WireLayoutTest가 따로 대조한다 */
+        assertThat(hop.path("sentType").asInt()).isEqualTo(WireCodec.typeCode(OrderReq.class));
+        assertThat(hop.path("gotType").asInt()).isEqualTo(WireCodec.typeCode(OrderAck.class));
+        /* 길이는 헤더 + 고정 길이 바디 */
+        assertThat(hop.path("sentBytes").asInt())
+                .isEqualTo(WireHeader.LENGTH + WireCodec.bodyLength(OrderReq.class));
+        assertThat(hop.path("gotBytes").asInt())
+                .isEqualTo(WireHeader.LENGTH + WireCodec.bodyLength(OrderAck.class));
+        assertThat(hop.path("seq").asLong()).isPositive();
+        /* 실제로 잰 시간이다. 0이 아니고 터무니없이 크지도 않다 */
+        assertThat(hop.path("micros").asLong()).isPositive().isLessThan(10_000_000L);
+    }
+
+    /**
+     * 점검 — {@code /api/wire}가 <b>오간 전문을 필드 값까지</b> 돌려준다.
+     *
+     * <p>화면의 통신 모니터가 "무엇이 실렸나"를 보여 주는 재료다. 필드 이름·타입·위치·길이는
+     * 전문 선언을 그대로 되짚은 것이라 전문이 바뀌면 이 응답도 같이 바뀐다.
+     */
+    @Test
+    void wireLogCarriesEveryFieldValue() throws Exception {
+        post(order(193));
+
+        JsonNode log = JSON.readTree(get("/api/wire?after=0").body());
+        assertThat(log.path("total").asLong()).isPositive();
+        assertThat(log.path("capacity").asInt()).isEqualTo(WireTap.CAPACITY);
+
+        JsonNode frame = null;
+        for (JsonNode f : log.path("frames")) {
+            if ("ORDERREQ".equals(f.path("sent").asString())) {
+                frame = f;
+            }
+        }
+        assertThat(frame).as("주문 전문이 내역에 있어야 한다").isNotNull();
+        assertThat(frame.path("got").asString()).isEqualTo("ORDERACK");
+        assertThat(frame.path("ok").asBoolean()).isTrue();
+
+        /* 보낸 바디의 필드가 선언 순서대로, 값까지 실려 온다 */
+        JsonNode fields = frame.path("sentFields");
+        assertThat(fields.size()).isEqualTo(8);
+        assertThat(fields.get(0).path("name").asString()).isEqualTo("account");
+        assertThat(fields.get(0).path("type").asString()).isEqualTo("STR");
+        assertThat(fields.get(0).path("offset").asInt()).isZero();
+        assertThat(fields.get(0).path("size").asInt()).isEqualTo(12);
+        /* 값이 실제로 실려 있다 — 빈 칸이 아니다 */
+        assertThat(fields.get(1).path("name").asString()).isEqualTo("symbol");
+        assertThat(fields.get(1).path("value").asString()).isEqualTo("005930");
+        assertThat(fields.get(2).path("name").asString()).isEqualTo("clOrdId");
+        assertThat(fields.get(2).path("value").asString()).isEqualTo("193");
+
+        /* 바디 길이의 합이 규격과 같다 — 위치·길이가 지어낸 값이 아니다 */
+        int body = 0;
+        for (JsonNode f : fields) {
+            body += f.path("size").asInt();
+        }
+        assertThat(body).isEqualTo(WireCodec.bodyLength(OrderReq.class));
+        assertThat(frame.path("sentBytes").asInt()).isEqualTo(WireHeader.LENGTH + body);
+    }
+
+    /** {@code after}를 주면 그 뒤에 적힌 것만 온다 — 매번 전부 내려보내지 않는다. */
+    @Test
+    void wireLogOnlySendsWhatIsNew() throws Exception {
+        post(order(194));
+        JsonNode first = JSON.readTree(get("/api/wire?after=0").body());
+        long last = 0;
+        for (JsonNode f : first.path("frames")) {
+            last = Math.max(last, f.path("id").asLong());
+        }
+        assertThat(last).isPositive();
+
+        JsonNode none = JSON.readTree(get("/api/wire?after=" + last).body());
+        assertThat(none.path("frames").size()).isZero();
+
+        post(order(195));
+        JsonNode more = JSON.readTree(get("/api/wire?after=" + last).body());
+        assertThat(more.path("frames").size()).isPositive();
+        for (JsonNode f : more.path("frames")) {
+            assertThat(f.path("id").asLong()).isGreaterThan(last);
+        }
+    }
+
+    /** 원장에 닿지 못하면 오간 전문이 없다 — 있는 척하지 않는다. */
+    @Test
+    void noRoundTripWhenLedgerNeverAnswered() throws Exception {
+        ledger.setDelayMs(3000);
+        try {
+            HttpResponse<String> res = post(order(192));
+            assertThat(res.statusCode()).isEqualTo(202);
+            assertThat(JSON.readTree(res.body()).path("ledger").isNull()).isTrue();
+        } finally {
+            ledger.setDelayMs(0);
+        }
     }
 
     /**
