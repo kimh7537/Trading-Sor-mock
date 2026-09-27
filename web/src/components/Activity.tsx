@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Fill, LocalReject, OrderView } from "../lib/types";
 import type { Notify } from "../lib/useToasts";
 import { useFlash, type Change } from "../lib/useFlash";
+import { OrderDissect } from "./OrderDissect";
 import {  money, moneyUnit, qty as fq } from "../lib/format";
 import {
   SIDE_BUY,
@@ -107,8 +108,19 @@ function OrderRow({
 
       {open && (
         <div className="legs">
-          <span className="caption">논리 주문 1건 → 시장별 물리 주문</span>
-          {o.legs.length === 0 && <span className="caption">시장으로 나간 몫이 없다</span>}
+          {/*
+            주문 해부. 아래 다리 목록과 같은 값을 쓰지만 **구조**를 보여 준다 —
+            논리 주문 하나가 몇 시장으로 갈려 어떻게 끝났는지(점검).
+          */}
+          <OrderDissect o={o} />
+          {/*
+            같은 값을 표로 한 번 더 — 해부는 구조를 보여 주고 이쪽은 수치를 한 줄에 모은다.
+            **접어 둔다.** 펼쳐 두면 바로 위 해부와 숫자가 겹쳐 두 번 읽게 되고, 좁은 화면
+            에서는 그만큼 더 스크롤해야 한다. 없애지는 않는다 — 값을 한 줄로 훑고 싶을 때가 있다.
+          */}
+          <details className="leg-table">
+            <summary>시장별 물리 주문 (값만)</summary>
+            {o.legs.length === 0 && <span className="caption">시장으로 나간 몫이 없다</span>}
           {o.legs.map((l) => {
             const m = marketName(l.market);
             return (
@@ -135,6 +147,7 @@ function OrderRow({
               </div>
             );
           })}
+          </details>
         </div>
       )}
     </li>

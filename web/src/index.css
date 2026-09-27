@@ -657,6 +657,149 @@ kbd {
 .leg b { color: var(--text); font-weight: 600; }
 .legs .caption { font-size: 10px; color: var(--text-faint); }
 
+/* 해부 아래의 값만 보는 표. 접어 두고 필요할 때만 편다(점검) */
+.leg-table { display: grid; gap: 4px; }
+.leg-table > summary {
+  font-size: 10px;
+  color: var(--text-faint);
+  cursor: pointer;
+  list-style-position: inside;
+  padding: 2px 0;
+}
+.leg-table > summary:hover { color: var(--text-dim); }
+.leg-table > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ───────── 주문 해부 (점검) ─────────
+ *
+ * 논리 주문 1건 → 시장별 물리 주문 N건 → 최종 결과를 위에서 아래로 읽게 한다.
+ * **세로가 기본이다.** 좌우로 벌리면 320px에서 무너지고, 다리 수가 늘면 더 무너진다.
+ * 넓은 화면에서는 다리 칸만 나란히 놓여 "나눴다"가 공간으로도 보인다.
+ * 연결은 CSS 선 하나뿐이다 — SVG도 애니메이션도 쓰지 않는다.
+ */
+.dissect {
+  display: grid;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  padding: var(--s-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  min-width: 0;
+}
+.dissect .dstep {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  text-transform: none;
+}
+.dissect .dline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+.dissect .dline .grow { flex: 1; }
+.dissect .dmuted { font-size: 11px; color: var(--text-dim); }
+
+.dnode {
+  display: grid;
+  gap: 5px;
+  padding: var(--s-2) 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+
+/* 갈라지는 자리. 위아래를 잇는 선을 가운데가 아니라 왼쪽에 둔다 — 다리 수와 무관하게 맞는다 */
+.dsplit {
+  position: relative;
+  margin: 0;
+  padding: 10px 0 10px 18px;
+}
+.dsplit::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line-strong);
+}
+.dsplit::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 8px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.dlegs { display: grid; gap: var(--s-2); min-width: 0; }
+/* 다리가 둘 이상이면 넓은 화면에서 나란히. 좁으면 auto-fit이 알아서 한 줄씩 쌓는다 */
+.dlegs.branched { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+.dleg {
+  display: grid;
+  gap: 6px;
+  padding: var(--s-2) 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+
+/* 숫자 짝 — 이름과 값을 위아래로. 좁아지면 칸 수만 줄고 가로 스크롤은 생기지 않는다 */
+.dsum,
+.dleg-nums {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 6px var(--s-3);
+  margin: 0;
+  min-width: 0;
+}
+.dsum > div,
+.dleg-nums > div { display: grid; gap: 1px; min-width: 0; }
+.dsum dt,
+.dleg-nums dt { font-size: 10px; color: var(--text-faint); }
+.dsum dd,
+.dleg-nums dd { margin: 0; font-size: 12px; font-weight: 600; color: var(--text); }
+
+.dnode-sum { border-color: var(--line); }
+.dnode-sum .dsum dd { font-size: 13px; }
+.dnote { margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-dim); }
+
+/*
+ * 넓은 화면에서는 **왼쪽에서 오른쪽으로** 눕힌다 — 논리 주문 → 시장별 → 최종 결과.
+ * 세로로 쌓으면 주문 내역 칸(190px 남짓)보다 훨씬 길어져 스크롤만 하게 된다.
+ * 1200px는 화면이 탭 하나씩으로 바뀌는 경계와 같다(그 아래는 패널이 전체 높이를 쓴다).
+ */
+@media (min-width: 1200px) {
+  .dissect {
+    grid-template-columns: minmax(120px, 0.7fr) minmax(0, 3fr) minmax(150px, 210px);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "head split sum"
+      "head legs  sum";
+    align-items: start;
+    gap: var(--s-2) var(--s-3);
+  }
+  .dissect > .dnode-head { grid-area: head; align-self: center; }
+  .dissect > .dsplit { grid-area: split; padding: 0 0 2px; }
+  .dissect > .dsplit::before, .dissect > .dsplit::after { display: none; }
+  .dissect > .dlegs { grid-area: legs; }
+  .dissect > .dnode-sum { grid-area: sum; align-self: center; }
+  /* 좁은 칸에 끼므로 이름-값을 두 줄로 */
+  .dnode-sum .dsum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dnode-head .dline { flex-direction: column; align-items: flex-start; gap: 4px; }
+  /* 가로로 누우면 다리 칸이 좁아진다 — 두 시장이 나란히 놓이게 최소 폭을 줄인다 */
+  .dissect > .dlegs.branched { grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); }
+  .dleg-nums { grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }
+}
+
 .fill-summary {
   display: flex;
   flex-wrap: wrap;
@@ -754,6 +897,10 @@ kbd {
   .book-head, .book-mid { padding-left: var(--s-2); padding-right: var(--s-2); }
   .book-mid { flex-direction: column; }
   .leg { grid-template-columns: 40px repeat(2, minmax(0, 1fr)); }
+  /* 좁은 화면에서는 KRX·NXT를 좌우로 벌리지 않고 위아래로 쌓는다 */
+  .dlegs.branched { grid-template-columns: minmax(0, 1fr); }
+  .dissect { padding: var(--s-2); }
+  .dsum, .dleg-nums { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

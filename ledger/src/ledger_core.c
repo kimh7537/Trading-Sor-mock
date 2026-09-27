@@ -347,7 +347,10 @@ static void process_order(ledger_core_t *c, const msg_order_req_t *req,
         memset(&ctx, 0, sizeof(ctx));
         ctx.cons = &c->cons;
         ctx.ts = o.ts;
-        rc = routing_plan(&STRATEGY_BEST_PRICE, &ctx, &o, NULL, &plan);
+        /* 설정이 고른 전략. 안 고르면 지금까지처럼 BEST_PRICE다 */
+        const exec_strategy_t *st =
+            c->cfg.strategy != NULL ? c->cfg.strategy : &STRATEGY_BEST_PRICE;
+        rc = routing_plan(st, &ctx, &o, NULL, &plan);
     } else {
         plan_init(&plan);
         rc = plan_add_leg(&plan, o.market, o.qty, o.price, o.type);

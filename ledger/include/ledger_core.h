@@ -115,6 +115,19 @@ typedef struct {
      * 받아들이는 가격을 검증이 막는다.
      */
     tick_table_t tick_table;
+
+    /*
+     * SOR 자동(`MSG_MARKET_AUTO`) 주문을 어느 전략으로 나눌 것인가.
+     *
+     * **NULL이면 `STRATEGY_BEST_PRICE`다** — 지금까지의 동작 그대로다. 이 값을 둔
+     * 이유는 화면의 "주문 해부"가 다리 1개만 보여 줬기 때문이다. BEST_PRICE는 설계상
+     * 이긴 시장 하나에 전량 보내므로 **쪼개는 법이 없고**, 쪼개는 것을 눈으로 보려면
+     * SPLIT·SWEEP으로 띄울 수 있어야 한다(`ledgerd --strategy`).
+     *
+     * 기본값을 바꾸지 않는 이유는 전략 비교가 이 프로젝트의 산출물이라서다 — 어느
+     * 전략으로 돌렸는지가 측정 결과의 전제이고, 조용히 바뀌면 그 전제가 흔들린다.
+     */
+    const struct exec_strategy *strategy;
 } ledger_core_config_t;
 
 /* 화면(web)과 맞춘 기본값 — 계좌 123456789012, 005930, 기준가 70,000원. */

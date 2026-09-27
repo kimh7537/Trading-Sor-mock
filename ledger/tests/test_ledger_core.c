@@ -15,6 +15,7 @@
 
 #include "errors.h"
 #include "ledger_core.h"
+#include "strategy.h"
 #include "msg.h"
 #include "tick_size.h"
 
@@ -2201,6 +2202,57 @@ static void test_set_cash_refuses_below_reserved(void)
     ledger_core_destroy(c);
 }
 
+/*
+ * **설정이 SOR 전략을 고른다**(점검). 안 고르면 지금까지처럼 BEST_PRICE다.
+ *
+ * 화면의 "주문 해부"가 다리를 1개만 보여 주던 것이 이 값이 없었기 때문이다 —
+ * BEST_PRICE는 설계상 이긴 시장 하나에 전량 보내므로 절대 쪼개지 않는다.
+ */
+static void test_config_picks_strategy(void)
+{
+    /* 기본(설정 안 함) — 한 시장으로만 간다 */
+    ledger_core_config_t cfg = LEDGER_CORE_DEFAULT;
+    cfg.liquidity_per_market = 200;
+    cfg.order_capacity = 64;
+    ledger_core_t *best = ledger_core_create(&cfg);
+    assert(best != NULL);
+    assert(cfg.strategy == NULL); /* 기본값이 바뀌지 않았다 */
+
+    msg_order_ack_t ack;
+    assert(send_order(best, SIDE_BUY, MSG_MARKET_AUTO, 71000, 40, 1, &ack) ==
+           ERR_OK);
+    msg_detail_ack_t d;
+    assert(detail(best, ACCT, ack.order_id, &d) == ERR_OK);
+    int best_legs = 0;
+    for (int m = 0; m < MSG_LEG_SLOTS; m++) {
+        if (d.leg_sent[m] > 0) {
+            best_legs++;
+        }
+    }
+    assert(best_legs == 1); /* 쪼개지 않는다 */
+    ledger_core_destroy(best);
+
+    /* SPLIT — 같은 주문이 두 시장으로 갈린다 */
+    cfg.strategy = &STRATEGY_SPLIT;
+    ledger_core_t *split = ledger_core_create(&cfg);
+    assert(split != NULL);
+    assert(send_order(split, SIDE_BUY, MSG_MARKET_AUTO, 71000, 40, 1, &ack) ==
+           ERR_OK);
+    assert(detail(split, ACCT, ack.order_id, &d) == ERR_OK);
+
+    int   split_legs = 0;
+    qty_t sent_sum = 0;
+    for (int m = 0; m < MSG_LEG_SLOTS; m++) {
+        if (d.leg_sent[m] > 0) {
+            split_legs++;
+            sent_sum += d.leg_sent[m];
+        }
+    }
+    assert(split_legs == 2);  /* 두 시장으로 나뉘었다 */
+    assert(sent_sum == 40);   /* 다리 수량의 합은 원 주문과 같다 */
+    ledger_core_destroy(split);
+}
+
 int main(void)
 {
     STEP(test_cannot_sell_what_you_do_not_own);
@@ -2221,6 +2273,7 @@ int main(void)
     STEP(test_book_query);
     STEP(test_book_query_matches_book);
     STEP(test_auto_routes_to_cheaper_market);
+    STEP(test_config_picks_strategy);
     STEP(test_rejects_leave_money_alone);
     STEP(test_capacity);
     STEP(test_cancel_releases_margin);

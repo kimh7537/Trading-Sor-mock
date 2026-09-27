@@ -1,7 +1,7 @@
 /*
  * 원장 데몬.
  *
- *   ledgerd [포트] [--live <초당 주문 수>] [--ref-price <원>]
+ *   ledgerd [포트] [--live <초당 주문 수>] [--ref-price <원>] [--strategy <이름>]
  *
  * 미국 종목으로 바꾸면 가격이 센트 정수가 되고 계좌는 $100,000로 다시 열린다(T10-02).
  *
@@ -28,6 +28,7 @@
 
 #include "errors.h"
 #include "ledger_core.h"
+#include "strategy.h"
 #include "listener.h"
 #include "msg.h"
 #include "wire.h"
@@ -301,6 +302,30 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
     return ledger_core_handle(hdr, body, out, out_cap, lc->core);
 }
 
+/*
+ * 이름으로 SOR 전략을 고른다(`--strategy`). 모르는 이름이면 NULL.
+ *
+ * **기본은 바꾸지 않는다.** 전략이 무엇이었는지가 측정 결과의 전제이므로, 고르지 않으면
+ * 지금까지와 같은 BEST_PRICE다. 이 스위치는 "쪼개는 것"을 눈으로 보려고 둔 것이다 —
+ * BEST_PRICE는 설계상 이긴 시장 하나에 전량 보내서 주문 해부에 다리가 늘 1개다.
+ */
+static const exec_strategy_t *strategy_by_name(const char *name)
+{
+    if (strcmp(name, "best") == 0) {
+        return &STRATEGY_BEST_PRICE;
+    }
+    if (strcmp(name, "split") == 0) {
+        return &STRATEGY_SPLIT;
+    }
+    if (strcmp(name, "sweep") == 0) {
+        return &STRATEGY_SWEEP;
+    }
+    if (strcmp(name, "krx") == 0) {
+        return &STRATEGY_KRX_ONLY;
+    }
+    return NULL;
+}
+
 /* 초당 주문 수에서 "몇 ms마다 몇 건"을 정한다. */
 static void live_pace(long rate, int *out_ms, int32_t *out_per_tick)
 {
@@ -323,6 +348,7 @@ int main(int argc, char **argv)
      */
     long     live_rate = 0;
     long     ref_price = 0; /* 0이면 기본 기준가를 쓴다 */
+    const exec_strategy_t *strategy = NULL; /* NULL이면 BEST_PRICE */
 
     for (int i = 1; i < argc; i++) {
         char *end = NULL;
@@ -335,6 +361,19 @@ int main(int argc, char **argv)
             if (end == argv[i + 1] || *end != '\0' || live_rate <= 0 ||
                 live_rate > 100000) {
                 fprintf(stderr, "--live는 1~100000 사이여야 한다\n");
+                return 2;
+            }
+            i++;
+            continue;
+        }
+        if (strcmp(argv[i], "--strategy") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--strategy 뒤에 best|split|sweep|krx 가 와야 한다\n");
+                return 2;
+            }
+            strategy = strategy_by_name(argv[i + 1]);
+            if (strategy == NULL) {
+                fprintf(stderr, "--strategy는 best|split|sweep|krx 중 하나여야 한다\n");
                 return 2;
             }
             i++;
@@ -372,6 +411,7 @@ int main(int argc, char **argv)
     if (ref_price > 0) {
         cfg_buf.ref_price = (price_t)ref_price;
     }
+    cfg_buf.strategy = strategy;
 
     ledger_core_t *core = ledger_core_create(&cfg_buf);
     if (core == NULL) {
@@ -391,6 +431,9 @@ int main(int argc, char **argv)
            (unsigned)listener_port(ln));
     printf("  계좌 %s, 예수금 %lld원, 종목 %s, 기준가 %d원\n", cfg->account,
            (long long)cfg->cash, cfg->symbol, cfg->ref_price);
+    printf("  SOR 전략 %s (자동 주문만 해당)\n",
+           strategy_name(cfg->strategy != NULL ? cfg->strategy
+                                               : &STRATEGY_BEST_PRICE));
     /* 호가창이 받는 가격대. 실시세를 심을 때 이 밖의 가격은 버려진다 */
     printf("  다루는 가격대 %d ~ %d원\n", cfg->ref_price - cfg->ref_price * 3 / 10,
            cfg->ref_price + cfg->ref_price * 3 / 10);
