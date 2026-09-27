@@ -21,7 +21,7 @@ import { FlowMonitor } from "./components/FlowMonitor";
 import { fetchMe, logout, type Me } from "./lib/api";
 import { feedLabel } from "./lib/feedLabel";
 
-type View = "trade" | "account" | "flow" | "strategies" | "ops";
+type View = "trade" | "account" | "flow" | "arch" | "strategies" | "ops";
 
 /** 좁은 화면에서 한 번에 하나씩 보는 칸. 넓은 화면에서는 전부 나란히 놓인다 */
 type Pane = "book" | "chart" | "ticket" | "activity" | "mode";
@@ -38,6 +38,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: "trade", label: "거래" },
   { id: "account", label: "내 계좌" },
   { id: "flow", label: "통신 흐름" },
+  { id: "arch", label: "구조도" },
   { id: "strategies", label: "전략 비교" },
   { id: "ops", label: "관제" },
 ];
@@ -267,6 +268,26 @@ function Trading({ me, onLogout }: { me: Me; onLogout: () => void }) {
               />
             </Panel>
           </div>
+        )}
+
+        {view === "arch" && (
+          /*
+            저장소 구조도(`docs/architecture.html`)를 그대로 띄운다. 자체 완결 문서라
+            iframe이면 충분하고, 화면 코드가 그 내용을 알 필요도 없다 — 문서가 바뀌면
+            여기도 같이 바뀐다. 서빙은 `vite.config.ts`의 플러그인이 한다.
+          */
+          <Panel
+            className="arch-panel"
+            title="저장소 구조도"
+            sub="docs/architecture.html — 폴더·파일·의존 관계를 눌러 가며 본다"
+            flush
+          >
+            <iframe
+              className="arch-frame"
+              src="/architecture.html"
+              title="mini-sor 저장소 구조도"
+            />
+          </Panel>
         )}
 
         {view === "ops" && (

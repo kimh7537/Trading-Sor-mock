@@ -199,7 +199,7 @@ React를 처음 보면 4.4절의 "React를 처음 보는 사람을 위한 기초
 
 | 단계 | 파일 | 볼 것 | 안내서 |
 |---|---|---|---|
-| 55 | `web/vite.config.ts` → `web/src/lib/wire.ts` → `types.ts` → `api.ts` → `format.ts` → `estimate.ts` | 프록시(CORS를 피하는 이유), C와 같은 열거값과 호가 단위 표, REST 호출, 보이는 호가로 계산하는 예상 체결 | 4.4절 13 |
+| 55 | `web/vite.config.ts` → `web/src/lib/wire.ts` → `types.ts` → `api.ts` → `format.ts` → `estimate.ts` | 프록시(CORS를 피하는 이유), **`docs/architecture.html`을 `/architecture.html`로 내보내는 플러그인**, C와 같은 열거값과 호가 단위 표, REST 호출, 보이는 호가로 계산하는 예상 체결 | 4.4절 13 |
 | 56 | `web/src/lib/useStream.ts` → `useTrading.ts` | WebSocket 재접속, 처음 한 번 읽고 그다음은 방송(`book`·`balance`·`order`·`order-update`·`fill`)으로 고치기, 끊기면 3초마다 읽기 | 같은 절 |
 | 57 | `web/src/main.tsx` → `web/src/App.tsx` → `lib/useToasts.ts` → `lib/useFlash.ts` | 거래 한 화면의 배치, 체결 알림, 바뀐 값 깜빡임 | 같은 절 |
 | 58 | `components/Header.tsx` → `OrderBook.tsx` → `MarketCompare.tsx` → `OrderTicket.tsx` → `Activity.tsx` → `OrderDissect.tsx` → `Toasts.tsx` → `Panel.tsx` | 잔고·연결 상태, 두 시장 호가, 시장 비교, 주문창(주문 전 확인·단축키), 미체결·주문 내역·체결, **주문 해부**(논리 주문 → 시장별 다리 → 최종 결과) | 같은 절 |
@@ -283,7 +283,7 @@ NXT에서 사는 편이 100원 싸다. 대신 NXT의 70,000원에는 2,257주밖
 
 ```
 ┌──────────────────────────────┐
-│ 화면 (React, web/)            │  브라우저. 호가창·주문·체결·내 계좌·통신 흐름·전략 비교·관제
+│ 화면 (React, web/)            │  브라우저. 호가창·주문·체결·내 계좌·통신 흐름·구조도·전략 비교·관제
 └──────────────┬───────────────┘
                │ HTTP(REST) + WebSocket   (개발 서버가 /api·/ws를 8080으로 넘긴다)
 ┌──────────────▼───────────────┐
@@ -6696,7 +6696,7 @@ useEffect(() => { cb.current = onEvent; }, [onEvent]);
 
 `useTrading()`과 `useToasts()`를 부르고, 주문창의 입력값 `draft`(`side`·`market`·`type`·`price`·`qty`, 처음은 매수·SOR 자동·지정가·70,000원·10주)를 쥔다. 호가창을 누르면 `pick(price, side)`가 `draft`의 가격과 방향을 바꾼다.
 
-**화면 다섯** — `VIEWS`(거래 / 내 계좌 / 통신 흐름 / 전략 비교 / 관제)를 탭 버튼으로 그리고 지금 것만 그린다. T7-05에서 "거래"와 "주문·체결" 탭을 **거래 한 화면**으로 합쳤고, 그 뒤 "내 계좌"(Phase 11)와 "통신 흐름"(점검, 4.14절)이 늘었다.
+**화면 여섯** — `VIEWS`(거래 / 내 계좌 / 통신 흐름 / 구조도 / 전략 비교 / 관제)를 탭 버튼으로 그리고 지금 것만 그린다. T7-05에서 "거래"와 "주문·체결" 탭을 **거래 한 화면**으로 합쳤고, 그 뒤 "내 계좌"(Phase 11)와 "통신 흐름"(점검, 4.14절)이 늘었다.
 
 **거래 화면의 배치** — `.workspace` 격자(3열).
 
