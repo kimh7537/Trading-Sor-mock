@@ -15,6 +15,8 @@
 - 그 위에서 주문을 배분하는 SOR 엔진과 집행 전략 4종
 - 증권사 원장·FEP 계층
 - 양 시장 호가·잔고·미체결을 한 화면에서 보고, 주문 전 예상 체결과 원장이 실제로 나눈 결과(시장별 다리)를 비교하는 화면. 주문·취소, 나중 체결과 잔고 변화는 실시간으로 밀려온다
+- **주문 해부** — 주문 하나가 `논리 주문 → SOR 배분 → 시장별 결과 → 최종 집행`으로 갈리는 과정을 그 주문의 실제 값만으로 되짚는다
+- **통신 흐름** — 계층 구조도 위에 실제로 오간 전문을 얹는다. 전문 전체 내역, 헤더·필드 값, **선에 흐른 바이트**까지
 - **로그인해서 사람마다 자기 계좌로** 쓴다. 거래 내역과 수익률이 파일에 남아
   컴퓨터를 꺼도 그대로다
 - **국내와 미국 종목을 모두** 다룬다. 미국 가격은 센트 정수로 셈한다
@@ -199,6 +201,7 @@ FEED_RECORD_FILE=../tape.jsonl ./mvnw.cmd spring-boot:run
 ```bash
 ./build/ledger/ledgerd 9100 --live 40                      # 기준가는 시세를 받으며 맞춰진다
 ./build/ledger/ledgerd 9100 --live 40 --ref-price 260000   # 처음부터 26만원대로 열고 싶을 때
+./build/ledger/ledgerd 9100 --strategy split               # SOR 자동 주문을 두 시장으로 나눈다
 ```
 
 바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
@@ -226,7 +229,7 @@ cmake -B build-rel -DCMAKE_BUILD_TYPE=Release && cmake --build build-rel
 | [`docs/RUNNING.md`](docs/RUNNING.md) | **실행·테스트 안내서** — CLion(WSL)·IntelliJ·명령줄 실행, 테스트 171개(C 58 · Java 113)와 벤치마크의 데이터·방법·결과 |
 | [`docs/PLAN.md`](docs/PLAN.md) | 기획서. 왜 만드는가, 진행 경로 |
 | [`docs/SPEC.md`](docs/SPEC.md) | 시장 규칙 명세 (거래시간, 호가단위, 매칭규칙) |
-| [`docs/TASKS.md`](docs/TASKS.md) | 작업 목록 (Phase 1~6) |
+| [`docs/TASKS.md`](docs/TASKS.md) | 작업 목록 (Phase 1~11) |
 | [`docs/PROGRESS.md`](docs/PROGRESS.md) | 작업 기록 — 무엇이 틀렸고 왜 그렇게 고쳤는지 |
 | [`docs/decisions/`](docs/decisions/) | 설계 결정 기록 |
 | [`bench/results/`](bench/results/) | 측정 결과 |

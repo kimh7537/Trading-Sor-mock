@@ -201,7 +201,7 @@ mini-sor/
 ├── docs/
 │   ├── FINANCE-101.md     ← 금융 기초. 도메인 지식 없이 읽는 사람이 먼저 볼 것
 │   ├── PLAN.md            ← 기획서. 왜 만드는가
-│   ├── TASKS.md           ← 작업 목록 (Phase 1~5). 기본 진행 경로
+│   ├── TASKS.md           ← 작업 목록 (Phase 1~11). 기본 진행 경로
 │   ├── TASKS-TRACK-B.md   ← 백테스트 연동 트랙
 │   ├── TASKS-TRACK-C.md   ← 운영 신뢰성·이벤트 트랙
 │   ├── SPEC.md            ← 시장 규칙 명세

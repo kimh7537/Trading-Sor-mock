@@ -187,7 +187,7 @@ Spring을 처음 보면 4.4절의 "Spring Boot를 처음 보는 사람을 위한
 | 50 | `wire/OrderReq.java` → `OrderAck.java` → `BookReq.java` → `BookAck.java` → `DetailReq.java` → `DetailAck.java` → `BalanceReq.java` → `BalanceAck.java` (나머지 전문 클래스는 같은 모양) | 전문 한 종별 = 클래스 하나. `DetailAck`의 시장별 배열(`int[]`, `long[]`) | 같은 테스트 | 같은 절 |
 | 51 | `ledger/LedgerProperties.java` → `LedgerConnection.java` → `LedgerConnectionPool.java` | 요청 하나에 응답 하나, 깨진 접속은 버리기, 세마포어로 접속 1개 지키기 | `LedgerConnectionPoolTest`, `FakeLedger`(시험용 원장) | 4.4절 5 |
 | 52 | `api/OrderRequestDto.java` → `OrderResponseDto.java` → `OrderView.java` → `OrderRegistry.java` → `LedgerGateway.java` → `OrderService.java` → `OrderController.java` | 입력 검증, 상태 코드(200/400/422/503/202), 답을 못 받으면 "모른다"(IN_DOUBT), 주문 목록·상세, 취소(200/409/404/503) | `OrderApiTest`, `OrderRegistryTest` | 4.4절 7 |
-| 53 | `api/BookController.java` → `BalanceController.java` | `GET /api/book` — 원장의 호가 10단, `GET /api/balance` — 예수금·묶인 금액·주문 가능 금액 | `OrderApiTest.bookComesFromLedger`, `balanceComesFromLedger` | 같은 절 |
+| 53 | `api/BookController.java` → `BalanceController.java` → `PortfolioController.java` → `WireTap.java` → `WireController.java` | `GET /api/book` — 원장의 호가 10단, `GET /api/balance` — 예수금·묶인 금액·주문 가능 금액, `GET /api/portfolio`·`/api/history` — 체결을 되짚은 보유·수익률(Phase 11), `GET /api/wire` — **오간 전문 전체 내역**(점검) | `OrderApiTest.bookComesFromLedger`, `balanceComesFromLedger`, `wireLogCarriesEveryFieldValue` | 같은 절 |
 | 54 | `stream/StreamEvent.java` → `StreamHub.java` → `StreamHandler.java` → `StreamConfig.java` → `api/LedgerPoller.java` | WebSocket 방송, 느린 구독자 끊기, 원장 끊김·회복 알림, 1초마다 원장을 읽어 **바뀐 것만** 방송 | `StreamTest`, `ChannelStartupTests`, `LedgerPollerTest` | 4.4절 6, 7.7 |
 
 > **체크포인트 차.** 응답이 200이 아니라 202인 경우는 언제이고, 그때 다시 보내면 안 되는 이유는?
@@ -202,7 +202,9 @@ React를 처음 보면 4.4절의 "React를 처음 보는 사람을 위한 기초
 | 55 | `web/vite.config.ts` → `web/src/lib/wire.ts` → `types.ts` → `api.ts` → `format.ts` → `estimate.ts` | 프록시(CORS를 피하는 이유), C와 같은 열거값과 호가 단위 표, REST 호출, 보이는 호가로 계산하는 예상 체결 | 4.4절 13 |
 | 56 | `web/src/lib/useStream.ts` → `useTrading.ts` | WebSocket 재접속, 처음 한 번 읽고 그다음은 방송(`book`·`balance`·`order`·`order-update`·`fill`)으로 고치기, 끊기면 3초마다 읽기 | 같은 절 |
 | 57 | `web/src/main.tsx` → `web/src/App.tsx` → `lib/useToasts.ts` → `lib/useFlash.ts` | 거래 한 화면의 배치, 체결 알림, 바뀐 값 깜빡임 | 같은 절 |
-| 58 | `components/Header.tsx` → `OrderBook.tsx` → `MarketCompare.tsx` → `OrderTicket.tsx` → `Activity.tsx` → `Toasts.tsx` → `Panel.tsx` → `Strategies.tsx` → `Ops.tsx` | 잔고·연결 상태, 두 시장 호가, 시장 비교, 주문창(주문 전 확인·단축키), 미체결·주문 내역·체결, 전략 비교, 관제 | 같은 절 |
+| 58 | `components/Header.tsx` → `OrderBook.tsx` → `MarketCompare.tsx` → `OrderTicket.tsx` → `Activity.tsx` → `OrderDissect.tsx` → `Toasts.tsx` → `Panel.tsx` | 잔고·연결 상태, 두 시장 호가, 시장 비교, 주문창(주문 전 확인·단축키), 미체결·주문 내역·체결, **주문 해부**(논리 주문 → 시장별 다리 → 최종 결과) | 같은 절 |
+| 58-2 | `LoginPanel.tsx` → `AccountPanel.tsx` → `FeedMode.tsx` → `ChartPanel.tsx`·`CandleChart.tsx` → `SymbolPicker.tsx` | 로그인(Phase 9), 내 계좌(Phase 11), 시세 모드 토글, 차트, 종목 검색 | 같은 절 |
+| 58-3 | `FlowMonitor.tsx` → `WireArchitecture.tsx` → `WireLogTable.tsx` → `Strategies.tsx` → `Ops.tsx` | **통신 흐름**(계층 구조도 + 오간 전문 전체 내역 + 바이트), 전략 비교, 관제 | 4.14절 |
 
 화면에는 테스트 도구가 없다. 확인은 `npm run build`(타입 검사 포함), `npm run lint`, `npm run check`(예상 체결·호가 단위 계산 자체 점검, `web/scripts/estimate.check.ts`)와 5장처럼 직접 띄워서 한다.
 
@@ -281,7 +283,7 @@ NXT에서 사는 편이 100원 싸다. 대신 NXT의 70,000원에는 2,257주밖
 
 ```
 ┌──────────────────────────────┐
-│ 화면 (React, web/)            │  브라우저. 호가창·주문·체결 내역·전략 비교·관제
+│ 화면 (React, web/)            │  브라우저. 호가창·주문·체결·내 계좌·통신 흐름·전략 비교·관제
 └──────────────┬───────────────┘
                │ HTTP(REST) + WebSocket   (개발 서버가 /api·/ws를 8080으로 넘긴다)
 ┌──────────────▼───────────────┐
@@ -6395,7 +6397,7 @@ Spring 없이 `OrderRegistry`를 직접 만든다.
 8. `web/src/App.tsx` — 화면 배치와 체결 알림
 9. `web/src/components/Panel.tsx` → `Header.tsx` — 틀
 10. 거래 화면: `OrderBook.tsx` → `MarketCompare.tsx` → `OrderTicket.tsx` → `Activity.tsx` → `Toasts.tsx`
-11. 전략 비교·관제: `Strategies.tsx`, `Ops.tsx`
+11. 내 계좌·통신 흐름·전략 비교·관제: `AccountPanel.tsx`, `FlowMonitor.tsx`(+`WireArchitecture.tsx`, `WireLogTable.tsx`), `Strategies.tsx`, `Ops.tsx`
 12. `web/src/index.css` — 색 토큰, 클래스, 좁은 화면 배치
 13. `web/scripts/estimate.check.ts` — `npm run check`로 도는 자체 점검
 
@@ -6694,7 +6696,7 @@ useEffect(() => { cb.current = onEvent; }, [onEvent]);
 
 `useTrading()`과 `useToasts()`를 부르고, 주문창의 입력값 `draft`(`side`·`market`·`type`·`price`·`qty`, 처음은 매수·SOR 자동·지정가·70,000원·10주)를 쥔다. 호가창을 누르면 `pick(price, side)`가 `draft`의 가격과 방향을 바꾼다.
 
-**화면 셋** — `VIEWS`(거래 / 전략 비교 / 관제)를 탭 버튼으로 그리고 지금 것만 그린다. T7-05에서 "거래"와 "주문·체결" 탭을 **거래 한 화면**으로 합쳤다.
+**화면 다섯** — `VIEWS`(거래 / 내 계좌 / 통신 흐름 / 전략 비교 / 관제)를 탭 버튼으로 그리고 지금 것만 그린다. T7-05에서 "거래"와 "주문·체결" 탭을 **거래 한 화면**으로 합쳤고, 그 뒤 "내 계좌"(Phase 11)와 "통신 흐름"(점검, 4.14절)이 늘었다.
 
 **거래 화면의 배치** — `.workspace` 격자(3열).
 
@@ -6924,6 +6926,46 @@ C의 `tick_size.c`와 자동으로 대조하지는 않는다 — 같은 표를 �
 | 보유 수량·평균 단가 | 남는다 | 로그인할 때 원장에 다시 실어 준다 |
 | 평가 손익 | 마지막으로 본 시세 기준 | 꺼져 있는 동안 시세를 받는 프로세스가 없다 |
 | 미체결 주문 | 안 남는다 | 그동안 그 주문은 어느 시장에도 없었다 |
+
+---
+
+### 4.14 통신 모니터 — `channel/api/WireTap` + `web/components/FlowMonitor` (점검)
+
+화면의 **통신 흐름** 탭. 계층 구조도를 그리고 그 위에 **실제로 오간 전문**을 얹는다.
+
+| 파일 | 하는 일 |
+|---|---|
+| `api/WireTap.java` | 오간 전문을 최근 300건까지 적어 둔다. 필드 값과 **바이트 원본**까지 |
+| `api/WireController.java` | `GET /api/wire?after=` — 마지막으로 받은 번호 뒤의 것만 내려보낸다 |
+| `api/WireHop.java` | 주문 응답에 딸려 가는 왕복 하나(전문 이름·길이·seq·왕복 시간) |
+| `wire/WireCodec.fields()` | 전문 선언을 되짚어 필드 이름·타입·위치·길이·값을 만든다 |
+| `ledger/LedgerConnection` | 소켓에 **쓰고 읽은 프레임을 그대로** 들고 있는다(`lastSentFrame`) |
+| `components/WireArchitecture.tsx` | 계층 구조도(SVG). 선 위에 오간 건수·바이트·왕복 중앙값 |
+| `components/WireLogTable.tsx` | 전문 내역. 한 줄을 펴면 헤더 값·필드 전부·16진수 바이트 |
+| `components/FlowMonitor.tsx` | 셋을 묶고 1초마다 새 전문만 받아 이어 붙인다 |
+
+**왜 만들었나.** 복수시장 집행이 화면에서 블랙박스였다. "주문이 어느 층을 지나 무엇을
+주고받았나"를 말로만 설명하면 듣는 쪽은 믿을 근거가 없다.
+
+**읽을 때 볼 것 다섯 가지.**
+
+1. **가로채는 자리가 하나다.** `LedgerGateway.call`을 호가·잔고·상세·취소·종목 전환·
+   가상 참가자 스위치·호가 스냅샷이 전부 지난다. 주문만 성능 때문에 게이트웨이를
+   건너뛰므로 `OrderService`에서 따로 적는다 — **부르는 곳을 고치기 전에 공통으로
+   지나는 자리가 있는지 먼저 센다**
+2. **필드를 화면이 적어 두지 않는다.** `WireCodec.fields()`가 배치를 만든 것과 같은
+   선언을 되짚는다. 전문이 바뀌면 화면도 같이 바뀐다
+3. **바이트를 다시 만들지 않는다.** 헤더의 순번은 접속이 자기 카운터로 붙이므로
+   바깥에서 되살릴 수 없다. 그래서 접속이 실제로 쓰고 읽은 프레임을 들고 있다가 넘긴다
+4. **원장 안의 단계별 시간은 없다.** 매칭 엔진이 시스템 시각을 읽는 것을 이 프로젝트가
+   금지한다(결정성). 원장 칸에는 **왕복 하나**만 적고, 화면이 그 한계를 직접 말한다
+5. **FEP는 "지나지 않음"으로 그린다.** 설계 그림에는 있지만 실제 구성에서는 SOR과 매칭
+   엔진이 원장 프로세스 안에 있다(T6-03). 지나지 않는 홉을 지나간 것처럼 그리면 이
+   화면이 거짓말이 된다 — 흐리게 + 점선 + 글자까지 셋으로 말한다
+
+**한계.** 이 내역은 **이 채널계가 주고받은 것 전부**이고 주문 전문에는 계좌번호가 있다.
+로그인 검사 목록에 넣어 두었지만 **혼자 쓰는 데모**가 전제다. 여럿이 붙는 곳에 올린다면
+이 경로부터 잠가야 한다.
 
 ---
 

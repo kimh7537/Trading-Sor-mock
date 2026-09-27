@@ -1,32 +1,51 @@
-# React + TypeScript + Vite
+# web — mini-sor 화면
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+복수시장(KRX / NXT) 주문 집행 시뮬레이터의 프론트엔드. React 19 + TypeScript + Vite.
 
-Currently, two official plugins are available:
+전체 설명은 저장소 루트의 [`README.md`](../README.md), 코드 읽는 순서는
+[`docs/GUIDE.md`](../docs/GUIDE.md) 4.4절(채널계·화면)에 있다.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 띄우기
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev     # http://localhost:5173
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+**원장(`ledgerd`)과 채널계가 먼저 떠 있어야 한다.** `/api`와 `/ws`는
+`vite.config.ts`의 프록시가 8080(채널계)으로 넘긴다 — CORS를 피하려고 그렇게 뒀다.
+띄우는 순서는 [`docs/RUNNING.md`](../docs/RUNNING.md) 2.4절.
+
+## 확인
+
+화면에는 테스트 프레임워크를 두지 않았다. 세 가지로 확인한다.
+
+```bash
+npm run build   # tsc -b 타입 검사 + vite build
+npm run lint    # oxlint
+npm run check   # 예상 체결·호가 단위 계산 자체 점검 (scripts/estimate.check.ts)
+```
+
+나머지는 **직접 띄워서** 본다. `npm run check`가 지키는 것은 "보이는 호가로 계산한
+예상 체결"과 "호가 단위 표가 C와 같다"뿐이고, 배치·색·좁은 화면은 눈으로 봐야 한다.
+
+## 화면 다섯
+
+| 탭 | 무엇 |
+|---|---|
+| 거래 | 두 시장 호가 · 차트 · 주문창(주문 전 예상 체결) · 미체결/주문 내역/체결 |
+| 내 계좌 | 보유·평균 단가·손익·수익률·거래 내역 (체결 기록을 되짚은 값) |
+| 통신 흐름 | 계층 구조도 + 실제로 오간 전문 전체 내역(헤더·필드·바이트) |
+| 전략 비교 | 벤치마크가 낸 측정 결과 |
+| 관제 | 무엇이 살아 있고 무엇이 아닌지 |
+
+좁은 화면(1200px 미만)에서는 거래 탭이 `호가 / 차트 / 주문 / 체결·잔고 / 시세 모드`
+탭 하나씩으로 바뀐다. 320px에서도 페이지 가로 스크롤이 생기지 않아야 한다.
+
+## 규칙
+
+- **런타임 의존성은 `react`·`react-dom` 둘뿐이다.** 차트도 손으로 그린 인라인 SVG다.
+  새 패키지를 들이기 전에 몇 줄로 되는지 먼저 본다
+- **색만으로 뜻을 전하지 않는다.** 시장·방향·상태는 늘 글자를 함께 쓴다
+- **라이트·다크 둘 다** 동작해야 한다. 색은 `index.css`의 토큰에서만 정한다
+- 가격·수량은 **정수**다(원, 미국 종목은 센트). 돈 계산에 실수를 쓰지 않는다
