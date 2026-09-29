@@ -932,6 +932,7 @@ int msg_encode_symbol_ack(const msg_symbol_ack_t *m, uint8_t *buf, size_t cap)
     wire_put_i32(p, m->code);
     p += 4;
     *p++ = m->kind;
+    *p++ = m->venue;
     return (int)(p - buf);
 }
 
@@ -952,6 +953,7 @@ int msg_decode_symbol_ack(const uint8_t *buf, size_t len, msg_symbol_ack_t *out)
     out->code = wire_get_i32(p);
     p += 4;
     out->kind = *p++;
+    out->venue = *p++;
     return (int)(p - buf);
 }
 

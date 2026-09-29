@@ -205,7 +205,11 @@
 #define MSG_SYMBOL_US 1
 
 #define MSG_SYMBOL_SET_LEN (MSG_SYMBOL_LEN + 4 + 1)
-#define MSG_SYMBOL_ACK_LEN (MSG_SYMBOL_LEN + 4 + 4 + 1)
+#define MSG_SYMBOL_ACK_LEN (MSG_SYMBOL_LEN + 4 + 4 + 1 + 1)
+
+/* 매칭 엔진이 어디에 있는가(T12-05). `msg_symbol_ack_t.venue` */
+#define MSG_VENUE_LOCAL 0  /* 이 원장 프로세스 안 (기본) */
+#define MSG_VENUE_REMOTE 1 /* 별도 거래소 프로세스. 사이를 FEP가 잇는다 */
 
 /*
  * 계좌 개설(T9-01).
@@ -490,6 +494,15 @@ typedef struct {
     price_t ref_price;
     int32_t code; /* 0이면 바뀌었다. 음수면 errors.h의 에러코드 */
     uint8_t kind; /* 지금 다루는 종목의 종류 */
+    /*
+     * 매칭 엔진이 **어디에 있는가**(T12-05). 0이면 이 원장 프로세스 안,
+     * 1이면 별도 거래소 프로세스이고 그 사이를 FEP가 잇는다(`ledgerd --exchange`).
+     *
+     * 화면의 통신 흐름 구조도가 이 값을 보고 FEP 홉을 그린다. 이것 없이는 화면이
+     * 알 방법이 없어 **지나는 길을 지나지 않는다고 그리게 된다** — 이 프로젝트가
+     * 지키기로 한 것의 정반대다.
+     */
+    uint8_t venue;
 } msg_symbol_ack_t;
 
 typedef struct {

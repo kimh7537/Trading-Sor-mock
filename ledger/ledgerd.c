@@ -246,6 +246,12 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
         ack.ref_price = lc->cfg.ref_price;
         ack.kind = (lc->cfg.tick_table == TICK_TABLE_US) ? MSG_SYMBOL_US
                                                         : MSG_SYMBOL_KR;
+        /*
+         * **매칭 엔진이 어디에 있는지 알려 준다**(T12-05). 화면의 통신 흐름
+         * 구조도가 이것을 보고 FEP 홉을 그린다 — 알려 주지 않으면 화면이
+         * 지나는 길을 지나지 않는다고 그린다.
+         */
+        ack.venue = (lc->remote != NULL) ? MSG_VENUE_REMOTE : MSG_VENUE_LOCAL;
 
         /* 시퀀스·시각은 요청이 들고 온 것을 그대로 쓴다(원장 코어와 같다) */
         wire_header_t h;

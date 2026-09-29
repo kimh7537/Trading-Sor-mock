@@ -1,5 +1,6 @@
 package com.minisor.channel.api;
 
+import com.minisor.channel.ledger.LedgerVenue;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,22 +25,30 @@ public class WireController {
     private static final int MAX = 300;
 
     private final WireTap tap;
+    private final LedgerVenue venue;
 
-    public WireController(WireTap tap) {
+    public WireController(WireTap tap, LedgerVenue venue) {
         this.tap = tap;
+        this.venue = venue;
     }
 
     /**
      * @param total 채널계가 뜬 뒤 지금까지 오간 전문 수. 들고 있는 것보다 클 수 있다
      * @param capacity 들고 있을 수 있는 수. 이보다 오래된 것은 버려졌다
      */
-    public record WireLog(long total, int capacity, List<WireTap.Frame> frames) {}
+    /**
+     * @param venue 매칭 엔진이 어디에 있는가 — -1 모름, 0 원장 프로세스 안,
+     *     1 별도 거래소 프로세스(FEP 경유). 구조도가 지나는 홉만 또렷하게 그리는 데 쓴다
+     */
+    public record WireLog(
+            long total, int capacity, int venue, List<WireTap.Frame> frames) {}
 
     @GetMapping("/api/wire")
     public WireLog wire(
             @RequestParam(defaultValue = "0") long after,
             @RequestParam(defaultValue = "300") int limit) {
         int n = Math.max(1, Math.min(MAX, limit));
-        return new WireLog(tap.total(), WireTap.CAPACITY, tap.since(after, n));
+        return new WireLog(
+                tap.total(), WireTap.CAPACITY, venue.venue(), tap.since(after, n));
     }
 }

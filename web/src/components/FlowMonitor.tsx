@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { OrderFlow } from "../lib/useTrading";
+import { VENUE_UNKNOWN } from "../lib/types";
 import type { WireFrame } from "../lib/types";
 import { fetchWire } from "../lib/api";
 import { WireArchitecture } from "./WireArchitecture";
@@ -25,6 +26,11 @@ import { money, qty as fq } from "../lib/format";
  * 적고 그 안을 쪼개지 않는다. FEP와 별도 거래소 프로세스도 이 구성에서는 지나지 않으므로
  * (T6-03 "최소 연결") 흐리게 두고 그렇게 적는다 — 지나지 않는 홉을 그리면 이 화면이
  * 거짓말이 된다.
+ *
+ * <p><b>구성이 바뀌면 그림도 바뀐다</b>(T12-05). 원장을 `--exchange`로 띄우면 FEP와
+ * 거래소 프로세스가 실제로 지나는 길이 되고, 그때는 또렷하게 그린다. 그것을 화면이
+ * 짐작하지 않는다 — <b>원장이 `SYMBOL_ACK`으로 말해 준 값</b>만 믿는다. 화면 설정에
+ * 적어 두면 원장을 그냥 띄웠는데 화면만 FEP를 지난다고 그리는 일이 생긴다.
  */
 /** 전문 내역을 다시 읽는 간격. 주기 조회가 1초에 한 번 도므로 그 눈금에 맞춘다 */
 const POLL_MS = 1000;
@@ -41,6 +47,7 @@ export function FlowMonitor({
   const [frames, setFrames] = useState<WireFrame[]>([]);
   const [total, setTotal] = useState(0);
   const [capacity, setCapacity] = useState(0);
+  const [venue, setVenue] = useState(VENUE_UNKNOWN);
   const [err, setErr] = useState<string | null>(null);
   const lastId = useRef(0);
 
@@ -57,6 +64,7 @@ export function FlowMonitor({
           setErr(null);
           setTotal(log.total);
           setCapacity(log.capacity);
+          setVenue(log.venue);
           if (log.frames.length > 0) {
             lastId.current = log.frames[log.frames.length - 1].id;
             setFrames((prev) => [...prev, ...log.frames].slice(-log.capacity));
@@ -76,7 +84,7 @@ export function FlowMonitor({
 
   return (
     <div className="flow">
-      <WireArchitecture frames={frames} ledgerDown={ledgerDown} />
+      <WireArchitecture frames={frames} ledgerDown={ledgerDown} venue={venue} />
 
       <section className="flow-section">
         <h3>방금 낸 주문이 지나간 길</h3>

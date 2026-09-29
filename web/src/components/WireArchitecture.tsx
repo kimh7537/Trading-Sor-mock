@@ -1,3 +1,4 @@
+import { VENUE_REMOTE, VENUE_UNKNOWN } from "../lib/types";
 import type { WireFrame } from "../lib/types";
 
 /**
@@ -9,33 +10,50 @@ import type { WireFrame } from "../lib/types";
  * <p><b>선 위의 숫자는 살아 있다.</b> 지금까지 그 선으로 오간 전문 수·바이트·중앙값 시간을
  * 실제 기록에서 세어 얹는다. 지나간 선은 또렷하게, 한 번도 안 지나간 선은 흐리게 그린다.
  *
- * <p><b>지나지 않는 홉은 지나지 않는다고 그린다.</b> FEP와 별도 거래소 프로세스는 설계에는
- * 있지만 이 구성에서는 SOR·매칭 엔진이 원장 프로세스 안에서 돈다(T6-03 "최소 연결").
- * 흐리게 + 점선 + "지나지 않음" 글자까지 셋으로 말한다 — 색만으로 말하지 않는다.
+ * <p><b>지나지 않는 홉은 지나지 않는다고 그린다.</b> 기본 구성에서는 SOR·매칭 엔진이
+ * 원장 프로세스 안에서 돌고 FEP는 지나지 않는다(T6-03 "최소 연결"). 그때는 흐리게 +
+ * 점선 + "지나지 않음" 글자까지 셋으로 말한다 — 색만으로 말하지 않는다.
+ *
+ * <p><b>구성이 바뀌면 그림도 바뀐다</b>(T12-05). 원장을 `--exchange`로 띄우면 매칭
+ * 엔진이 다른 프로세스로 나가고 그 사이를 FEP가 잇는다. 그때는 FEP와 거래소가 또렷한
+ * 홉이 되고, 원장 상자 안에는 SOR만 남는다. <b>원장이 말해 준 값</b>(`SYMBOL_ACK`의
+ * 마지막 바이트)만 믿는다 — 화면이 짐작하면 지나지 않는 길을 지난다고 그리게 된다.
  *
  * <p>viewBox로 그려 폭에 맞춰 줄어든다. 320px에서도 가로 스크롤이 생기지 않는다.
  */
 export function WireArchitecture({
   frames,
   ledgerDown,
+  venue,
 }: {
   frames: WireFrame[];
   ledgerDown: string | null;
+  /** -1 모름 · 0 원장 프로세스 안 · 1 별도 거래소 프로세스(FEP 경유) */
+  venue: number;
 }) {
   const n = frames.length;
   const bytes = frames.reduce((s, f) => s + f.sentBytes + f.gotBytes, 0);
   const mid = median(frames.map((f) => f.micros));
   const lost = frames.filter((f) => !f.ok).length;
   const live = n > 0;
+  const remote = venue === VENUE_REMOTE;
 
   return (
     <figure className="arch">
-      <svg viewBox="0 0 600 476" role="img" aria-labelledby="arch-title arch-desc">
+      <svg
+        viewBox={remote ? "0 0 600 500" : "0 0 600 492"}
+        role="img"
+        aria-labelledby="arch-title arch-desc"
+      >
         <title id="arch-title">계층 구조도</title>
         <desc id="arch-desc">
-          화면과 채널계는 HTTP와 WebSocket으로, 채널계와 원장은 고정 길이 전문으로 통신한다.
-          원장 프로세스 안에 SOR과 KRX·NXT 매칭 엔진이 있다. FEP와 별도 거래소 프로세스는 이
-          구성에서 지나지 않는다.
+          {remote
+            ? `화면과 채널계는 HTTP와 WebSocket으로, 채널계와 원장은 고정 길이 전문으로
+               통신한다. 원장 프로세스 안에는 원장과 SOR이 있고, KRX·NXT 매칭 엔진은 각각
+               별도의 거래소 프로세스에 있다. 그 사이를 FEP 세션이 잇는다.`
+            : `화면과 채널계는 HTTP와 WebSocket으로, 채널계와 원장은 고정 길이 전문으로
+               통신한다. 원장 프로세스 안에 SOR과 KRX·NXT 매칭 엔진이 있다. FEP와 별도
+               거래소 프로세스는 이 구성에서 지나지 않는다.`}
         </desc>
 
         <Box x={150} y={10} w={300} h={52} title="화면 (React)" sub="주문창 · 호가 · 차트" lit={live} />
@@ -71,11 +89,13 @@ export function WireArchitecture({
             x={70}
             y={224}
             width={460}
-            height={154}
+            height={remote ? 154 : 230}
             rx={10}
           />
           <text className="arch-proc-tag" x={82} y={242}>
-            원장 프로세스 (C) — 아래 셋이 한 프로세스 안에 있다
+            {remote
+              ? "원장 프로세스 (C) — 매칭 엔진은 여기 없다"
+              : "원장 프로세스 (C) — 아래 넷이 한 프로세스 안에 있다"}
           </text>
 
           <Box x={86} y={250} w={428} h={44} title="원장" sub="증거금·보유 검증 · 계좌 원장" lit={live} inner />
@@ -90,17 +110,66 @@ export function WireArchitecture({
             lit={live}
             inner
           />
+          {!remote && (
+            <>
+              <Arrow x={190} y1={360} y2={392} lit={live} />
+              <Arrow x={410} y1={360} y2={392} lit={live} />
+              <Box x={86} y={392} w={200} h={44} title="KRX 매칭 엔진" sub="가격·시간 우선" lit={live} inner />
+              <Box x={314} y={392} w={200} h={44} title="NXT 매칭 엔진" sub="가격·시간 우선" lit={live} inner />
+            </>
+          )}
         </g>
 
-        <Arrow x={190} y1={378} y2={402} lit={live} />
-        <Arrow x={410} y1={378} y2={402} lit={live} />
-        <Box x={86} y={402} w={200} h={40} title="KRX 매칭 엔진" sub="가격·시간 우선" lit={live} inner />
-        <Box x={314} y={402} w={200} h={40} title="NXT 매칭 엔진" sub="가격·시간 우선" lit={live} inner />
+        {remote ? (
+          <>
+            {/*
+              **지나는 길이므로 또렷하게 그린다.** 원장이 그렇다고 말해 준 구성이다
+              (`--exchange`). 다리 전문이 이 선을 타고 나가 거래소가 매긴 번호와
+              체결 금액을 싣고 돌아온다.
+            */}
+            <Arrow x={186} y1={378} y2={404} lit={live} both />
+            <Arrow x={414} y1={378} y2={404} lit={live} both />
+            <text className="arch-edge lit strong" x={300} y={396} textAnchor="middle">
+              FEP 세션 · TCP
+            </text>
 
-        <rect className="arch-skip" x={70} y={452} width={460} height={22} rx={6} />
-        <text className="arch-skip-text" x={300} y={467} textAnchor="middle">
-          FEP · 별도 거래소 프로세스 — 이 구성에서는 지나지 않음 (T3-15 테스트로만)
-        </text>
+            <g>
+              <rect
+                className={`arch-proc${live ? " lit" : ""}`}
+                x={70}
+                y={404}
+                width={222}
+                height={82}
+                rx={10}
+              />
+              <text className="arch-proc-tag" x={82} y={422}>
+                거래소 프로세스 · KRX
+              </text>
+              <Box x={80} y={430} w={202} h={44} title="KRX 매칭 엔진" sub="exchanged" lit={live} inner />
+            </g>
+            <g>
+              <rect
+                className={`arch-proc${live ? " lit" : ""}`}
+                x={308}
+                y={404}
+                width={222}
+                height={82}
+                rx={10}
+              />
+              <text className="arch-proc-tag" x={320} y={422}>
+                거래소 프로세스 · NXT
+              </text>
+              <Box x={318} y={430} w={202} h={44} title="NXT 매칭 엔진" sub="exchanged" lit={live} inner />
+            </g>
+          </>
+        ) : (
+          <>
+            <rect className="arch-skip" x={70} y={464} width={460} height={22} rx={6} />
+            <text className="arch-skip-text" x={300} y={479} textAnchor="middle">
+              FEP · 별도 거래소 프로세스 — 이 구성에서는 지나지 않음 (T3-15 테스트로만)
+            </text>
+          </>
+        )}
       </svg>
 
       <figcaption className="arch-legend">
@@ -119,6 +188,17 @@ export function WireArchitecture({
           </span>
         )}
         {ledgerDown && <span className="bad">원장 끊김 — {ledgerDown}</span>}
+        {/*
+          **모르는 것은 모른다고 적는다.** 아직 원장에 못 물어봤으면 어느 구성인지
+          알 수 없고, 그때 "기본 구성"이라고 적으면 그것도 지어낸 값이다.
+        */}
+        <span className={remote ? "arch-mode on" : "arch-mode"}>
+          {venue === VENUE_UNKNOWN
+            ? "구성을 아직 원장에 묻지 못했다"
+            : remote
+              ? "거래소 별도 프로세스 · FEP 경유 (ledgerd --exchange)"
+              : "매칭 엔진은 원장 프로세스 안 (기본 구성)"}
+        </span>
       </figcaption>
     </figure>
   );

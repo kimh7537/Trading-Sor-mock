@@ -231,7 +231,12 @@ cmake -B build-rel -DCMAKE_BUILD_TYPE=Release && cmake --build build-rel
 ./build-rel/bench/quality_report 2026-09-16       # 시드 30개 리포트
 ./build-rel/bench/bench_pipeline 2026-09-16       # 7단계 성능
 ./build-rel/bench/bench_match                     # 매칭 엔진만
+./build-rel/bench/bench_exchange 2026-09-29     bench/results/exchange-2026-09-29.md          # 프로세스 경계의 값 (FEP 경유)
 ```
+
+마지막 것은 거래소 프로세스를 **직접 띄워** 같은 주문을 두 경로로 보낸다. 걸리기만 하는
+주문 하나가 **p50 276ns → 53,765ns(약 195배)**다 — `bench_pipeline`이 "이 숫자에 빠져
+있다"고 적어 둔 몫이 그만큼이다.
 
 ---
 

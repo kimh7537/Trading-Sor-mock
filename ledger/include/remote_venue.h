@@ -63,6 +63,15 @@
 /* 한 번에 `poll`로 기다릴 시간. 이 간격으로 하트비트도 함께 돈다. */
 #define REMOTE_VENUE_POLL_MS 50
 
+/*
+ * 끊긴 접속을 다시 세워 보는 간격.
+ *
+ * 매번 시도하면 거래소가 죽어 있는 동안 유휴 콜백이 `connect`에 붙잡혀 원장 전체가
+ * 느려진다. 그렇다고 아예 안 하면 거래소를 한 번 다시 띄우는 것으로 원장이 영영
+ * 주문을 못 낸다.
+ */
+#define REMOTE_VENUE_RETRY_MS 1000
+
 /* 호스트 이름 길이. "127.0.0.1"이 보통이다. */
 #define REMOTE_HOST_MAX 64
 
@@ -74,8 +83,9 @@ typedef struct {
     int      fd; /* -1이면 없음 */
     char     host[REMOTE_HOST_MAX];
     uint16_t port;
-    bool     configured; /* `--exchange`가 이 시장을 지정했나 */
-    bool     up;         /* 붙어서 로그인까지 끝났나 */
+    bool     configured;  /* `--exchange`가 이 시장을 지정했나 */
+    bool     up;          /* 붙어서 로그인까지 끝났나 */
+    int64_t  retry_at_ms; /* 끊겼을 때 다시 붙어 볼 시각 */
 } remote_link_t;
 
 typedef struct remote_venues {
@@ -106,10 +116,14 @@ bool remote_venues_any(const remote_venues_t *rv);
 int remote_venues_connect(remote_venues_t *rv);
 
 /*
- * 한가할 때 불러 준다. 하트비트를 내보내고 상대의 것을 받는다.
+ * 한가할 때 불러 준다. 하트비트를 내보내고 상대의 것을 받고, **끊긴 접속을 다시
+ * 세운다**(`REMOTE_VENUE_RETRY_MS` 간격).
  *
  * **부르지 않으면 세션이 말라 죽는다** — 주문 사이가 무응답 한계(15초)보다 길면
- * 다음 주문에서 세션이 끊긴 것을 발견한다.
+ * 다음 주문에서 세션이 끊긴 것을 발견하고, 그 뒤로는 영영 붙지 않는다.
+ *
+ * 다시 붙어도 **앞 접속의 주문은 되살아나지 않는다.** 새 접속의 거래소는 이쪽을
+ * 처음 보고, 무엇이 남아 있는지는 조회로만 알 수 있다(T3-14). 여기서는 붙는 데까지다.
  */
 void remote_venues_pump(remote_venues_t *rv);
 

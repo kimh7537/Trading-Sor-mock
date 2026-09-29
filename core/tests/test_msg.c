@@ -78,7 +78,8 @@ static void test_type_table(void)
     assert(MSG_BOOK_FEED_LEN == 178);
     /* 종목 종류 1바이트가 붙었다(T10-01) */
     assert(MSG_SYMBOL_SET_LEN == 13);
-    assert(MSG_SYMBOL_ACK_LEN == 17);
+    /* 매칭 엔진 위치 1바이트가 더 붙었다(T12-05) */
+    assert(MSG_SYMBOL_ACK_LEN == 18);
     assert(MSG_ACCOUNT_OPEN_LEN == 36);
     assert(MSG_TICK_SET_LEN == 1);
     assert(MSG_TICK_ACK_LEN == 5);
@@ -346,6 +347,7 @@ static void test_symbol_set_layout(void)
     a.ref_price = 260000;
     a.code = -7;
     a.kind = MSG_SYMBOL_US;
+    a.venue = MSG_VENUE_REMOTE;
 
     uint8_t abuf[MSG_SYMBOL_ACK_LEN];
     assert(msg_encode_symbol_ack(&a, abuf, sizeof(abuf)) == MSG_SYMBOL_ACK_LEN);
@@ -355,6 +357,9 @@ static void test_symbol_set_layout(void)
            MSG_SYMBOL_ACK_LEN);
     assert(back.code == -7 && back.ref_price == 260000);
     assert(back.kind == MSG_SYMBOL_US);
+    /* 매칭 엔진이 어디 있는지가 맨 뒤에 붙는다(T12-05) */
+    assert(abuf[MSG_SYMBOL_ACK_LEN - 1] == MSG_VENUE_REMOTE);
+    assert(back.venue == MSG_VENUE_REMOTE);
 }
 
 static void test_detail_ack_layout(void)
@@ -586,6 +591,7 @@ static void test_roundtrip_all(void)
                   in.ref_price = 260000;
                   in.code = INT32_MIN;
                   in.kind = MSG_SYMBOL_US;
+                  in.venue = MSG_VENUE_REMOTE;
               });
 
     ROUNDTRIP(msg_tick_set_t, msg_encode_tick_set, msg_decode_tick_set,

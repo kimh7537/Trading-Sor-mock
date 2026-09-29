@@ -1,6 +1,7 @@
 package com.minisor.channel.feed;
 
 import com.minisor.channel.api.LedgerGateway;
+import com.minisor.channel.ledger.LedgerVenue;
 import com.minisor.channel.stream.StreamEvent;
 import com.minisor.channel.stream.StreamHub;
 import com.minisor.channel.wire.SymbolAck;
@@ -63,6 +64,7 @@ public class SymbolService {
     private final LiveFeed live;
     private final TossFeedClient client;
     private final StreamHub hub;
+    private final LedgerVenue venue;
     private final boolean syncOnStart;
 
     public SymbolService(
@@ -74,6 +76,7 @@ public class SymbolService {
             LiveFeed live,
             TossFeedClient client,
             StreamHub hub,
+            LedgerVenue venue,
             @Value("${minisor.symbol.sync-on-start:true}") boolean syncOnStart) {
         this.gateway = gateway;
         this.stocks = stocks;
@@ -83,6 +86,7 @@ public class SymbolService {
         this.live = live;
         this.client = client;
         this.hub = hub;
+        this.venue = venue;
         this.syncOnStart = syncOnStart;
     }
 
@@ -112,6 +116,8 @@ public class SymbolService {
             ask.symbol = state.code();
             ask.refPrice = 0;
             SymbolAck now = gateway.call(ask, SymbolAck.class);
+            /* 매칭 엔진이 어디 있는지도 같이 온다(T12-05). 화면의 구조도가 읽는다 */
+            venue.set(now.venue);
             if (now.symbol == null || now.symbol.isBlank() || now.symbol.equals(state.code())) {
                 state.set(state.code(), state.current().name(), now.refPrice);
                 return;
@@ -243,6 +249,7 @@ public class SymbolService {
         req.refPrice = ref;
         req.kind = kind;
         SymbolAck ack = gateway.call(req, SymbolAck.class);
+        venue.set(ack.venue);
         if (ack.code != 0) {
             throw new SwitchFailed("원장이 종목 전환을 거절했다 (코드 " + ack.code + ")");
         }

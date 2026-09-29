@@ -159,6 +159,14 @@ class WireLayoutTest {
 
         Map<String, Integer> out = new HashMap<>();
         String text = Files.readString(h, StandardCharsets.UTF_8);
+        /*
+         * **줄바꿈부터 없앤다.** 이 저장소는 Windows에서 편집하고 WSL에서 빌드해서
+         * 작업 트리의 msg.h가 CRLF일 수 있다. 그러면 이어진 정의가 `역슬래시 + CR + LF`가
+         * 되어 아래 잇기가 헛돌고, **여러 줄로 쓴 전문만 조용히 빠진다** —
+         * `MSG_ORDER_REQ_LEN`이 없다고 나오는데 헤더에는 멀쩡히 있다.
+         * 규격 대조가 줄바꿈 때문에 깨지면 그것은 규격이 아니라 이 파서의 문제다.
+         */
+        text = text.replace("" + (char) 13, "");
         // 줄 끝 역슬래시로 이어진 정의를 한 줄로 만든다.
         // 이스케이프를 쓰지 않는다 — 여러 층을 거치며 한 겹씩 벗겨진다.
         final String contBackslash = "" + (char) 92 + (char) 10;

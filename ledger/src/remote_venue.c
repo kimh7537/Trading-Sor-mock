@@ -227,6 +227,53 @@ bool remote_venues_any(const remote_venues_t *rv)
     return false;
 }
 
+/*
+ * 거래소 한 곳에 붙고 로그인까지 끝낸다.
+ *
+ * **주문번호 표를 새로 만든다.** 접속이 바뀌면 거래소가 이쪽을 처음 보는 것이고,
+ * 앞 접속에서 보낸 주문의 거래소 번호는 더 이상 쓸 수 없다.
+ */
+static int link_connect(remote_link_t *l, market_t m)
+{
+    if (l->fd >= 0) {
+        close(l->fd);
+        l->fd = -1;
+    }
+    l->up = false;
+
+    int rc = dial(l->host, l->port, &l->fd);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+
+    ordmap_init(&l->om);
+
+    char id[SESSION_ID_LEN + 1];
+    snprintf(id, sizeof(id), "FEP-%s", (m == MARKET_KRX) ? "KRX" : "NXT");
+    rc = session_init(&l->s, NULL, id, now_ms());
+    if (rc == ERR_OK) {
+        rc = session_on_connected(&l->s, l->fd, now_ms());
+    }
+    if (rc != ERR_OK) {
+        close(l->fd);
+        l->fd = -1;
+        return rc;
+    }
+
+    /* 로그인 응답을 기다린다. 상한에 닿으면 붙지 않은 것이다 */
+    int64_t deadline = now_ms() + REMOTE_VENUE_TIMEOUT_MS;
+    while (session_state(&l->s) != SESSION_READY) {
+        if (now_ms() >= deadline ||
+            pump_once(l, NULL, REMOTE_VENUE_POLL_MS) != ERR_OK) {
+            close(l->fd);
+            l->fd = -1;
+            return ERR_IO;
+        }
+    }
+    l->up = true;
+    return ERR_OK;
+}
+
 int remote_venues_connect(remote_venues_t *rv)
 {
     if (rv == NULL) {
@@ -238,37 +285,11 @@ int remote_venues_connect(remote_venues_t *rv)
         if (!l->configured) {
             continue;
         }
-
-        int rc = dial(l->host, l->port, &l->fd);
+        int rc = link_connect(l, (market_t)m);
         if (rc != ERR_OK) {
             remote_venues_close(rv);
             return rc;
         }
-
-        ordmap_init(&l->om);
-
-        char id[SESSION_ID_LEN + 1];
-        snprintf(id, sizeof(id), "FEP-%s",
-                 (m == MARKET_KRX) ? "KRX" : "NXT");
-        rc = session_init(&l->s, NULL, id, now_ms());
-        if (rc == ERR_OK) {
-            rc = session_on_connected(&l->s, l->fd, now_ms());
-        }
-        if (rc != ERR_OK) {
-            remote_venues_close(rv);
-            return rc;
-        }
-
-        /* 로그인 응답을 기다린다. 상한에 닿으면 붙지 않은 것이다 */
-        int64_t deadline = now_ms() + REMOTE_VENUE_TIMEOUT_MS;
-        while (session_state(&l->s) != SESSION_READY) {
-            if (now_ms() >= deadline ||
-                pump_once(l, NULL, REMOTE_VENUE_POLL_MS) != ERR_OK) {
-                remote_venues_close(rv);
-                return ERR_IO;
-            }
-        }
-        l->up = true;
     }
     return ERR_OK;
 }
@@ -280,15 +301,33 @@ void remote_venues_pump(remote_venues_t *rv)
     }
     for (int32_t m = 0; m < MARKET_COUNT; m++) {
         remote_link_t *l = &rv->link[m];
-        if (!l->up) {
+        if (!l->configured) {
             continue;
         }
+
+        /*
+         * **끊겼으면 다시 붙는다.** 이 자리가 없으면 거래소를 한 번 다시 띄우는
+         * 것으로 원장이 영영 주문을 못 내고, 고치는 방법이 원장 재시작뿐이 된다.
+         *
+         * 살아 있던 주문은 되살리지 않는다 — 새 접속의 거래소는 이쪽을 처음 보고,
+         * 무엇이 남아 있는지는 조회로만 알 수 있다(T3-14). 여기서는 다시 붙는 데까지다.
+         */
+        if (!l->up) {
+            if (now_ms() < l->retry_at_ms) {
+                continue;
+            }
+            l->retry_at_ms = now_ms() + REMOTE_VENUE_RETRY_MS;
+            (void)link_connect(l, (market_t)m);
+            continue;
+        }
+
         /*
          * 기다리지 않는다(0ms). 원장의 유휴 콜백은 가상 참가자도 돌리므로
          * 여기서 붙잡고 있으면 호가창이 느려진다.
          */
         if (pump_once(l, NULL, 0) != ERR_OK) {
             l->up = false;
+            l->retry_at_ms = now_ms() + REMOTE_VENUE_RETRY_MS;
         }
     }
 }

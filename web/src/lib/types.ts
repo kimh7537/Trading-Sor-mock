@@ -88,9 +88,16 @@ export interface WireFrame {
   gotHeader: WireHeaderView | null;
 }
 
+/** 매칭 엔진이 어디에 있는가(T12-05). 원장이 `SYMBOL_ACK`으로 알려 준 값이다 */
+export const VENUE_UNKNOWN = -1;
+export const VENUE_LOCAL = 0;
+export const VENUE_REMOTE = 1;
+
 export interface WireLog {
   total: number;
   capacity: number;
+  /** -1 모름 · 0 원장 프로세스 안 · 1 별도 거래소 프로세스(FEP 경유) */
+  venue: number;
   frames: WireFrame[];
 }
 

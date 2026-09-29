@@ -924,6 +924,18 @@ kbd {
 .arch-legend .bad { color: var(--danger); }
 
 /*
+ * 지금 어느 구성인가(T12-05). 색만으로 말하지 않는다 — 글자가 먼저다.
+ * 테두리는 거드는 표시일 뿐이고, 흑백으로 인쇄해도 읽힌다.
+ */
+.arch-mode {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 var(--s-2);
+  color: var(--text-dim);
+}
+.arch-mode.on { border-color: var(--ok); color: var(--text); font-weight: 600; }
+
+/*
  * 저장소 구조도 탭. 문서를 통째로 띄우므로 남는 높이를 전부 준다.
  * `.page`가 스크롤을 갖고 있으므로 여기서 높이를 못 박아야 iframe이 눌리지 않는다.
  */

@@ -28,3 +28,14 @@ add_executable(quality_report quality_report.c)
 target_link_libraries(quality_report PRIVATE compare)
 
 add_subdirectory(tests)
+
+# 프로세스 경계의 값(T12-04). 진짜 `exchanged`를 띄워 두 경로를 나란히 잰다.
+# 원장 코어를 통째로 끌어오지 않고 집행기만 쓴다 — 재는 것이 경계 비용이다.
+add_executable(bench_exchange bench_exchange.c)
+target_link_libraries(bench_exchange PRIVATE ledger_core)
+target_compile_definitions(bench_exchange PRIVATE
+    _POSIX_C_SOURCE=200809L
+    EXCHANGED_BIN="$<TARGET_FILE:exchanged>")
+add_dependencies(bench_exchange exchanged)
+
+# 이것도 ctest에 넣지 않는다. 프로세스를 띄우고 2천 번 왕복한다.
