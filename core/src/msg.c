@@ -63,6 +63,9 @@ msg_type_t msg_reply_type(uint8_t req_type)
         return MSG_BOOK_ACK;
     case MSG_SYMBOL_SET:
         return MSG_SYMBOL_ACK;
+    /* 원장이 거래소에 보내는 다리. 답은 체결 금액을 싣는 전문이다(T12-01) */
+    case MSG_LEG_REQ:
+        return MSG_LEG_ACK;
     case MSG_ACCOUNT_OPEN:
         return MSG_ACCOUNT_ACK;
     case MSG_TICK_SET:
@@ -774,6 +777,49 @@ int msg_decode_tick_ack(const uint8_t *buf, size_t len, msg_tick_ack_t *out)
     out->on = *p++;
     out->code = wire_get_i32(p);
     p += 4;
+    return (int)(p - buf);
+}
+
+int msg_encode_leg_ack(const msg_leg_ack_t *m, uint8_t *buf, size_t cap)
+{
+    int rc = enc_check(m, buf, cap, MSG_LEG_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    uint8_t *p = buf;
+    wire_put_u64(p, m->cl_ord_id);
+    p += 8;
+    wire_put_u64(p, m->order_id);
+    p += 8;
+    wire_put_i32(p, m->reason);
+    p += 4;
+    wire_put_i32(p, m->filled_qty);
+    p += 4;
+    wire_put_i64(p, m->notional);
+    p += 8;
+    *p++ = m->resting;
+    return (int)(p - buf);
+}
+
+int msg_decode_leg_ack(const uint8_t *buf, size_t len, msg_leg_ack_t *out)
+{
+    int rc = dec_check(buf, len, out, MSG_LEG_ACK_LEN);
+    if (rc != ERR_OK) {
+        return rc;
+    }
+    memset(out, 0, sizeof(*out));
+    const uint8_t *p = buf;
+    out->cl_ord_id = wire_get_u64(p);
+    p += 8;
+    out->order_id = wire_get_u64(p);
+    p += 8;
+    out->reason = wire_get_i32(p);
+    p += 4;
+    out->filled_qty = wire_get_i32(p);
+    p += 4;
+    out->notional = wire_get_i64(p);
+    p += 8;
+    out->resting = *p++;
     return (int)(p - buf);
 }
 

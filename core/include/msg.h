@@ -232,6 +232,14 @@
  */
 #define MSG_TICK_SET_LEN 1
 #define MSG_TICK_ACK_LEN (1 + 4)
+/*
+ * 원장 -> 거래소 다리 주문. **바디는 주문 요청과 같다**(`msg_order_req_t`).
+ * 종별만 따로 두는 이유는 답이 다르기 때문이다 — 화면->원장 주문의 답은
+ * `MSG_ORDER_ACK`이고, 이쪽의 답은 체결 금액을 싣는 `MSG_LEG_ACK`이다.
+ * 같은 종별에 답이 둘이면 `msg_reply_type()`이 거짓말을 하게 된다.
+ */
+#define MSG_LEG_REQ_LEN MSG_ORDER_REQ_LEN
+#define MSG_LEG_ACK_LEN (8 + 8 + 4 + 4 + 8 + 1)
 
 #define MSG_ACCOUNT_OPEN_LEN (MSG_ACCOUNT_LEN + 8 + 8 + 8)
 #define MSG_ACCOUNT_ACK_LEN (MSG_ACCOUNT_LEN + 4 + 8 + 8 + 8 + 8 + 8)
@@ -268,7 +276,9 @@
     X(MSG_ACCOUNT_OPEN, 24, MSG_ACCOUNT_OPEN_LEN, "계좌 개설 요청")       \
     X(MSG_ACCOUNT_ACK, 25, MSG_ACCOUNT_ACK_LEN, "계좌 개설 응답")         \
     X(MSG_TICK_SET, 26, MSG_TICK_SET_LEN, "가상 참가자 스위치")           \
-    X(MSG_TICK_ACK, 27, MSG_TICK_ACK_LEN, "가상 참가자 스위치 응답")
+    X(MSG_TICK_ACK, 27, MSG_TICK_ACK_LEN, "가상 참가자 스위치 응답")   \
+    X(MSG_LEG_REQ, 28, MSG_LEG_REQ_LEN, "거래소 다리 요청")            \
+    X(MSG_LEG_ACK, 29, MSG_LEG_ACK_LEN, "거래소 다리 응답")
 
 #define MSG_ENUM_ENTRY(name, code, len, text) name = (code),
 
@@ -520,6 +530,29 @@ typedef struct {
 } msg_account_ack_t;
 
 /*
+ * 거래소가 다리 하나의 결과를 돌려준다 (T12-01).
+ *
+ * <b>`MSG_ORDER_ACK`을 쓰지 않는 이유는 체결 "금액"이다.</b> 주문 응답은 평균가
+ * (`price`)만 싣는데, 평균가 x 수량으로 금액을 되돌리면 나머지가 샌다 — 15주는
+ * 70,000원에 15주는 70,100원에 체결된 다리의 금액은 평균가로 복원되지 않는다.
+ * 그 누수를 T7-07에서 한 번 겪었고, 원격 경로에서 되살리지 않는다.
+ *
+ * 그래서 이 전문은 **금액을 i64로 그대로** 싣는다. 함께 싣는 `order_id`는 거래소가
+ * 매긴 번호다 — 우리 번호가 아니다. 그 둘을 잇는 것이 FEP의 `ordmap`이다.
+ *
+ * 요청은 `MSG_ORDER_REQ`를 그대로 쓴다(`cl_ord_id`에 우리 물리 주문번호를 싣는다).
+ * 거래소가 알아야 할 것이 그 전문에 다 있어서 새로 만들 이유가 없다.
+ */
+typedef struct {
+    uint64_t   cl_ord_id;  /* 우리 물리 주문번호. 요청의 것을 되돌려준다 */
+    order_id_t order_id;   /* 거래소가 매긴 번호 */
+    int32_t    reason;     /* ERR_OK면 접수. 아니면 거부 사유 */
+    qty_t      filled_qty;
+    int64_t    notional;   /* 체결 금액 합. 평균가로 줄이지 않는다 */
+    uint8_t    resting;    /* 잔량이 그 시장 호가창에 남았는가 */
+} msg_leg_ack_t;
+
+/*
  * 인코딩 — 바디만 쓴다. 헤더는 호출부가 wire_encode_header()로 따로 쓴다.
  * 두 일을 합치면 시퀀스 번호와 논리 시각을 여기서 정해야 하는데, 그건 세션의
  * 상태이지 전문의 내용이 아니다(T3-11이 맡는다).
@@ -557,6 +590,8 @@ int msg_decode_account_open(const uint8_t *buf, size_t len,
 int msg_encode_tick_set(const msg_tick_set_t *m, uint8_t *buf, size_t cap);
 int msg_decode_tick_set(const uint8_t *buf, size_t len, msg_tick_set_t *out);
 int msg_encode_tick_ack(const msg_tick_ack_t *m, uint8_t *buf, size_t cap);
+int msg_encode_leg_ack(const msg_leg_ack_t *m, uint8_t *buf, size_t cap);
+int msg_decode_leg_ack(const uint8_t *buf, size_t len, msg_leg_ack_t *out);
 int msg_decode_tick_ack(const uint8_t *buf, size_t len, msg_tick_ack_t *out);
 int msg_encode_account_ack(const msg_account_ack_t *m, uint8_t *buf, size_t cap);
 int msg_decode_account_ack(const uint8_t *buf, size_t len,

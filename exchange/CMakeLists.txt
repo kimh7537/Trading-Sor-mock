@@ -17,4 +17,10 @@ add_library(exchange STATIC
 target_include_directories(exchange PUBLIC include PRIVATE src/match)
 target_link_libraries(exchange PUBLIC core m)
 
+# 거래소 프로세스(T12-01). **라이브러리가 아니라 실행 파일만** ledger를 링크한다 —
+# 리스너가 거기 있기 때문이고, `exchange` 라이브러리 자체는 core만 의존한 채로 둔다.
+# (`ledger` 라이브러리는 core만 링크하므로 순환이 생기지 않는다)
+add_executable(exchanged exchanged.c)
+target_link_libraries(exchanged PRIVATE exchange ledger)
+
 add_subdirectory(tests)

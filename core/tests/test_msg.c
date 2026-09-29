@@ -37,7 +37,7 @@ static const struct {
 
 static void test_type_table(void)
 {
-    assert(TABLE_N == 27);
+    assert(TABLE_N == 29);
 
     for (size_t i = 0; i < TABLE_N; i++) {
         assert(msg_is_known(TABLE[i].code));
@@ -133,6 +133,7 @@ static void test_reply_pairs(void)
     assert(msg_reply_type(MSG_ACCOUNT_ACK) == MSG_UNKNOWN);
     /* 가상 참가자 스위치는 데몬이 답한다(점검). */
     assert(msg_reply_type(MSG_TICK_SET) == MSG_TICK_ACK);
+    assert(msg_reply_type(MSG_LEG_REQ) == MSG_LEG_ACK);
     assert(msg_reply_type(MSG_TICK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_BOOK_ACK) == MSG_UNKNOWN);
     assert(msg_reply_type(MSG_DETAIL_REQ) == MSG_DETAIL_ACK);
@@ -590,6 +591,20 @@ static void test_roundtrip_all(void)
     ROUNDTRIP(msg_tick_set_t, msg_encode_tick_set, msg_decode_tick_set,
               MSG_TICK_SET_LEN, { in.on = 1; });
 
+    /*
+     * 거래소 다리 응답(T12-01). **금액을 i64로 그대로 싣는다** — 평균가로 줄이면
+     * 나머지가 샌다(T7-07에서 겪은 누수). 여기서 큰 금액을 왕복시켜 확인한다.
+     */
+    ROUNDTRIP(msg_leg_ack_t, msg_encode_leg_ack, msg_decode_leg_ack,
+              MSG_LEG_ACK_LEN, {
+                  in.cl_ord_id = 0x1122334455667788ULL;
+                  in.order_id = 987654321ULL;
+                  in.reason = -14;
+                  in.filled_qty = 12345;
+                  in.notional = 9876543210123LL;
+                  in.resting = 1;
+              });
+
     ROUNDTRIP(msg_tick_ack_t, msg_encode_tick_ack, msg_decode_tick_ack,
               MSG_TICK_ACK_LEN, {
                   in.on = 0;
@@ -754,6 +769,7 @@ static void test_decode_rejects_wrong_length(void)
               MSG_ACCOUNT_OPEN_LEN);
     CHECK_LEN(msg_decode_account_ack, msg_account_ack_t, MSG_ACCOUNT_ACK_LEN);
     CHECK_LEN(msg_decode_tick_set, msg_tick_set_t, MSG_TICK_SET_LEN);
+    CHECK_LEN(msg_decode_leg_ack, msg_leg_ack_t, MSG_LEG_ACK_LEN);
     CHECK_LEN(msg_decode_tick_ack, msg_tick_ack_t, MSG_TICK_ACK_LEN);
 
 #undef CHECK_LEN
