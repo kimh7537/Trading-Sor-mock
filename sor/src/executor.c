@@ -92,10 +92,35 @@ static void record_fills(order_map_t *map, order_id_t phys_id,
     }
 }
 
+/* 이 프로세스 안의 매칭 엔진으로 보낸다 — 지금까지의 유일한 경로다. */
+static int send_local(void *ctx, const order_t *req, const plan_leg_t *leg,
+                      order_id_t phys_id, exec_result_t *out)
+{
+    venues_t *venues = ctx;
+    if (leg->market < 0 || leg->market >= MARKET_COUNT) {
+        return ERR_INVALID_ARG;
+    }
+    match_engine_t *eng = venues->eng[leg->market];
+    if (eng == NULL) {
+        return ERR_NULL_PTR;
+    }
+    return send_leg(eng, req, leg, phys_id, out);
+}
+
 int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
                 const exec_plan_t *plan, exec_report_t *out)
 {
-    if (map == NULL || venues == NULL || req == NULL || plan == NULL ||
+    if (venues == NULL) {
+        return ERR_NULL_PTR;
+    }
+    return exec_submit_via(map, send_local, venues, req, plan, out);
+}
+
+int exec_submit_via(order_map_t *map, leg_send_fn send, void *ctx,
+                    const order_t *req, const exec_plan_t *plan,
+                    exec_report_t *out)
+{
+    if (map == NULL || send == NULL || req == NULL || plan == NULL ||
         out == NULL) {
         return ERR_NULL_PTR;
     }
@@ -123,13 +148,8 @@ int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
         lr->market = leg->market;
         lr->sent_qty = leg->qty;
 
-        match_engine_t *eng = venues->eng[leg->market];
-        if (eng == NULL) {
-            lr->rc = ERR_NULL_PTR;
-        } else {
-            memset(&res, 0, sizeof(res));
-            lr->rc = send_leg(eng, req, leg, phys[i], &res);
-        }
+        memset(&res, 0, sizeof(res));
+        lr->rc = send(ctx, req, leg, phys[i], &res);
 
         if (lr->rc != ERR_OK) {
             /*
@@ -188,10 +208,41 @@ int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
     return ERR_OK;
 }
 
+/* 이 프로세스 안의 매칭 엔진에서 취소한다. */
+static int cancel_local(void *ctx, order_id_t phys_id, market_t market, ts_t ts,
+                        qty_t *out_qty)
+{
+    venues_t *venues = ctx;
+    if (market < 0 || market >= MARKET_COUNT) {
+        return ERR_INVALID_ARG;
+    }
+    match_engine_t *eng = venues->eng[market];
+    if (eng == NULL) {
+        return ERR_NULL_PTR;
+    }
+
+    exec_result_t res;
+    memset(&res, 0, sizeof(res));
+    int rc = match_cancel(eng, phys_id, ts, &res);
+    if (rc == ERR_OK) {
+        *out_qty = res.remaining_qty;
+    }
+    return rc;
+}
+
 int exec_cancel(order_map_t *map, venues_t *venues, order_id_t logical_id,
                 ts_t ts, cancel_report_t *out)
 {
-    if (map == NULL || venues == NULL || out == NULL) {
+    if (venues == NULL) {
+        return ERR_NULL_PTR;
+    }
+    return exec_cancel_via(map, cancel_local, venues, logical_id, ts, out);
+}
+
+int exec_cancel_via(order_map_t *map, leg_cancel_fn cancel, void *ctx,
+                    order_id_t logical_id, ts_t ts, cancel_report_t *out)
+{
+    if (map == NULL || cancel == NULL || out == NULL) {
         return ERR_NULL_PTR;
     }
 
@@ -225,17 +276,7 @@ int exec_cancel(order_map_t *map, venues_t *venues, order_id_t logical_id,
         cl->was_live = true;
         out->attempted++;
 
-        match_engine_t *eng = venues->eng[lo->legs[i].market];
-        if (eng == NULL) {
-            cl->rc = ERR_NULL_PTR;
-        } else {
-            exec_result_t res;
-            memset(&res, 0, sizeof(res));
-            cl->rc = match_cancel(eng, phys_id, ts, &res);
-            if (cl->rc == ERR_OK) {
-                cl->canceled_qty = res.remaining_qty;
-            }
-        }
+        cl->rc = cancel(ctx, phys_id, lo->legs[i].market, ts, &cl->canceled_qty);
 
         if (cl->rc != ERR_OK) {
             /*

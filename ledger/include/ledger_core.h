@@ -128,6 +128,15 @@ typedef struct {
      * 전략으로 돌렸는지가 측정 결과의 전제이고, 조용히 바뀌면 그 전제가 흔들린다.
      */
     const struct exec_strategy *strategy;
+
+    /*
+     * 거래소를 **다른 프로세스**로 띄웠으면 그 접속(T12-02). NULL이면 지금까지처럼
+     * 매칭 엔진이 이 프로세스 안에 있다.
+     *
+     * 기본은 NULL이다 — `bench/results/`의 측정이 그 구성에서 나왔고, 기본을 바꾸면
+     * 그 표가 무엇을 잰 것인지 알 수 없게 된다.
+     */
+    struct remote_venues *remote;
 } ledger_core_config_t;
 
 /* 화면(web)과 맞춘 기본값 — 계좌 123456789012, 005930, 기준가 70,000원. */

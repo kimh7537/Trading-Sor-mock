@@ -88,6 +88,29 @@ typedef struct {
 int exec_submit(order_map_t *map, venues_t *venues, const order_t *req,
                 const exec_plan_t *plan, exec_report_t *out);
 
+/*
+ * 다리 하나를 **어디로** 보내는가.
+ *
+ * `exec_submit`은 이 프로세스 안의 매칭 엔진을 부르고, 원장이 거래소 프로세스를
+ * 따로 띄웠으면(`--exchange`, T12-02) FEP 세션으로 전문을 보낸다. 두 경우에
+ * **다른 것은 보내는 방법뿐**이고, 돌아온 결과를 매핑에 적고 논리 주문의 상태를
+ * 합산하는 일은 한 글자도 다르지 않다.
+ *
+ * 그래서 그 뒷일을 복사하지 않고 여기를 갈아끼운다. 체결 금액을 매핑에 옮기는
+ * 부분은 나눗셈 나머지가 새기 쉬운 자리이고(T7-07), 두 벌이 되면 한쪽만 고쳐진다.
+ *
+ * 채운 `out`은 매칭 엔진이 돌려준 것과 같은 뜻이어야 한다. 체결 목록을 못 싣는
+ * 경로는 `fill_count = 0`으로 두면 된다 — 집계(`filled_qty`·`notional`)에서
+ * 정확히 되짚는다.
+ */
+typedef int (*leg_send_fn)(void *ctx, const order_t *req, const plan_leg_t *leg,
+                           order_id_t phys_id, exec_result_t *out);
+
+/* `exec_submit`과 같다. 다리를 보내는 방법만 호출부가 정한다. */
+int exec_submit_via(order_map_t *map, leg_send_fn send, void *ctx,
+                    const order_t *req, const exec_plan_t *plan,
+                    exec_report_t *out);
+
 /* --- 취소 --- */
 
 /*
@@ -133,6 +156,18 @@ typedef struct {
  */
 int exec_cancel(order_map_t *map, venues_t *venues, order_id_t logical_id,
                 ts_t ts, cancel_report_t *out);
+
+/*
+ * 다리 하나를 **어디에서** 취소하는가. `exec_submit_via`와 같은 이유로 둔다 —
+ * 보상하지 않는다는 규칙과 보고서를 채우는 일은 경로가 달라도 같아야 한다.
+ *
+ * 취소된 수량을 `out_qty`에 담고 ERR_OK를 돌려준다.
+ */
+typedef int (*leg_cancel_fn)(void *ctx, order_id_t phys_id, market_t market,
+                             ts_t ts, qty_t *out_qty);
+
+int exec_cancel_via(order_map_t *map, leg_cancel_fn cancel, void *ctx,
+                    order_id_t logical_id, ts_t ts, cancel_report_t *out);
 
 /*
  * 매핑에 쌓인 상태만 보고 논리 주문의 현재 상태를 다시 계산한다.

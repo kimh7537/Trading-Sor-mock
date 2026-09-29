@@ -208,6 +208,21 @@ FEED_RECORD_FILE=../tape.jsonl ./mvnw.cmd spring-boot:run
 바깥 시세를 받은 시장에는 `--live` 틱이 더 끼어들지 않는다 — 실호가 위에 가상 참가자의
 주문을 계속 얹으면 그건 실시세도 시뮬도 아니다.
 
+**거래소를 따로 띄우기 — FEP 경로** (Phase 12)
+
+기본 구성에서는 SOR과 매칭 엔진이 원장 프로세스 **안에** 있다. 거래소를 진짜
+프로세스로 떼어 내면 주문이 **FEP 세션을 타고** 나간다.
+
+```bash
+./build/exchange/exchanged 9201 --market krx --ref-price 70000 --liquidity 1000
+./build/exchange/exchanged 9202 --market nxt --ref-price 70000 --liquidity 1000
+./build/ledger/ledgerd 9100 --exchange krx=127.0.0.1:9201,nxt=127.0.0.1:9202
+```
+
+이 구성에서는 **가상 참가자와 실시세가 꺼진다** — 흔들거나 심을 호가창이 원장
+프로세스에 없다. 그리고 **재현되지 않는다**(하트비트가 실제 시각을 읽는다). 그래서
+전략 비교는 기본 구성으로 잰다. 자세한 것은 `docs/RUNNING.md` 3.2.4절.
+
 **측정 다시 돌리기** (WSL, Release)
 
 ```bash

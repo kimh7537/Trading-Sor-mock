@@ -16,9 +16,11 @@ target_compile_definitions(ledger PUBLIC _POSIX_C_SOURCE=200809L)
 
 # 원장 코어(T6-03) — 검증·증거금·SOR·매칭·정산을 잇는다. SOR와 매칭 엔진을
 # 끌어오므로 `ledger`와 따로 둔다. 계좌·검증 단위 테스트가 sor에 매이지 않게 한다.
-add_library(ledger_core STATIC src/ledger_core.c)
+# 원격 거래소(T12-02)가 FEP 세션을 쓰므로 `fep`도 끌어온다. `fep`는 core만
+# 링크하므로 순환이 생기지 않는다.
+add_library(ledger_core STATIC src/ledger_core.c src/remote_venue.c)
 target_include_directories(ledger_core PUBLIC include)
-target_link_libraries(ledger_core PUBLIC ledger sor)
+target_link_libraries(ledger_core PUBLIC ledger sor fep)
 
 add_executable(ledgerd ledgerd.c)
 target_link_libraries(ledgerd PRIVATE ledger_core)

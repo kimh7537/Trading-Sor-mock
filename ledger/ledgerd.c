@@ -2,6 +2,13 @@
  * 원장 데몬.
  *
  *   ledgerd [포트] [--live <초당 주문 수>] [--ref-price <원>] [--strategy <이름>]
+ *           [--exchange krx=HOST:PORT,nxt=HOST:PORT]
+ *
+ * `--exchange`를 주면 **매칭 엔진이 이 프로세스 안에 없다.** 주문은 FEP 세션을 타고
+ * 거래소 프로세스(`exchanged`)로 나가고 호가창도 그쪽 것을 물어서 보여 준다(T12-03).
+ * 주지 않으면 지금까지와 똑같다 — `bench/results/`의 측정이 그 구성에서 나왔다.
+ *
+ * 이 구성에서는 **가상 참가자와 실시세가 꺼진다.** 흔들 호가창이 여기 없기 때문이다.
  *
  * 미국 종목으로 바꾸면 가격이 센트 정수가 되고 계좌는 $100,000로 다시 열린다(T10-02).
  *
@@ -30,6 +37,7 @@
 #include "ledger_core.h"
 #include "strategy.h"
 #include "listener.h"
+#include "remote_venue.h"
 #include "msg.h"
 #include "wire.h"
 
@@ -82,6 +90,9 @@ typedef struct {
      * 코어에 두면 그때마다 지워져 장이 닫힌 밤에도 호가창이 혼자 걸어간다.
      */
     bool ticks_on;
+
+    /* 거래소 프로세스 접속. NULL이면 매칭 엔진이 이 프로세스 안에 있다 */
+    remote_venues_t *remote;
 } live_ctx_t;
 
 /*
@@ -121,7 +132,14 @@ static int64_t seed_cash(const live_ctx_t *lc, tick_table_t table)
 static void on_idle(void *ctx)
 {
     live_ctx_t *lc = ctx;
-    if (!lc->ticks_on) {
+
+    /*
+     * 거래소 세션에 숨을 불어넣는다(T12-03). **부르지 않으면 말라 죽는다** —
+     * 주문 사이가 무응답 한계(15초)보다 길면 다음 주문에서 끊긴 것을 발견한다.
+     */
+    remote_venues_pump(lc->remote);
+
+    if (!lc->ticks_on || lc->per_tick <= 0) {
         return;
     }
     (void)ledger_core_tick(lc->core, lc->per_tick);
@@ -142,6 +160,14 @@ static int rebase_symbol(live_ctx_t *lc, const char *symbol, price_t ref_price,
 {
     if (symbol[0] == '\0' || ref_price < PRICE_MIN || ref_price > PRICE_MAX) {
         return ERR_INVALID_ARG;
+    }
+    /*
+     * 거래소를 따로 띄웠으면 **그쪽이 종목을 들고 있다**(T12-03). 여기서 바꾸면
+     * 원장과 거래소가 다른 종목을 말하게 되고, 주문은 전부 ERR_NOT_FOUND가 된다.
+     * 종목을 바꾸려면 거래소를 그 종목으로 다시 띄운다.
+     */
+    if (lc->remote != NULL) {
+        return ERR_NOT_SUPPORTED;
     }
 
     char         prev[MSG_SYMBOL_LEN + 1];
@@ -303,6 +329,58 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
 }
 
 /*
+ * `--exchange krx=HOST:PORT,nxt=HOST:PORT`를 읽는다.
+ *
+ * **시장마다 따로 적는다.** 한 주소로 둘을 받으면 그것은 거래소가 아니라 원장이다 —
+ * 실제로 KRX와 NXT는 서로 다른 회사이고 접속도 따로다.
+ */
+static int parse_exchange(const char *spec, remote_venues_t *rv)
+{
+    char buf[256];
+    if (snprintf(buf, sizeof(buf), "%s", spec) >= (int)sizeof(buf)) {
+        return ERR_INVALID_ARG;
+    }
+
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok != NULL;
+         tok = strtok_r(NULL, ",", &save)) {
+        char *eq = strchr(tok, '=');
+        if (eq == NULL) {
+            return ERR_INVALID_ARG;
+        }
+        *eq = '\0';
+
+        market_t m;
+        if (strcmp(tok, "krx") == 0) {
+            m = MARKET_KRX;
+        } else if (strcmp(tok, "nxt") == 0) {
+            m = MARKET_NXT;
+        } else {
+            return ERR_INVALID_ARG;
+        }
+
+        /* 뒤에서 찾는다 — 주소에 콜론이 더 있을 수 있다 */
+        char *colon = strrchr(eq + 1, ':');
+        if (colon == NULL) {
+            return ERR_INVALID_ARG;
+        }
+        *colon = '\0';
+
+        char *end = NULL;
+        long  port = strtol(colon + 1, &end, 10);
+        if (end == colon + 1 || *end != '\0' || port <= 0 || port > 65535) {
+            return ERR_INVALID_ARG;
+        }
+
+        int rc = remote_venues_set(rv, m, eq + 1, (uint16_t)port);
+        if (rc != ERR_OK) {
+            return rc;
+        }
+    }
+    return ERR_OK;
+}
+
+/*
  * 이름으로 SOR 전략을 고른다(`--strategy`). 모르는 이름이면 NULL.
  *
  * **기본은 바꾸지 않는다.** 전략이 무엇이었는지가 측정 결과의 전제이므로, 고르지 않으면
@@ -349,6 +427,7 @@ int main(int argc, char **argv)
     long     live_rate = 0;
     long     ref_price = 0; /* 0이면 기본 기준가를 쓴다 */
     const exec_strategy_t *strategy = NULL; /* NULL이면 BEST_PRICE */
+    const char *exchange_spec = NULL;       /* NULL이면 프로세스 안에서 돈다 */
 
     for (int i = 1; i < argc; i++) {
         char *end = NULL;
@@ -376,6 +455,16 @@ int main(int argc, char **argv)
                 fprintf(stderr, "--strategy는 best|split|sweep|krx 중 하나여야 한다\n");
                 return 2;
             }
+            i++;
+            continue;
+        }
+        if (strcmp(argv[i], "--exchange") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--exchange 뒤에 krx=HOST:PORT,nxt=HOST:PORT 가 와야 한다\n");
+                return 2;
+            }
+            exchange_spec = argv[i + 1];
             i++;
             continue;
         }
@@ -413,6 +502,25 @@ int main(int argc, char **argv)
     }
     cfg_buf.strategy = strategy;
 
+    /*
+     * 거래소에 먼저 붙는다(T12-03). **하나라도 못 붙으면 뜨지 않는다** — 반쪽만
+     * 붙은 채 돌면 SOR이 고른 시장에 따라 주문이 되기도 하고 안 되기도 한다.
+     */
+    remote_venues_t remote;
+    remote_venues_init(&remote, cfg_buf.symbol);
+    if (exchange_spec != NULL) {
+        if (parse_exchange(exchange_spec, &remote) != ERR_OK) {
+            fprintf(stderr,
+                    "--exchange는 krx=HOST:PORT,nxt=HOST:PORT 꼴이어야 한다\n");
+            return 2;
+        }
+        if (remote_venues_connect(&remote) != ERR_OK) {
+            fprintf(stderr, "거래소에 붙지 못했다. exchanged가 떠 있는지 본다\n");
+            return 1;
+        }
+        cfg_buf.remote = &remote;
+    }
+
     ledger_core_t *core = ledger_core_create(&cfg_buf);
     if (core == NULL) {
         fprintf(stderr, "원장 코어를 만들 수 없다\n");
@@ -431,6 +539,15 @@ int main(int argc, char **argv)
            (unsigned)listener_port(ln));
     printf("  계좌 %s, 예수금 %lld원, 종목 %s, 기준가 %d원\n", cfg->account,
            (long long)cfg->cash, cfg->symbol, cfg->ref_price);
+    if (cfg->remote != NULL) {
+        printf("  거래소: 다른 프로세스 (FEP 세션). 가상 참가자와 실시세는 꺼진다\n");
+        for (int32_t m = 0; m < MARKET_COUNT; m++) {
+            if (remote.link[m].configured) {
+                printf("    %s -> %s:%u\n", (m == MARKET_KRX) ? "KRX" : "NXT",
+                       remote.link[m].host, (unsigned)remote.link[m].port);
+            }
+        }
+    }
     printf("  SOR 전략 %s (자동 주문만 해당)\n",
            strategy_name(cfg->strategy != NULL ? cfg->strategy
                                                : &STRATEGY_BEST_PRICE));
@@ -446,15 +563,22 @@ int main(int argc, char **argv)
                        .cfg = cfg_buf,
                        .per_tick = 0,
                        .us_cash = 10000000,
-                       .ticks_on = true};
+                       .ticks_on = true,
+                       .remote = (exchange_spec != NULL) ? &remote : NULL};
     snprintf(live.symbol, sizeof(live.symbol), "%s", cfg_buf.symbol);
     live.cfg.symbol = live.symbol;
-    if (live_rate > 0) {
+    if (live_rate > 0 && live.remote == NULL) {
         int tick_ms = 0;
         live_pace(live_rate, &tick_ms, &live.per_tick);
         listener_set_idle(ln, on_idle, &live, tick_ms);
         printf("  가상 참가자: 시장마다 초당 %ld건 (%dms마다 %d건)\n", live_rate,
                tick_ms, live.per_tick);
+    } else if (live.remote != NULL) {
+        /* 틱은 안 내지만 **세션에 숨은 불어넣어야 한다**(on_idle 참조) */
+        listener_set_idle(ln, on_idle, &live, LEDGERD_TICK_MIN_MS * 10);
+        if (live_rate > 0) {
+            printf("  --live는 무시한다 — 흔들 호가창이 이 프로세스에 없다\n");
+        }
     }
     fflush(stdout);
 
@@ -465,6 +589,7 @@ int main(int argc, char **argv)
     int conns = listener_run(ln, on_msg, &live);
 
     printf("접속 %d건 처리 후 종료\n", conns);
+    remote_venues_close(&remote);
     listener_close(ln);
     ledger_core_destroy(live.core);
     return 0;

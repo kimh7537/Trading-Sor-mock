@@ -1,5 +1,7 @@
 #include "ledger_core.h"
 
+#include "remote_venue.h"
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -217,6 +219,37 @@ static void settle_fill(ledger_core_t *c, const logical_order_t *lo,
 }
 
 /*
+ * 원격 경로의 정산 (T12-03).
+ *
+ * **엔진 이벤트가 오지 않는다** — 체결은 소켓 저쪽에서 났고, 여기 매칭 엔진은
+ * 그 주문을 본 적이 없다. 그래서 다리가 들고 온 수량과 금액으로 정산한다.
+ *
+ * 쪼개는 방법은 집행기가 매핑에 옮길 때와 **한 글자도 같아야 한다**(평균가 몫과
+ * 1원 높은 몫, `sor/src/executor.c`의 `record_fills`). 두 곳이 다르게 쪼개면
+ * 계좌와 매핑이 어긋나고, 그때 어느 쪽이 맞는지 알 방법이 없다.
+ */
+static void settle_remote(ledger_core_t *c, const logical_order_t *lo,
+                          const exec_report_t *rep)
+{
+    for (int32_t i = 0; i < rep->leg_count; i++) {
+        qty_t filled = rep->legs[i].filled_qty;
+        if (filled <= 0) {
+            continue;
+        }
+        int64_t notional = rep->legs[i].notional;
+        price_t avg = (price_t)(notional / filled);
+        qty_t   up = (qty_t)(notional % filled); /* avg + 1원에 넣을 수량 */
+
+        if (filled > up) {
+            settle_fill(c, lo, avg, filled - up);
+        }
+        if (up > 0) {
+            settle_fill(c, lo, avg + 1, up);
+        }
+    }
+}
+
+/*
  * 매칭 엔진의 체결 이벤트. **돈을 옮기는 곳은 여기 하나다.**
  * 이 콜백 안에서 매칭 엔진을 다시 부르지 않는다(event.h의 재진입 금지).
  */
@@ -367,7 +400,13 @@ static void process_order(ledger_core_t *c, const msg_order_req_t *req,
 
     exec_report_t rep;
     c->submitting = o.id;
-    rc = exec_submit(c->map, &c->venues, &o, &plan, &rep);
+    /*
+     * **보내는 곳만 다르다.** 돌아온 보고서는 두 경로가 같은 뜻으로 채우므로
+     * 아래(증거금 정리·응답 조립)는 갈라지지 않는다.
+     */
+    rc = (c->cfg.remote != NULL)
+             ? remote_submit(c->cfg.remote, c->map, &o, &plan, &rep)
+             : exec_submit(c->map, &c->venues, &o, &plan, &rep);
     c->submitting = ORDER_ID_INVALID;
 
     if (rc != ERR_OK) {
@@ -376,6 +415,16 @@ static void process_order(ledger_core_t *c, const msg_order_req_t *req,
         ack->order_id = o.id;
         ack->reason = rc;
         return;
+    }
+
+    /*
+     * 원격 경로는 콜백이 없으므로 여기서 정산한다. **증거금을 푸는 아래 계산보다
+     * 먼저** 해야 한다 — 매수 체결은 묶어 둔 증거금에서 돈을 꺼내 쓴다.
+     */
+    if (c->cfg.remote != NULL) {
+        const logical_order_t *lo = omap_get(c->map, o.id);
+        assert(lo != NULL);
+        settle_remote(c, lo, &rep);
     }
 
     /*
@@ -452,6 +501,23 @@ static void query_book(ledger_core_t *c, const msg_book_req_t *req,
         strncmp(req->symbol, c->cfg.symbol, MSG_SYMBOL_LEN) != 0) {
         return;
     }
+    /*
+     * **호가창이 저쪽에 있으면 저쪽에 묻는다**(T12-03). 이 프로세스 안의 호가창을
+     * 보여 주면 주문이 간 곳과 화면이 보는 곳이 달라진다 — 화면에서 최우선 매도를
+     * 보고 낸 주문이 엉뚱한 값에 체결된다.
+     */
+    if (c->cfg.remote != NULL) {
+        msg_book_ack_t remote;
+        if (remote_book(c->cfg.remote, (market_t)req->market, c->cfg.symbol,
+                        &remote) == ERR_OK) {
+            *ack = remote;
+            memcpy(ack->symbol, req->symbol, sizeof(ack->symbol));
+            ack->market = req->market;
+        }
+        /* 못 받으면 빈 호가창으로 답한다. 지어낸 값을 보여 주는 것보다 낫다 */
+        return;
+    }
+
     ack->last_price = c->last_price[req->market];
     ack->traded_qty = c->traded_qty[req->market];
 
@@ -515,7 +581,10 @@ static void cancel_order(ledger_core_t *c, const msg_cancel_req_t *req,
     }
 
     cancel_report_t rep;
-    int rc = exec_cancel(c->map, &c->venues, req->order_id, ++c->clock, &rep);
+    ts_t            ts = ++c->clock;
+    int             rc = (c->cfg.remote != NULL)
+                             ? remote_cancel(c->cfg.remote, c->map, req->order_id, ts, &rep)
+                             : exec_cancel(c->map, &c->venues, req->order_id, ts, &rep);
 
     if (rep.canceled_qty > 0) {
         int32_t acct = c->acct_of[req->order_id - LEDGER_LOGICAL_BASE];
@@ -1070,6 +1139,13 @@ int ledger_core_tick(ledger_core_t *c, int32_t n)
     if (c == NULL) {
         return ERR_NULL_PTR;
     }
+    /*
+     * 거래소가 저쪽에 있으면 **여기 호가창을 흔들어도 아무도 보지 않는다**
+     * (T12-03). 조용히 돌리면 거래량만 늘어 화면이 거짓말을 한다.
+     */
+    if (c->cfg.remote != NULL) {
+        return ERR_NOT_SUPPORTED;
+    }
     if (n <= 0) {
         return ERR_INVALID_ARG;
     }
@@ -1213,6 +1289,13 @@ int ledger_core_apply_feed(ledger_core_t *c, const msg_book_feed_t *f)
 {
     if (c == NULL || f == NULL) {
         return ERR_NULL_PTR;
+    }
+    /*
+     * 실시세도 마찬가지다 — 심을 호가창이 이 프로세스에 없다. 조용히 받아 두면
+     * "실시세"라고 적힌 화면에 거래소의 시드 호가가 뜬다.
+     */
+    if (c->cfg.remote != NULL) {
+        return ERR_NOT_SUPPORTED;
     }
     if (f->market >= MARKET_COUNT) {
         return ERR_INVALID_ARG;

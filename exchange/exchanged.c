@@ -123,8 +123,29 @@ static void on_leg(venue_t *v, const uint8_t *body, size_t len,
     o.qty = req.qty;
     o.ts = ++v->clock;
 
+    /*
+     * **계획이 정한 주문 유형을 그대로 쓴다.** 집행기가 프로세스 안에서 하는 것과
+     * 같아야 한다(`sor/src/executor.c`의 `send_leg`) — 여기서 전부 지정가로 받으면
+     * `--exchange` 하나로 SWEEP 전략의 체결이 달라진다.
+     */
     exec_result_t res;
-    int           rc = match_limit(v->eng, &o, &res);
+    int           rc;
+    switch ((order_type_t)req.type) {
+    case ORDER_MARKET:
+        rc = match_market(v->eng, &o, &res);
+        break;
+    case ORDER_IOC:
+        rc = match_ioc(v->eng, &o, &res);
+        break;
+    case ORDER_FOK:
+        rc = match_fok(v->eng, &o, &res);
+        break;
+    case ORDER_LIMIT:
+    case ORDER_MIDPOINT:
+    default:
+        rc = match_limit(v->eng, &o, &res);
+        break;
+    }
 
     ack->order_id = o.id;
     ack->reason = rc;
@@ -246,6 +267,32 @@ static int on_msg(const wire_header_t *hdr, const uint8_t *body, uint8_t *out,
         reply = MSG_BOOK_ACK;
         break;
     }
+    /*
+     * 원장이 FEP 세션으로 붙는다(T12-02). 세션은 붙자마자 로그인을 보내고
+     * 응답을 못 받으면 5초 뒤 스스로 끊는다 — 여기서 답해야 붙는다.
+     *
+     * **누구든 받아 준다.** 이 거래소는 접속 하나를 상대하는 시뮬레이터이고,
+     * 인증은 재현하려는 대상이 아니다. 그 한계를 여기 적어 둔다.
+     */
+    case MSG_LOGIN_REQ: {
+        msg_login_req_t req;
+        msg_login_ack_t ack;
+        memset(&ack, 0, sizeof(ack));
+        ack.result = (msg_decode_login_req(body, hdr->body_len, &req) < 0)
+                         ? ERR_INVALID_ARG
+                         : ERR_OK;
+        m = msg_encode_login_ack(&ack, bodybuf, sizeof(bodybuf));
+        reply = MSG_LOGIN_ACK;
+        break;
+    }
+    /*
+     * **되돌려준다.** 받고 가만히 있으면 상대는 15초 뒤 "조용하다"고 끊는다 —
+     * 주문이 뜸한 시간대에 세션이 저절로 말라 죽는다.
+     */
+    case MSG_HEARTBEAT:
+        m = 0;
+        reply = MSG_HEARTBEAT;
+        break;
     default:
         return -1;
     }
