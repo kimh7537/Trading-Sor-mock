@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mini-sor 다이어그램 모음</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 40px 20px; }
+    h1 { text-align: center; margin-bottom: 50px; font-size: 2.5em; color: #222; }
+    .diagram-section { background: white; margin-bottom: 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
+    .diagram-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; }
+    .diagram-header h2 { font-size: 1.8em; margin-bottom: 10px; }
+    .diagram-header p { font-size: 1em; opacity: 0.9; }
+    .diagram-content { padding: 30px; overflow-x: auto; }
+    svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+    .legend { font-size: 0.9em; margin-top: 20px; padding: 15px; background: #f9f9f9; border-left: 4px solid #667eea; }
+
+    .node-rect { stroke: #333; stroke-width: 2; }
+    .node-bg-frontend { fill: #e3f2fd; }
+    .node-bg-backend { fill: #f3e5f5; }
+    .node-bg-database { fill: #e8f5e9; }
+    .node-bg-external { fill: #fff3e0; }
+    .edge { stroke: #666; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+    .edge-dashed { stroke-dasharray: 5,5; }
+    .state-circle { stroke: #333; stroke-width: 2; }
+    .state-active { fill: #bbdefb; }
+    .state-terminal { fill: #c8e6c9; }
+    .state-error { fill: #ffcdd2; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏗️ mini-sor 시스템 다이어그램</h1>
+
+    <div class="diagram-section">
+      <div class="diagram-header">
+        <h2>1. 전체 시스템 구조</h2>
+        <p>FEP를 통한 거래소 프로세스 분리 (Phase 12)</p>
+      </div>
+      <div class="diagram-content">
+        <svg width="800" height="450" viewBox="0 0 800 450">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#333" />
+            </marker>
+          </defs>
+          <rect x="150" y="200" width="500" height="180" stroke="#999" stroke-width="2" stroke-dasharray="5,5" fill="none" rx="4" />
+          <text x="160" y="215" font-size="11" fill="#666" font-style="italic">원장 프로세스 (in-process)</text>
+
+          <rect x="50" y="50" width="120" height="80" class="node-rect node-bg-frontend" rx="4" />
+          <text x="110" y="95" text-anchor="middle" font-weight="bold">화면</text>
+          <text x="110" y="110" text-anchor="middle" font-size="12">(React)</text>
+
+          <rect x="220" y="50" width="120" height="80" class="node-rect node-bg-backend" rx="4" />
+          <text x="280" y="95" text-anchor="middle" font-weight="bold">채널계</text>
+          <text x="280" y="110" text-anchor="middle" font-size="12">(Spring Boot)</text>
+
+          <rect x="50" y="220" width="100" height="80" class="node-rect node-bg-backend" rx="4" />
+          <text x="100" y="265" text-anchor="middle" font-weight="bold">원장</text>
+
+          <rect x="180" y="220" width="100" height="80" class="node-rect node-bg-backend" rx="4" />
+          <text x="230" y="265" text-anchor="middle" font-weight="bold">SOR</text>
+
+          <rect x="310" y="220" width="100" height="80" class="node-rect node-bg-backend" rx="4" />
+          <text x="360" y="265" text-anchor="middle" font-weight="bold">FEP</text>
+
+          <rect x="50" y="360" width="100" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="100" y="390" text-anchor="middle" font-weight="bold">KRX</text>
+
+          <rect x="180" y="360" width="100" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="230" y="390" text-anchor="middle" font-weight="bold">NXT</text>
+
+          <rect x="530" y="50" width="100" height="80" class="node-rect node-bg-database" rx="4" />
+          <text x="580" y="95" text-anchor="middle" font-weight="bold">거래</text>
+          <text x="580" y="110" text-anchor="middle" font-size="11">기록</text>
+
+          <rect x="680" y="50" width="100" height="80" class="node-rect node-bg-external" rx="4" />
+          <text x="730" y="95" text-anchor="middle" font-weight="bold">토스</text>
+          <text x="730" y="110" text-anchor="middle" font-size="11">API</text>
+
+          <line x1="110" y1="130" x2="150" y2="160" class="edge" />
+          <line x1="220" y1="90" x2="100" y2="220" class="edge" />
+          <line x1="150" y1="260" x2="180" y2="260" class="edge" />
+          <line x1="230" y1="220" x2="360" y2="220" class="edge" />
+          <line x1="310" y1="260" x2="100" y2="360" class="edge" />
+          <line x1="360" y1="300" x2="230" y2="360" class="edge" />
+          <line x1="330" y1="90" x2="530" y2="90" class="edge" />
+          <line x1="400" y1="90" x2="680" y2="90" class="edge" />
+        </svg>
+        <div class="legend"><strong>구조:</strong> 화면 ↔ 채널계 ↔ 원장 → SOR → FEP → 거래소 프로세스</div>
+      </div>
+    </div>
+
+    <div class="diagram-section">
+      <div class="diagram-header">
+        <h2>2. 주문 처리 흐름 (7단계)</h2>
+        <p>SOR 배분에서 체결까지 (p50: 351ns)</p>
+      </div>
+      <div class="diagram-content">
+        <svg width="900" height="300" viewBox="0 0 900 300">
+          <text x="50" y="50" font-weight="bold" font-size="13">1. 접수</text>
+          <rect x="30" y="60" width="80" height="50" class="node-rect node-bg-frontend" rx="4" />
+          <text x="70" y="90" text-anchor="middle" font-size="11">입력</text>
+
+          <text x="200" y="50" font-weight="bold" font-size="13">2. 분석</text>
+          <rect x="160" y="60" width="80" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="200" y="90" text-anchor="middle" font-size="11">검증</text>
+
+          <rect x="160" y="130" width="80" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="200" y="155" text-anchor="middle" font-size="11">저널</text>
+
+          <rect x="160" y="200" width="80" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="200" y="230" text-anchor="middle" font-size="10">SOR(50%)</text>
+
+          <text x="360" y="50" font-weight="bold" font-size="13">3. 배분</text>
+          <rect x="310" y="60" width="100" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="360" y="90" text-anchor="middle" font-size="11">물리 주문</text>
+
+          <text x="520" y="50" font-weight="bold" font-size="13">4. 전송</text>
+          <rect x="460" y="60" width="80" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="500" y="85" text-anchor="middle" font-size="11">KRX</text>
+          <text x="500" y="100" text-anchor="middle" font-size="11">NXT</text>
+
+          <text x="650" y="50" font-weight="bold" font-size="13">5. 매칭</text>
+          <rect x="620" y="60" width="80" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="660" y="90" text-anchor="middle" font-size="11">엔진</text>
+
+          <text x="800" y="50" font-weight="bold" font-size="13">6. 체결</text>
+          <rect x="780" y="60" width="80" height="50" class="node-rect node-bg-backend" rx="4" />
+          <text x="820" y="90" text-anchor="middle" font-size="11">반영</text>
+
+          <line x1="110" y1="85" x2="160" y2="85" class="edge" />
+          <line x1="240" y1="85" x2="310" y2="85" class="edge" />
+          <line x1="410" y1="85" x2="460" y2="85" class="edge" />
+          <line x1="540" y1="85" x2="620" y2="85" class="edge" />
+          <line x1="700" y1="85" x2="780" y2="85" class="edge" />
+        </svg>
+        <div class="legend"><strong>지연:</strong> 전 구간 p50 351ns | 저널 끔 기준 | 가장 비싼 단계: SOR 계획 (50%)</div>
+      </div>
+    </div>
+
+    <div class="diagram-section">
+      <div class="diagram-header">
+        <h2>3. API 통신 흐름</h2>
+        <p>화면 → 채널계 → 원장 → 체결 → 방송</p>
+      </div>
+      <div class="diagram-content">
+        <svg width="700" height="300" viewBox="0 0 700 300">
+          <circle cx="80" cy="50" r="30" class="node-rect node-bg-frontend" />
+          <text x="80" y="55" text-anchor="middle">화면</text>
+          <line x1="80" y1="80" x2="80" y2="260" stroke="#999" stroke-dasharray="2,2" />
+
+          <circle cx="250" cy="50" r="30" class="node-rect node-bg-backend" />
+          <text x="250" y="55" text-anchor="middle" font-size="11">채널계</text>
+          <line x1="250" y1="80" x2="250" y2="260" stroke="#999" stroke-dasharray="2,2" />
+
+          <circle cx="420" cy="50" r="30" class="node-rect node-bg-backend" />
+          <text x="420" y="55" text-anchor="middle" font-size="11">원장</text>
+          <line x1="420" y1="80" x2="420" y2="260" stroke="#999" stroke-dasharray="2,2" />
+
+          <circle cx="590" cy="50" r="30" class="node-rect node-bg-backend" />
+          <text x="590" y="55" text-anchor="middle" font-size="11">WS</text>
+          <line x1="590" y1="80" x2="590" y2="260" stroke="#999" stroke-dasharray="2,2" />
+
+          <line x1="80" y1="120" x2="250" y2="135" class="edge" marker-end="url(#arrowhead)" />
+          <text x="150" y="115" font-size="10">POST</text>
+
+          <line x1="250" y1="160" x2="420" y2="175" class="edge" marker-end="url(#arrowhead)" />
+          <text x="310" y="155" font-size="10">전문</text>
+
+          <line x1="420" y1="200" x2="420" y2="230" class="edge" marker-end="url(#arrowhead)" />
+          <text x="450" y="215" font-size="10">체결</text>
+
+          <line x1="420" y1="200" x2="250" y2="220" class="edge" marker-end="url(#arrowhead)" />
+
+          <line x1="250" y1="240" x2="80" y2="255" class="edge" marker-end="url(#arrowhead)" />
+
+          <line x1="420" y1="230" x2="590" y2="245" class="edge edge-dashed" marker-end="url(#arrowhead)" stroke="#999" />
+
+          <line x1="590" y1="240" x2="80" y2="255" class="edge edge-dashed" marker-end="url(#arrowhead)" stroke="#999" />
+        </svg>
+        <div class="legend"><strong>동기:</strong> 주문 → 전문 → 체결 (파란선) | <strong>비동기:</strong> 체결 → WebSocket (회색) | 응답: 200 OK + 체결정보</div>
+      </div>
+    </div>
+
+    <div class="diagram-section">
+      <div class="diagram-header">
+        <h2>4. 데이터 흐름</h2>
+        <p>시장 데이터 → 통합 호가 → 매칭 → 화면</p>
+      </div>
+      <div class="diagram-content">
+        <svg width="800" height="280" viewBox="0 0 800 280">
+          <rect x="30" y="30" width="80" height="50" class="node-rect node-bg-database" rx="4" />
+          <text x="70" y="60" text-anchor="middle" font-size="12">KRX</text>
+
+          <rect x="140" y="30" width="80" height="50" class="node-rect node-bg-database" rx="4" />
+          <text x="180" y="60" text-anchor="middle" font-size="12">NXT</text>
+
+          <rect x="250" y="30" width="100" height="50" class="node-rect node-bg-external" rx="4" />
+          <text x="300" y="60" text-anchor="middle" font-size="11">실시세</text>
+
+          <rect x="100" y="130" width="140" height="60" class="node-rect node-bg-backend" rx="4" />
+          <text x="170" y="165" text-anchor="middle" font-weight="bold">통합 호가</text>
+
+          <rect x="310" y="130" width="140" height="60" class="node-rect node-bg-backend" rx="4" />
+          <text x="380" y="165" text-anchor="middle" font-weight="bold">최선집행</text>
+
+          <rect x="520" y="130" width="140" height="60" class="node-rect node-bg-backend" rx="4" />
+          <text x="590" y="165" text-anchor="middle" font-weight="bold">매칭</text>
+
+          <rect x="710" y="30" width="80" height="50" class="node-rect node-bg-frontend" rx="4" />
+          <text x="750" y="60" text-anchor="middle" font-size="12">화면</text>
+
+          <rect x="310" y="240" width="140" height="30" class="node-rect node-bg-database" rx="4" />
+          <text x="380" y="260" text-anchor="middle" font-size="12">거래 기록</text>
+
+          <line x1="70" y1="80" x2="170" y2="130" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="180" y1="80" x2="170" y2="130" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="300" y1="80" x2="170" y2="130" class="edge" marker-end="url(#arrowhead)" />
+
+          <line x1="240" y1="160" x2="310" y2="160" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="450" y1="160" x2="520" y2="160" class="edge" marker-end="url(#arrowhead)" />
+
+          <line x1="590" y1="190" x2="380" y2="240" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="660" y1="160" x2="710" y2="80" class="edge" marker-end="url(#arrowhead)" stroke-width="3" />
+        </svg>
+        <div class="legend"><strong>입력:</strong> KRX + NXT + 실시세(선택) → 통합 호가 | <strong>처리:</strong> 최선집행 → 매칭 | <strong>출력:</strong> 체결 기록 + WebSocket 방송</div>
+      </div>
+    </div>
+
+    <div class="diagram-section">
+      <div class="diagram-header">
+        <h2>5. 주문 상태 전환</h2>
+        <p>접수 → 체결 → 정산 (또는 취소/거절)</p>
+      </div>
+      <div class="diagram-content">
+        <svg width="800" height="300" viewBox="0 0 800 300">
+          <circle cx="80" cy="100" r="35" class="state-circle state-active" />
+          <text x="80" y="105" text-anchor="middle" font-weight="bold">접수</text>
+
+          <circle cx="220" cy="60" r="35" class="state-circle state-active" />
+          <text x="220" y="60" text-anchor="middle" font-size="12" font-weight="bold">부분</text>
+          <text x="220" y="72" text-anchor="middle" font-size="12" font-weight="bold">체결</text>
+
+          <circle cx="360" cy="60" r="35" class="state-circle state-active" />
+          <text x="360" y="65" text-anchor="middle" font-weight="bold">전량</text>
+
+          <circle cx="500" cy="100" r="35" class="state-circle state-terminal" />
+          <text x="500" y="105" text-anchor="middle" font-weight="bold">최종</text>
+
+          <circle cx="220" cy="200" r="35" class="state-circle state-error" />
+          <text x="220" y="205" text-anchor="middle" font-weight="bold">취소</text>
+
+          <circle cx="360" cy="200" r="35" class="state-circle state-error" />
+          <text x="360" y="205" text-anchor="middle" font-weight="bold">거절</text>
+
+          <line x1="115" y1="90" x2="185" y2="70" class="edge" marker-end="url(#arrowhead)" />
+          <path d="M 220 25 Q 220 10, 240 10 Q 260 10, 260 25" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="255" y1="70" x2="325" y2="70" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="395" y1="80" x2="465" y2="95" class="edge" marker-end="url(#arrowhead)" />
+          <line x1="360" y1="95" x2="360" y2="165" class="edge" marker-end="url(#arrowhead)" stroke="#e74c3c" />
+          <line x1="115" y1="125" x2="185" y2="195" class="edge" marker-end="url(#arrowhead)" stroke="#e74c3c" />
+          <line x1="220" y1="235" x2="360" y2="200" class="edge" marker-end="url(#arrowhead)" stroke="#ccc" />
+
+          <text x="130" y="75" font-size="10" fill="#333">체결</text>
+          <text x="240" y="35" font-size="10" fill="#333">더</text>
+          <text x="310" y="55" font-size="10" fill="#333">완료</text>
+          <text x="430" y="80" font-size="10" fill="#333">정산</text>
+          <text x="310" y="155" font-size="10" fill="#e74c3c">거절</text>
+          <text x="150" y="160" font-size="10" fill="#e74c3c">취소</text>
+        </svg>
+        <div class="legend"><strong>주요 경로:</strong> 접수 → 체결 → 정산 | <strong>대안:</strong> 취소(사용자) 또는 거절(원장: 증거금/호가 등) | 부분 체결에서 더 체결 가능</div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 60px; padding: 20px; background: #f0f0f0; border-radius: 8px;">
+      <p style="font-size: 14px; color: #666;">
+        <strong>📊 mini-sor 5가지 다이어그램 완성</strong><br/>
+        Architecture | Workflow | Sequence | Dataflow | Lifecycle<br/>
+        <em style="font-size: 12px;">Phase 12 FEP 추가로 거래소 프로세스 분리 구성 포함</em>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
